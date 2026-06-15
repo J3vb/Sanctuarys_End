@@ -1,0 +1,1146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sanctuary's End — Game Wiki</title>
+<style>
+  :root{
+    --bg:#0d0a07; --panel:#16110a; --panel2:#1d1710; --ink:#e8dcc4; --dim:#a8987a;
+    --faint:#8a7a5a; --line:#2a2218; --gold:#e6b84d; --goldd:#c4a060;
+    --c-common:#c8b89a; --c-magic:#6a8ad8; --c-rare:#e0c84d; --c-set:#5ad65a; --c-unique:#d08a3a;
+    --fire:#ff7a3a; --frost:#7fd0ff; --poison:#8fe07a; --light:#cfa8ff; --phys:#d8d8e8;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:radial-gradient(circle at 50% -10%,#1a130b,#0d0a07 60%);color:var(--ink);
+    font:15px/1.6 Georgia,"Times New Roman",serif;}
+  a{color:var(--goldd);text-decoration:none}
+  a:hover{color:var(--gold)}
+  h1,h2,h3,h4{font-family:Georgia,serif;color:var(--gold);font-weight:normal;letter-spacing:.5px}
+  h2{font-size:28px;margin:0 0 4px;border-bottom:1px solid var(--line);padding-bottom:10px}
+  h3{font-size:20px;color:var(--goldd);margin:26px 0 8px}
+  h4{font-size:16px;color:var(--c-common);margin:18px 0 6px}
+  code{font-family:"Consolas",monospace;background:#0a0805;border:1px solid var(--line);
+    padding:1px 6px;border-radius:4px;color:#d8c89a;font-size:13px}
+  .layout{display:flex;min-height:100vh}
+  /* ---- sidebar ---- */
+  nav.side{width:248px;flex:0 0 248px;background:linear-gradient(180deg,#120d07,#0a0705);
+    border-right:1px solid var(--line);position:sticky;top:0;height:100vh;overflow-y:auto;padding:0 0 40px}
+  nav.side .brand{padding:20px 18px 12px;border-bottom:1px solid var(--line)}
+  nav.side .brand .t{font-size:20px;color:var(--gold);font-family:Georgia}
+  nav.side .brand .s{font-size:11px;color:var(--faint);letter-spacing:2px;text-transform:uppercase}
+  nav.side .search{padding:12px 14px}
+  nav.side .search input{width:100%;background:#0a0805;border:1px solid var(--line);color:var(--ink);
+    padding:8px 10px;border-radius:6px;font:13px Georgia;outline:none}
+  nav.side .search input:focus{border-color:var(--goldd)}
+  nav.side a{display:block;padding:6px 18px;color:var(--dim);font-size:14px;border-left:3px solid transparent}
+  nav.side a:hover{background:#160f08;color:var(--ink)}
+  nav.side a.active{color:var(--gold);border-left-color:var(--gold);background:#160f08}
+  nav.side .grp{padding:14px 18px 4px;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--faint)}
+  /* ---- content ---- */
+  main{flex:1;max-width:1080px;margin:0 auto;padding:34px 46px 120px}
+  section{margin-bottom:54px;scroll-margin-top:20px}
+  p{margin:8px 0}
+  .lead{color:var(--dim);font-size:16px}
+  .grid{display:grid;gap:14px}
+  .g2{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+  .g3{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+  .card{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--line);
+    border-radius:10px;padding:16px 18px}
+  .card h4{margin-top:0}
+  .pill{display:inline-block;font-size:11px;padding:2px 9px;border-radius:20px;border:1px solid var(--line);
+    color:var(--dim);background:#0a0805;margin:0 4px 4px 0}
+  .tag-active{color:var(--fire);border-color:#5a2e18}
+  .tag-passive{color:var(--frost);border-color:#244055}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:14px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--goldd);font-weight:normal;font-size:12px;text-transform:uppercase;letter-spacing:1px}
+  tbody tr:hover{background:#140e07}
+  td code{white-space:nowrap}
+  .num{text-align:right;font-family:Consolas,monospace;color:#d8c89a;white-space:nowrap}
+  .note{background:#140f07;border-left:3px solid var(--goldd);padding:10px 14px;border-radius:0 6px 6px 0;
+    margin:14px 0;color:var(--dim);font-size:14px}
+  .warn{border-left-color:#b06a2a}
+  .rc-common{color:var(--c-common)} .rc-magic{color:var(--c-magic)} .rc-rare{color:var(--c-rare)}
+  .rc-set{color:var(--c-set)} .rc-unique{color:var(--c-unique)}
+  .swatch{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:6px;vertical-align:middle}
+  .kbd{font-family:Consolas,monospace;background:#0a0805;border:1px solid var(--line);border-bottom-width:2px;
+    padding:1px 8px;border-radius:5px;color:var(--ink);font-size:13px}
+  ul.clean{list-style:none;padding-left:0}
+  ul.clean li{padding:4px 0;border-bottom:1px solid var(--line)}
+  .formula{font-family:Consolas,monospace;font-size:13px;color:#d8c89a;background:#0a0805;
+    border:1px solid var(--line);border-radius:6px;padding:10px 14px;margin:8px 0;overflow-x:auto}
+  .muted{color:var(--faint)}
+  .toc-top{font-size:12px;color:var(--faint)}
+  .no-results{display:none;color:var(--dim);padding:40px;text-align:center;font-size:16px}
+  body.searching section{display:none}
+  body.searching section.has-match{display:block}
+  body.searching .hide-row{display:none}
+  hr{border:none;border-top:1px solid var(--line);margin:30px 0}
+  .legend{font-size:12px;color:var(--faint);margin-top:6px}
+  @media(max-width:820px){
+    nav.side{position:static;width:100%;height:auto;flex-basis:auto}
+    .layout{flex-direction:column}
+    main{padding:22px}
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<nav class="side">
+  <div class="brand">
+    <div class="t">Sanctuary's End</div>
+    <div class="s">Field Codex · v48</div>
+  </div>
+  <div class="search"><input id="q" type="text" placeholder="Search the wiki…" autocomplete="off"></div>
+
+  <div class="grp">Basics</div>
+  <a href="#overview">Overview</a>
+  <a href="#controls">Controls &amp; Keybinds</a>
+  <a href="#classes">Classes</a>
+  <a href="#stats">Stats &amp; Attributes</a>
+  <a href="#leveling">Leveling &amp; XP</a>
+
+  <div class="grp">Combat</div>
+  <a href="#combat">Combat &amp; Damage</a>
+  <a href="#status">Status Effects</a>
+  <a href="#skills">Active Skills</a>
+  <a href="#forest">Skill Forest (Passives)</a>
+  <a href="#effects">Special Effects</a>
+
+  <div class="grp">Loot</div>
+  <a href="#items">Items &amp; Rarity</a>
+  <a href="#affixes">Affixes</a>
+  <a href="#uniques">Unique Items</a>
+  <a href="#sets">Item Sets</a>
+  <a href="#smith">Upgrading, Enchanting &amp; Gems</a>
+  <a href="#economy">Economy &amp; Town Services</a>
+
+  <div class="grp">World</div>
+  <a href="#zones">Zones &amp; Travel</a>
+  <a href="#difficulty">Difficulty &amp; Scaling</a>
+  <a href="#monsters">Monsters</a>
+  <a href="#elites">Elites &amp; Champions</a>
+  <a href="#bosses">Bosses</a>
+  <a href="#save">Saves</a>
+
+  <div class="grp">Reference</div>
+  <a href="#changelog">Version History</a>
+</nav>
+
+<main>
+  <div class="no-results" id="noResults">No entries match your search.</div>
+
+  <!-- ============ OVERVIEW ============ -->
+  <section id="overview">
+    <h2>Overview</h2>
+    <p class="lead">Sanctuary's End is a top-down action-RPG dungeon crawler. Pick a class, slay monsters
+    in the wilds and the endless dungeon, collect ever-better loot, grow a passive skill forest, and
+    descend deeper to fight bosses every five floors.</p>
+    <div class="grid g3">
+      <div class="card"><h4>Goal</h4><p>Descend The Descent as deep as you can. Each 5th floor is a boss.
+      There is no fixed ending — depth scales forever.</p></div>
+      <div class="card"><h4>Loop</h4><p>Fight → loot → return to town → sell/upgrade at the Smith &amp;
+      Merchant → spend skill points in the Forest → dive deeper.</p></div>
+      <div class="card"><h4>Classes</h4><p>Warrior, Mage, Rogue. Each has unique base stats, growth,
+      damage multipliers, and an auto-unlocking set of active skills.</p></div>
+    </div>
+    <div class="note">This wiki documents game version <strong>v48</strong>. All numbers are taken directly
+    from the game's data tables and combat formulas. Where the engine clamps or caps a value, the cap is
+    noted. See the <a href="#changelog">Version History</a> for what changed in each release.</div>
+  </section>
+
+  <!-- ============ CONTROLS ============ -->
+  <section id="controls">
+    <h2>Controls &amp; Keybinds</h2>
+    <h3>Mouse</h3>
+    <table>
+      <thead><tr><th>Input</th><th>Action</th></tr></thead>
+      <tbody>
+        <tr><td><b>Left click</b></td><td>Move to point. Click a monster to attack it (auto-walks into range).</td></tr>
+        <tr><td><b>Hold left</b></td><td>Continuous move / attack toward the cursor.</td></tr>
+        <tr><td><b>Right click</b></td><td>Cast the currently selected active skill at the cursor.</td></tr>
+        <tr><td><b>Hold right</b></td><td>Keep casting the selected skill (if it isn't a melee attack and you have mana).</td></tr>
+        <tr><td><b>Mouse wheel</b></td><td>Zoom camera in/out (28–72 range). Disabled while a panel or modal is open.</td></tr>
+      </tbody>
+    </table>
+    <h3>Default keys</h3>
+    <p class="muted">All of these are rebindable in Settings → Controls. Number keys <span class="kbd">1</span>–<span class="kbd">0</span> are reserved for selecting skill slots 1–10.</p>
+    <table>
+      <thead><tr><th>Key</th><th>Action</th></tr></thead>
+      <tbody>
+        <tr><td><span class="kbd">I</span> / <span class="kbd">B</span></td><td>Inventory</td></tr>
+        <tr><td><span class="kbd">K</span></td><td>Skill Forest (passive tree)</td></tr>
+        <tr><td><span class="kbd">T</span></td><td>Return to Town</td></tr>
+        <tr><td><span class="kbd">E</span></td><td>Interact (portals, NPCs, waypoint, cauldron)</td></tr>
+        <tr><td><span class="kbd">Space</span></td><td>Drink Health Potion (also cleanses one DoT)</td></tr>
+        <tr><td><span class="kbd">Q</span></td><td>Drink Mana Potion</td></tr>
+        <tr><td><span class="kbd">G</span></td><td>Waypoint Map (fast travel)</td></tr>
+        <tr><td><span class="kbd">M</span></td><td>Toggle Sound</td></tr>
+        <tr><td><span class="kbd">H</span> / <span class="kbd">?</span></td><td>Help</td></tr>
+        <tr><td><span class="kbd">`</span> / <span class="kbd">~</span></td><td>Debug overlay (FPS, draws, entity counts)</td></tr>
+        <tr><td><span class="kbd">1</span>–<span class="kbd">9</span>, <span class="kbd">0</span></td><td>Select skill slot 1–10</td></tr>
+        <tr><td><span class="kbd">Esc</span></td><td>Close / cancel the open panel or modal</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============ CLASSES ============ -->
+  <section id="classes">
+    <h2>Classes</h2>
+    <p>Your class sets your starting attributes, your per-level growth, a damage multiplier, and the set
+    of active skills that unlock automatically as you level. All three share the same passive Skill Forest.</p>
+    <table>
+      <thead><tr><th>Class</th><th>Playstyle</th><th>STR</th><th>DEX</th><th>VIT</th><th>ENG</th>
+        <th>HP / lvl</th><th>MP / lvl</th><th>DMG / lvl</th><th>Multiplier</th></tr></thead>
+      <tbody>
+        <tr><td><b>Warrior</b></td><td>Brawler — high life, strong melee.</td>
+          <td class="num">18</td><td class="num">10</td><td class="num">16</td><td class="num">6</td>
+          <td class="num">+24</td><td class="num">+5</td><td class="num">+4</td><td>×1.15 melee</td></tr>
+        <tr><td><b>Mage</b></td><td>Glass cannon — spells hit hard, low life.</td>
+          <td class="num">8</td><td class="num">10</td><td class="num">10</td><td class="num">20</td>
+          <td class="num">+14</td><td class="num">+12</td><td class="num">+2</td><td>×1.30 spell</td></tr>
+        <tr><td><b>Rogue</b></td><td>Swift — crit &amp; speed, throws daggers.</td>
+          <td class="num">12</td><td class="num">20</td><td class="num">11</td><td class="num">9</td>
+          <td class="num">+18</td><td class="num">+7</td><td class="num">+3</td><td>+8% crit</td></tr>
+      </tbody>
+    </table>
+    <p class="muted">All characters start at Level 1 with base <code>HP 100 / MP 50 / DMG 10</code>,
+    4 health potions, 2 mana potions, and 0 gold.</p>
+    <h3>Granted starting skills</h3>
+    <table>
+      <thead><tr><th>Class</th><th>Starts with</th></tr></thead>
+      <tbody>
+        <tr><td>Warrior</td><td>Strike, <b>Cleave</b></td></tr>
+        <tr><td>Mage</td><td>Strike, <b>Fireball</b>, <b>Frost</b></td></tr>
+        <tr><td>Rogue</td><td>Strike, <b>Multishot</b></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============ STATS ============ -->
+  <section id="stats">
+    <h2>Stats &amp; Attributes</h2>
+    <div class="note">There is <strong>no manual attribute point allocation</strong> in v46. Attributes come
+    from your class base, the bonuses you path through in the Skill Forest, and item affixes. You spend
+    <strong>skill points</strong> (2 per level) only in the Forest.</div>
+    <h3>The four attributes</h3>
+    <table>
+      <thead><tr><th>Attribute</th><th>Per point</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td><b>Strength (STR)</b></td><td>+0.5 Damage</td><td>Raw weapon power.</td></tr>
+        <tr><td><b>Dexterity (DEX)</b></td><td>+0.1% Crit Chance &amp; faster attacks</td>
+          <td>Lowers attack interval by <code>1.2 ms</code> per point.</td></tr>
+        <tr><td><b>Vitality (VIT)</b></td><td>+4 Life, +0.3 Life/sec regen</td><td>Applied before % Life multipliers. Regen (new in v46) only ticks while below max.</td></tr>
+        <tr><td><b>Energy (ENG)</b></td><td>+3 Mana, +0.2 Mana/sec regen</td><td>Larger mana pool for casters; the regen (new in v46) adds to your base mana regen.</td></tr>
+      </tbody>
+    </table>
+    <h3>How your sheet is computed</h3>
+    <p>On every gear/level/forest change the engine recomputes derived stats roughly like this:</p>
+    <div class="formula">Damage   = base.dmg + gear.dmg + floor(STR × 0.5)
+Life     = (base.hpMax + gear.hp + VIT × 4) × (1 + 0.08·Toughness + %Life/100)
+Mana     = base.mpMax + gear.mp + ENG × 3
+Armor    = gear.armor × (1 + 0.10·IronSkin + %Armor/100)
+Crit %   = 5 + gear.crit + DEX × 0.1 + class bonus + 2·Precision + 2·DeadlyAim   (capped 90%)
+Mana regen = 4/sec × (1 + 0.4·Meditation) + ENG × 0.2/sec + gear "+Mana Regen"
+Life regen = VIT × 0.3/sec + gear "+Health Regen"        (only while below max Life)</div>
+    <p class="muted">"base" values grow each level by your class's HP/MP/DMG growth. The melee/spell
+    multipliers (see <a href="#combat">Combat</a>) are applied at the moment of the hit, not baked into
+    the Damage number shown on your sheet.</p>
+  </section>
+
+  <!-- ============ LEVELING ============ -->
+  <section id="leveling">
+    <h2>Leveling &amp; XP</h2>
+    <table>
+      <thead><tr><th>Property</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td>XP to reach Level 2</td><td class="num">30</td></tr>
+        <tr><td>XP curve</td><td>Each level's requirement = previous × <b>1.45</b> (rounded)</td></tr>
+        <tr><td>On level up</td><td>HP/MP/DMG grow by class amount; <b>+2 skill points</b>; full heal &amp; mana</td></tr>
+        <tr><td>Active skill unlocks</td><td>Granted automatically at class-specific levels (see <a href="#skills">Active Skills</a>)</td></tr>
+      </tbody>
+    </table>
+    <div class="note">Approximate XP-to-next by level: 30 → 44 → 64 → 93 → 135 → 196 → 284 …
+    (≈ ×1.45 each step).</div>
+  </section>
+
+  <!-- ============ COMBAT ============ -->
+  <section id="combat">
+    <h2>Combat &amp; Damage</h2>
+    <h3>Dealing damage</h3>
+    <p>A melee hit rolls <code>player.dmg × meleeMult × skillMult + rand(-3,3)</code>. Spells use
+    <code>spellMult</code> instead. The multipliers come from your class and passives:</p>
+    <div class="formula">meleeMult = classMelee(×1.15 Warrior) × (1 + 0.06·Berserk + (%Melee + %Damage)/100)
+spellMult = classSpell(×1.30 Mage)  × (1 + 0.06·ArcaneMind + (%Spell + %Damage)/100)</div>
+    <h3>Critical hits</h3>
+    <table>
+      <thead><tr><th>Property</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td>Base crit chance</td><td>5% + DEX×0.1% + bonuses, <b>capped at 90%</b></td></tr>
+        <tr><td>Crit multiplier</td><td><b>×2</b> normally; <b>×3</b> with a "triple-crit" effect, plus any <code>+% Crit Damage</code></td></tr>
+      </tbody>
+    </table>
+    <h3>Taking damage (mitigation)</h3>
+    <p>Incoming damage is reduced by Armor, then by elemental Resists, then by buffs/shields:</p>
+    <div class="formula">Armor reduction = armor / (armor + 40)        (hard-capped at 75%)
+Resist reduction = min(resist%, 75)          (per element; All-Resist applies to everything)
+War Cry  → further × (1 − cryDR)             while active
+Mana Shield → absorbs a share of the hit using Mana before Life</div>
+    <table>
+      <thead><tr><th>Armor</th><th>Reduction</th></tr></thead>
+      <tbody>
+        <tr><td class="num">20</td><td class="num">33%</td></tr>
+        <tr><td class="num">40</td><td class="num">50%</td></tr>
+        <tr><td class="num">80</td><td class="num">67%</td></tr>
+        <tr><td class="num">120 +</td><td class="num">75% (cap)</td></tr>
+      </tbody>
+    </table>
+    <h3>Attack &amp; movement speed</h3>
+    <div class="formula">attack interval (ms) = clamp((420 − DEX×1.2) × (1−Haste) × (1−IAS%/100), 150, 420)
+attacks/sec shown   = 1000 / interval        → between 2.38/s and 6.67/s
+move speed          = 0.32 × (1 + min(moveBonus, 75%))</div>
+    <h3>Leech &amp; Thorns</h3>
+    <ul class="clean">
+      <li><b>Life Leech</b> — heals you for a % of damage you deal.</li>
+      <li><b>Mana Leech</b> — restores mana for a % of damage you deal.</li>
+      <li><b>Thorns</b> — reflects a flat amount back to melee attackers when they hit you.</li>
+    </ul>
+  </section>
+
+  <!-- ============ STATUS ============ -->
+  <section id="status">
+    <h2>Status Effects</h2>
+    <p>On-hit effects from skills and affixes apply timed statuses. Damage-over-time (DoT) statuses deal a
+    share of the triggering hit each second. The same status can stack up to <b>3 times</b>; re-applying
+    refreshes the duration.</p>
+    <table>
+      <thead><tr><th>Status</th><th>Duration</th><th>Effect</th></tr></thead>
+      <tbody>
+        <tr><td style="color:var(--fire)"><b>Burn</b></td><td class="num">2.2 s</td>
+          <td>DoT: 30% of the hit per second.</td></tr>
+        <tr><td style="color:#ff5b6b"><b>Bleed</b></td><td class="num">3.0 s</td>
+          <td>DoT: 25% of the hit per second.</td></tr>
+        <tr><td style="color:var(--poison)"><b>Poison</b></td><td class="num">2.6 s</td>
+          <td>DoT: 22% of the hit per second, <b>ramping up to ×3</b> the longer it lingers.</td></tr>
+        <tr><td style="color:var(--frost)"><b>Chill</b></td><td class="num">1.6 s</td>
+          <td>Slows the target's movement (~×0.5 speed). Many frost skills also apply a separate slow.</td></tr>
+        <tr><td style="color:#cfc8ff"><b>Stun</b></td><td class="num">0.8 s</td>
+          <td>Cannot move or attack.</td></tr>
+      </tbody>
+    </table>
+    <div class="note">Drinking a <b>Health Potion</b> also cleanses one active Burn / Bleed / Poison from you.</div>
+  </section>
+
+  <!-- ============ SKILLS ============ -->
+  <section id="skills">
+    <h2>Active Skills</h2>
+    <p>Active skills are <strong>unlocked automatically</strong> when you reach the listed level for your
+    class — there is no manual skill-point spend on actives. They start (and normally stay) at rank&nbsp;1;
+    a skill's effective rank only rises through <code>+to All Skills</code> bonuses, which boost the damage
+    and effect of every skill at once.</p>
+    <p class="muted"><span class="pill">v47</span> Hovering a skill on the action bar now shows a <b>tooltip</b>
+    with its current damage, mana cost, cooldown and effect — computed live from a single shared coefficient
+    table, so the numbers always match what the skill actually deals.</p>
+
+    <h3>Unlock levels by class</h3>
+    <table>
+      <thead><tr><th>Class</th><th>Skill : Level unlocked</th></tr></thead>
+      <tbody>
+        <tr><td><b>Warrior</b></td><td>Strike 1, Cleave 1, Ground Slam 3, Charge 5, Whirlwind 6, War Cry 9, Leap 10, Second Wind 12</td></tr>
+        <tr><td><b>Mage</b></td><td>Strike 1, Fireball 1, Frost 2, Frost Nova 4, Arcane Orb 4, Nova 6, Blink 8, Chain Lightning 10, Blizzard 13, Meteor 14</td></tr>
+        <tr><td><b>Rogue</b></td><td>Strike 1, Multishot 1, Shadow Step 5, Volley 6, Fan of Knives 7, Blink 8, Teleport Storm 9, Second Wind 12</td></tr>
+      </tbody>
+    </table>
+
+    <h3>All active skills</h3>
+    <p class="legend">Cost = mana · CD = cooldown · "On-hit" = the status it inflicts.</p>
+    <table>
+      <thead><tr><th>Skill</th><th>Type</th><th class="num">Cost</th><th class="num">CD</th><th>On-hit</th><th>Effect</th></tr></thead>
+      <tbody>
+        <tr><td><b>Strike</b></td><td>Melee</td><td class="num">0</td><td class="num">—</td><td>—</td><td>Basic melee attack (everyone has it).</td></tr>
+        <tr><td><b>Cleave</b></td><td>Melee</td><td class="num">6</td><td class="num">0.5s</td><td>—</td><td>Sweeping hit to all foes in a frontal arc.</td></tr>
+        <tr><td><b>Whirlwind</b></td><td>Melee</td><td class="num">14</td><td class="num">0.9s</td><td>—</td><td>Spin, striking all nearby foes.</td></tr>
+        <tr><td><b>Leap</b></td><td>Melee</td><td class="num">12</td><td class="num">1.2s</td><td>—</td><td>Leap to the cursor, slamming foes on landing.</td></tr>
+        <tr><td><b>Ground Slam</b></td><td>Melee</td><td class="num">14</td><td class="num">1.4s</td><td>—</td><td>Smash a cone — damage, knockback and slow.</td></tr>
+        <tr><td><b>Charge</b></td><td>Melee</td><td class="num">12</td><td class="num">1.6s</td><td>—</td><td>Rush to the cursor, damaging &amp; slowing foes you crash into.</td></tr>
+        <tr><td><b>War Cry</b></td><td>Buff</td><td class="num">16</td><td class="num">9.0s</td><td>—</td><td>For 8 s: more melee damage and less damage taken.</td></tr>
+        <tr><td><b>Multishot</b></td><td>Ranged</td><td class="num">6</td><td class="num">0.45s</td><td style="color:var(--poison)">Poison</td><td>Three venom-tipped daggers in a spread.</td></tr>
+        <tr><td><b>Volley</b></td><td>Ranged</td><td class="num">10</td><td class="num">0.7s</td><td style="color:#ff5b6b">Bleed</td><td>A fan of five daggers that make foes bleed.</td></tr>
+        <tr><td><b>Fan of Knives</b></td><td>Ranged</td><td class="num">16</td><td class="num">1.2s</td><td style="color:#ff5b6b">Bleed</td><td>Hurl daggers in every direction.</td></tr>
+        <tr><td><b>Shadow Step</b></td><td>Melee</td><td class="num">12</td><td class="num">1.1s</td><td>—</td><td>Blink to the nearest foe and strike for a <b>guaranteed crit</b>.</td></tr>
+        <tr><td><b>Blink</b></td><td>Mobility</td><td class="num">8</td><td class="num">1.0s</td><td>—</td><td>Teleport a short distance toward the cursor.</td></tr>
+        <tr><td><b>Teleport Storm</b></td><td>Mobility</td><td class="num">18</td><td class="num">1.6s</td><td>—</td><td>Blink to the cursor, blasting foes at <b>both</b> ends (lightning).</td></tr>
+        <tr><td><b>Fireball</b></td><td>Fire</td><td class="num">8</td><td class="num">0.6s</td><td style="color:var(--fire)">Burn</td><td>Hurls a bolt of fire.</td></tr>
+        <tr><td><b>Frost</b></td><td>Cold</td><td class="num">12</td><td class="num">1.1s</td><td style="color:var(--frost)">Chill</td><td>Cold bolt that slows.</td></tr>
+        <tr><td><b>Frost Nova</b></td><td>Cold</td><td class="num">16</td><td class="num">1.5s</td><td style="color:var(--frost)">Chill</td><td>Freezing burst: damages &amp; slows nearby foes.</td></tr>
+        <tr><td><b>Nova</b></td><td>Fire</td><td class="num">20</td><td class="num">2.6s</td><td style="color:var(--fire)">Burn</td><td>Ring of fire bolts in all directions.</td></tr>
+        <tr><td><b>Chain Lightning</b></td><td>Lightning</td><td class="num">18</td><td class="num">1.4s</td><td>—</td><td>Bolt that leaps between foes (2 + jumps).</td></tr>
+        <tr><td><b>Meteor</b></td><td>Fire</td><td class="num">24</td><td class="num">2.4s</td><td style="color:var(--fire)">Burn</td><td>Calls a meteor at the cursor — heavy fire AoE.</td></tr>
+        <tr><td><b>Arcane Orb</b></td><td>Fire</td><td class="num">16</td><td class="num">0.9s</td><td>—</td><td>Slow, heavy orb that pierces up to 3 foes.</td></tr>
+        <tr><td><b>Blizzard</b></td><td>Cold</td><td class="num">26</td><td class="num">3.0s</td><td style="color:var(--frost)">Chill</td><td>A storm of ice over several seconds.</td></tr>
+        <tr><td><b>Second Wind</b></td><td>Heal</td><td class="num">0</td><td class="num">6.0s</td><td>—</td><td>Spend <b>all</b> mana to heal for a share of it.</td></tr>
+      </tbody>
+    </table>
+    <div class="note">Skills tagged with an element interact with monster resistances (see <a href="#monsters">Monsters</a>).
+    The <b>Spell Echo</b> keystone re-casts spell-type skills a second time automatically.</div>
+  </section>
+
+  <!-- ============ FOREST ============ -->
+  <section id="forest">
+    <h2>Skill Forest (Passives)</h2>
+    <p>Press <span class="kbd">K</span> to open the Forest — a connected web of passive nodes. You start on
+    your class's start node and spend <b>2 points per level</b>, allocating any node adjacent to one you
+    already own. Nodes come in four kinds:</p>
+    <table>
+      <thead><tr><th>Node</th><th>Role</th></tr></thead>
+      <tbody>
+        <tr><td><b>Minor</b></td><td>Small stat bumps (a few STR / VIT / DMG / Armor / Crit etc.).</td></tr>
+        <tr><td><b>Notable</b></td><td>A meaningful cluster of bonuses with a name.</td></tr>
+        <tr><td><b>Keystone</b></td><td>Build-defining power, often with a downside.</td></tr>
+        <tr><td><b>Start</b></td><td>Your class's entry point into the web.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Three sectors</h3>
+    <p>The tree radiates into Strength, Dexterity and Intelligence wings. Each holds a notable and a sector keystone:</p>
+    <table>
+      <thead><tr><th>Sector</th><th>Notable</th><th>Keystone</th></tr></thead>
+      <tbody>
+        <tr><td><b>Strength</b> (Warrior start)</td><td><b>Battle Hardened</b> — +14 STR, +8% Life, +8% Melee</td><td><b>Juggernaut</b> — +25% Armor, +15% Life</td></tr>
+        <tr><td><b>Dexterity</b> (Rogue start)</td><td><b>Precision</b> — +14 DEX, +6 Crit</td><td><b>Deadeye</b> — +14 Crit, +1 Pierce</td></tr>
+        <tr><td><b>Intelligence</b> (Mage start)</td><td><b>Spell Weaver</b> — +14 ENG, +12% Spell, +20 Mana</td><td><b>Archmage</b> — +1 All Skills, +20% Spell</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Outer keystones &amp; cross-sector notables</h3>
+    <table>
+      <thead><tr><th>Keystone</th><th>Effect</th></tr></thead>
+      <tbody>
+        <tr><td><b>Titan</b></td><td>+35% Life, +25% Armor, −12% Move Speed</td></tr>
+        <tr><td><b>Bloodthirst</b></td><td>+15% Life Leech, +12% Melee</td></tr>
+        <tr><td><b>Executioner</b></td><td>+12 Crit, triple-crit damage, +1 Pierce</td></tr>
+        <tr><td><b>Tempo</b></td><td>+30% Attack Speed (Haste), +15% Move Speed</td></tr>
+        <tr><td><b>Spell Echo</b></td><td>Spells cast a second time, +12% Spell</td></tr>
+        <tr><td><b>Glass Cannon</b></td><td>+55% Damage, <b>−40% Life</b></td></tr>
+        <tr><td><b>Chain Reaction</b></td><td>Death Nova 0.9 — slain foes erupt for 90% of your damage</td></tr>
+        <tr><td><b>Aegis</b></td><td>Mana Shield 0.4 (absorb 40% of hits with mana), +50 Mana</td></tr>
+        <tr><td><b>Frostbite</b></td><td>Chill Aura (slows nearby foes), +8% Spell, +8 ENG</td></tr>
+      </tbody>
+    </table>
+    <p class="muted">Cross-sector notables: <b>Warmonger</b> (+10% Melee &amp; Spell, +4 Crit),
+    <b>Trickster</b> (+10 DEX/ENG, +3 Crit), <b>Bulwark</b> (+10 STR/VIT, +8 Armor).</p>
+    <div class="note warn">The game's data also defines named rank-up passives (Toughness, Precision, Berserk,
+    Iron Skin, Meditation, Bloodlust, Deadly Aim, Swiftness, Piercing, Arcane Mind). In v46 the live passive
+    system is the Forest above — those named passives are not ranked through it, so plan your power around the
+    Forest nodes and keystones.</div>
+  </section>
+
+  <!-- ============ EFFECTS ============ -->
+  <section id="effects">
+    <h2>Special Effects</h2>
+    <p>These come from unique items, set bonuses, and Forest keystones. They stack from all sources.</p>
+    <table>
+      <thead><tr><th>Effect</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td><b>Life / Mana Leech</b></td><td>Recover Life/Mana equal to a % of damage dealt.</td></tr>
+        <tr><td><b>Thorns</b></td><td>Reflect a flat amount to melee attackers.</td></tr>
+        <tr><td><b>+to All Skills</b></td><td>Raises the effective rank of every skill (more damage &amp; bigger effects).</td></tr>
+        <tr><td><b>Triple Crit</b></td><td>Critical hits deal <b>×3</b> instead of ×2.</td></tr>
+        <tr><td><b>Pierce</b></td><td>Physical/poison projectiles pass through additional enemies.</td></tr>
+        <tr><td><b>Death Nova</b></td><td>Slain foes explode, dealing a % of your damage to nearby enemies.</td></tr>
+        <tr><td><b>Mana Shield</b></td><td>Absorb a share of incoming hits using Mana before Life.</td></tr>
+        <tr><td><b>Haste</b></td><td>Increases attack speed (shortens the attack interval).</td></tr>
+        <tr><td><b>Chill Aura</b></td><td>Continuously slows enemies within ~14 units.</td></tr>
+        <tr><td><b>Spell Echo</b></td><td>Spell-type skills are cast a second time automatically.</td></tr>
+        <tr><td><b>Move Speed</b></td><td>Faster movement (total movement bonus capped at +75%).</td></tr>
+        <tr><td><b>Burn / Bleed on Hit</b></td><td>% chance per hit to apply the matching DoT.</td></tr>
+        <tr><td><b>Resists</b></td><td>Reduce Fire / Cold / Poison / Lightning (or All) damage taken, capped 75% each.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============ ITEMS ============ -->
+  <section id="items">
+    <h2>Items &amp; Rarity</h2>
+    <h3>Equipment slots (7)</h3>
+    <p>⚔️ Weapon · 🪖 Helm · 🛡️ Armor · 🧤 Gloves · 🥾 Boots · 💍 Ring · 📿 Amulet.
+    Weapons grant base Damage; armor pieces grant base Armor; rings and amulets have <b>no base stat</b>
+    (their power is entirely in affixes &amp; effects).</p>
+
+    <h3>Rarities</h3>
+    <p>Higher rarity multiplies an item's <b>base stat and every rolled affix</b>, and grants more affixes.</p>
+    <table>
+      <thead><tr><th>Rarity</th><th>Power ×</th><th>Affixes</th><th class="num">Base drop %</th><th>Upgrade cap</th></tr></thead>
+      <tbody>
+        <tr><td><span class="swatch" style="background:#c8b89a"></span><b class="rc-common">Common</b></td><td class="num">1.00×</td><td>0</td><td class="num">40%</td><td class="num">+5</td></tr>
+        <tr><td><span class="swatch" style="background:#6a8ad8"></span><b class="rc-magic">Magic</b></td><td class="num">1.18×</td><td>1–2</td><td class="num">33%</td><td class="num">+6</td></tr>
+        <tr><td><span class="swatch" style="background:#e0c84d"></span><b class="rc-rare">Rare</b></td><td class="num">1.40×</td><td>3–5</td><td class="num">19%</td><td class="num">+8</td></tr>
+        <tr><td><span class="swatch" style="background:#5ad65a"></span><b class="rc-set">Set</b></td><td class="num">1.55×</td><td>2–3</td><td class="num">6%</td><td class="num">+8</td></tr>
+        <tr><td><span class="swatch" style="background:#d08a3a"></span><b class="rc-unique">Unique</b></td><td class="num">1.70×</td><td>fixed</td><td class="num">2%</td><td class="num">+10</td></tr>
+      </tbody>
+    </table>
+    <div class="note">Those drop percentages are the <strong>base</strong> roll. <b>Loot Luck</b> (rises with
+    dungeon depth, +2% per floor up to +50%) and depth quality push results toward higher rarities, and many
+    drops re-roll several times and keep the best. So uniques become far more common deep in The Descent than
+    the flat 2% suggests.</div>
+
+    <h3>Base stat &amp; item level</h3>
+    <p>An item's power scales with its <b>item level (ilvl)</b>, which is set when it drops:</p>
+    <div class="formula">Weapon base   = round((4 + ilvl×1.3 + rand(0..4)) × rarityMult)
+Armor base    = round((2 + ilvl×0.9 + rand(0..3)) × rarityMult)   (helm/armor/gloves/boots)
+Ring / Amulet = no base stat
+Dungeon drop ilvl = your Level + depth × 2</div>
+  </section>
+
+  <!-- ============ AFFIXES ============ -->
+  <section id="affixes">
+    <h2>Affixes</h2>
+    <p>Affixes are the random modifiers on magic/rare/set gear. Roll ranges grow with item level (<code>il</code>);
+    higher rarity then multiplies the rolled value. The table shows the raw roll range before the rarity multiplier.</p>
+    <table>
+      <thead><tr><th>Affix</th><th>Roll range</th></tr></thead>
+      <tbody>
+        <tr><td>Damage</td><td><code>2 … 4 + il×1.1</code></td></tr>
+        <tr><td>Life</td><td><code>8 … 18 + il×2</code></td></tr>
+        <tr><td>Mana</td><td><code>5 … 10 + il×1.4</code></td></tr>
+        <tr><td>Armor</td><td><code>2 … 5 + il×1.2</code></td></tr>
+        <tr><td>Strength / Dexterity / Vitality / Energy</td><td><code>1 … 2 + il×0.4</code></td></tr>
+        <tr><td>All Attributes</td><td><code>1 … 1 + il×0.25</code></td></tr>
+        <tr><td>Crit Chance %</td><td><code>2 … 5</code></td></tr>
+        <tr><td>Attack Speed %</td><td><code>3 … 7</code></td></tr>
+        <tr><td>Move Speed %</td><td><code>3 … 8</code></td></tr>
+        <tr><td>Crit Damage %</td><td><code>8 … 15 + il×1.0</code></td></tr>
+        <tr><td>Life Leech %</td><td><code>1 … 3</code></td></tr>
+        <tr><td>Mana Leech %</td><td><code>1 … 3</code></td></tr>
+        <tr><td>Life &amp; Mana Leech %</td><td><code>1 … 2</code> (both)</td></tr>
+        <tr><td>Thorns</td><td><code>2 … 5 + il×0.6</code></td></tr>
+        <tr><td>Fire / Cold / Poison / Lightning Resist %</td><td><code>4 … 9 + il×0.4</code></td></tr>
+        <tr><td>All Resist %</td><td><code>2 … 4 + il×0.25</code></td></tr>
+        <tr><td>% Burn on Hit</td><td><code>8 … 16 + il×0.3</code></td></tr>
+        <tr><td>% Bleed on Hit</td><td><code>8 … 16 + il×0.3</code></td></tr>
+        <tr><td>+ to Skills <span class="pill">v46</span></td><td><code>1 … 1 + il×0.08</code></td></tr>
+        <tr><td>Skill Damage % <span class="pill">v46</span></td><td><code>5 … 9 + il×0.3</code></td></tr>
+        <tr><td>Active Skill Dmg % <span class="pill">v46</span></td><td><code>8 … 14 + il×0.4</code></td></tr>
+        <tr><td>Fire / Cold / Lightning / Poison Damage % <span class="pill">v46</span></td><td><code>6 … 12 + il×0.4</code></td></tr>
+        <tr><td>Health Regen /s <span class="pill">v46</span></td><td><code>2 … 4 + il×0.5</code></td></tr>
+        <tr><td>Mana Regen /s <span class="pill">v46</span></td><td><code>1 … 2 + il×0.4</code></td></tr>
+      </tbody>
+    </table>
+    <div class="note">The <strong>v46</strong> affixes let gear empower your kit directly:
+    <b>+ to Skills</b> raises the effective rank of every skill (and feeds passive scaling);
+    <b>Skill Damage %</b> boosts all active-skill hits; <b>Active Skill Dmg %</b> adds an extra bonus to the
+    skill currently selected in your bar; the four <b>Elemental Damage %</b> affixes multiply all damage of
+    that element (basic melee is intentionally left unbuffed by Skill Damage). Roll them onto any item, or add
+    one as a chosen <a href="#smith">enchant</a>.</div>
+  </section>
+
+  <!-- ============ UNIQUES ============ -->
+  <section id="uniques">
+    <h2>Unique Items</h2>
+    <p>Uniques (<span class="rc-unique">✦</span>) have hand-tuned affixes and a signature effect. Their base
+    stat still scales a little with ilvl. There are 16:</p>
+    <table>
+      <thead><tr><th>Name</th><th>Slot</th><th>Affixes</th><th>Signature effect</th></tr></thead>
+      <tbody>
+        <tr><td class="rc-unique"><b>Bloodfang</b></td><td>Weapon</td><td>+12 Dmg, +8 Crit</td><td>Heals 12% of melee/spell damage dealt.</td></tr>
+        <tr><td class="rc-unique"><b>Worldcleaver</b></td><td>Weapon</td><td>+14 Dmg, +8 STR</td><td>Attacks pierce 2 additional enemies.</td></tr>
+        <tr><td class="rc-unique"><b>Stormcaller</b></td><td>Weapon</td><td>+10 Dmg, +8 Atk Spd</td><td>+15% attack speed.</td></tr>
+        <tr><td class="rc-unique"><b>Thornmail</b></td><td>Armor</td><td>+18 Armor, +10 VIT</td><td>Reflects 14 damage to melee attackers.</td></tr>
+        <tr><td class="rc-unique"><b>Aegis Eternal</b></td><td>Armor</td><td>+20 Armor, +12 All Res, +12 VIT</td><td>Reflects 12 damage to melee attackers.</td></tr>
+        <tr><td class="rc-unique"><b>Crown of the Archmage</b></td><td>Helm</td><td>+12 ENG, +30 Mana</td><td>+1 to all skill ranks.</td></tr>
+        <tr><td class="rc-unique"><b>Visage of Spite</b></td><td>Helm</td><td>+8 VIT, +8 Armor</td><td>Reflects 18 damage to melee attackers.</td></tr>
+        <tr><td class="rc-unique"><b>Diadem of Ruin</b></td><td>Helm</td><td>+10 ENG, +30 Crit Dmg</td><td>Critical hits deal 3× damage.</td></tr>
+        <tr><td class="rc-unique"><b>Gauntlets of Wrath</b></td><td>Gloves</td><td>+10 Dmg, +8 STR</td><td>Heals 5% of damage dealt.</td></tr>
+        <tr><td class="rc-unique"><b>Graspers of Greed</b></td><td>Gloves</td><td>+8 Dmg, +2 Life&amp;Mana Leech</td><td>Heals 6% of damage dealt.</td></tr>
+        <tr><td class="rc-unique"><b>Windstep Greaves</b></td><td>Boots</td><td>+10 DEX</td><td>+25% movement speed.</td></tr>
+        <tr><td class="rc-unique"><b>Phantom Striders</b></td><td>Boots</td><td>+8 DEX, +10 Move Spd</td><td>+20% movement speed.</td></tr>
+        <tr><td class="rc-unique"><b>Reaper's Eye</b></td><td>Amulet</td><td>+10 Crit, +8 Dmg</td><td>Critical hits deal 3× damage.</td></tr>
+        <tr><td class="rc-unique"><b>Heart of the Mountain</b></td><td>Amulet</td><td>+14 VIT, +10 All Res</td><td>Reflects 16 damage to melee attackers.</td></tr>
+        <tr><td class="rc-unique"><b>Band of Leeching</b></td><td>Ring</td><td>+20 Life, +4 Dmg</td><td>Heals 6% of damage dealt.</td></tr>
+        <tr><td class="rc-unique"><b>Cinder Coil</b></td><td>Ring</td><td>+6 Dmg, +6 Crit</td><td>Slain foes erupt for 50% of your damage.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============ SETS ============ -->
+  <section id="sets">
+    <h2>Item Sets</h2>
+    <p>Set pieces (<span class="rc-set">green</span>) grant escalating bonuses as you equip more of the same set.
+    Each set has 4 pieces; collect them for the full payoff.</p>
+
+    <div class="grid g2">
+      <div class="card">
+        <h4 class="rc-set">Warden's Vigil</h4>
+        <p class="muted">Helm · Armor · Gloves · Boots</p>
+        <ul class="clean">
+          <li><b>2 pc:</b> +15 VIT, +12 Armor</li>
+          <li><b>3 pc:</b> +12 STR, +40 Life</li>
+          <li><b>4 pc:</b> +30 VIT, +30 Armor, Thorns 12</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4 class="rc-set">Conjurer's Regalia</h4>
+        <p class="muted">Helm · Armor · Amulet · Ring</p>
+        <ul class="clean">
+          <li><b>2 pc:</b> +18 ENG, +30 Mana</li>
+          <li><b>3 pc:</b> +30 ENG</li>
+          <li><b>4 pc:</b> +60 Mana, +1 All Skills</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4 class="rc-set">Shadowdancer</h4>
+        <p class="muted">Weapon · Gloves · Boots · Ring</p>
+        <ul class="clean">
+          <li><b>2 pc:</b> +15 DEX, +6 Crit</li>
+          <li><b>3 pc:</b> +14 Damage</li>
+          <li><b>4 pc:</b> +12 Crit, triple-crit damage</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4 class="rc-set">Emberwalker</h4>
+        <p class="muted">Weapon · Helm · Gloves · Boots</p>
+        <ul class="clean">
+          <li><b>2 pc:</b> +8 Atk Spd, +5 Crit</li>
+          <li><b>3 pc:</b> +16 Damage</li>
+          <li><b>4 pc:</b> +25% Burn on Hit, +12% Haste</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SMITH ============ -->
+  <section id="smith">
+    <h2>Upgrading, Enchanting &amp; Gems</h2>
+    <p>Four town craftsmen work on your gear &amp; potions. The <b>Smith</b> and <b>Alchemist</b> are in every
+    town; the <b>Enchanter</b> appears in the main towns; the <b>Jeweler</b> is exclusive to Emberhold.</p>
+
+    <h3>The Smith — gear upgrades</h3>
+    <p><span class="pill">v47</span> The Smith is now <b>upgrade-only</b> (its old Consumables tab moved to the new
+    Alchemist). Each upgrade level adds <b>+8% to all of an item's stats</b>, up to the rarity's cap
+    (Common +5 … Unique +10). Cost scales with item value:</p>
+    <div class="formula">upgrade cost = round(itemScore × (1 + currentLevel) × 0.5) + 15</div>
+    <p class="muted">The Smith's old random single-affix re-roll was removed in v46 — chosen enchanting now
+    lives with the Enchanter below.</p>
+
+    <h3>The Alchemist — potions <span class="pill">v47</span></h3>
+    <p>A new ⚗️ NPC in <b>every town</b> that permanently improves your potions (these upgrades used to sit on
+    the Smith). Refilling potions is still free at the <a href="#economy">Cauldron</a>.</p>
+    <table>
+      <thead><tr><th>Upgrade</th><th>Effect</th><th>Cost</th><th>Cap</th></tr></thead>
+      <tbody>
+        <tr><td><b>Potion Strength</b></td><td>+5% of max restored per tier (base 40%)</td>
+          <td><code>200 × 2^tier</code></td><td>Tier 8 (→ 80%)</td></tr>
+        <tr><td><b>Potion Capacity</b></td><td>+2 to how many of each you can carry (base 10)</td>
+          <td><code>150 + (cap−10) × 40</code></td><td>30 of each</td></tr>
+      </tbody>
+    </table>
+
+    <h3>The Enchanter — chosen imbue <span class="pill">v46</span></h3>
+    <p>Pick <b>any</b> item, then choose <b>exactly which stat</b> to imbue from a wide pool (Damage, Life,
+    attributes, Crit, Crit Damage, leech, resists, the new skill/elemental/regen affixes, and more). The
+    enchant is stored as a single extra modifier on the item (marked <span class="rc-unique">✦</span>);
+    re-enchanting <b>overwrites</b> the previous one, so an item only ever carries one chosen enchant.</p>
+    <div class="formula">enchant cost = round(itemScore × 0.35) + 25</div>
+    <p class="muted">The chosen enchant is deliberately excluded from an item's sell/buy value, so re-imbuing
+    doesn't inflate prices.</p>
+
+    <h3>The Jeweler — re-roll accessories <span class="pill">v46</span></h3>
+    <p>Emberhold-only. The Jeweler sells fresh rings &amp; amulets and will <b>re-roll all affixes at once</b>
+    on any ring or amulet you own (rolling fresh values for every existing affix). Same cost formula as an
+    enchant:</p>
+    <div class="formula">re-roll cost = round(itemScore × 0.35) + 25</div>
+
+    <p class="muted">"itemScore" weighs base stat, each affix, special effects (+40) and set membership (+15),
+    scaled by upgrade level — it's also what drives sell/buy prices.</p>
+  </section>
+
+  <!-- ============ ECONOMY ============ -->
+  <section id="economy">
+    <h2>Economy &amp; Town Services</h2>
+    <h3>Gold</h3>
+    <p>Gold drops from monsters (more from elites and bosses, and deeper floors). Spend it at the Merchant
+    (buy &amp; sell gear), the Smith (gear upgrades), the Alchemist (potion upgrades), the Enchanter / Jeweler,
+    and the Gambler. <span class="pill">v47</span> Vendors no longer sell potions — refill free at the Cauldron.</p>
+
+    <h3>The Merchant</h3>
+    <table>
+      <thead><tr><th>Action</th><th>Price</th></tr></thead>
+      <tbody>
+        <tr><td>Sell an item</td><td><code>max(2, round(itemScore × 0.5))</code> g</td></tr>
+        <tr><td>Buy an item</td><td><code>round(sellValue × 3) + 8</code> g</td></tr>
+        <tr><td>Restock wares</td><td><code>40 + Level × 8</code> g (re-rolls the 6 items on offer)</td></tr>
+        <tr><td>Sell Junk</td><td>Bulk-sells all Common &amp; Magic items in your bag.</td></tr>
+        <tr><td>Sell All</td><td>Sells your entire backpack — <b>asks for confirmation</b> (includes rare/set/unique).</td></tr>
+      </tbody>
+    </table>
+    <p class="muted">The Merchant restocks 6 items near your level whenever you enter town.</p>
+
+    <h3>Town services &amp; where to find them <span class="pill">v46</span></h3>
+    <p>Each town hosts a different roster of NPCs. The starter town has the essentials; the unlockable
+    <a href="#zones">Emberhold</a> gathers the full set, including the Jeweler and a Premium Vendor.</p>
+    <table>
+      <thead><tr><th>Service</th><th>What it does</th><th>Found in</th></tr></thead>
+      <tbody>
+        <tr><td><b>Merchant</b></td><td>Buy &amp; sell gear; restock; Sell Junk / Sell All. <span class="pill">v47</span> No longer sells potions.</td><td>All towns</td></tr>
+        <tr><td><b>Smith</b></td><td>Upgrade gear (+8% per level).</td><td>All towns</td></tr>
+        <tr><td><b>Alchemist</b> <span class="pill">v47</span></td><td>Improve potion strength &amp; capacity.</td><td>All towns</td></tr>
+        <tr><td><b>Stash</b></td><td>Shared storage (80 slots, 8-column grid) plus a buy-slots option.</td><td>All towns</td></tr>
+        <tr><td><b>Cauldron</b></td><td>Fully restores your HP and mana <em>and</em> refills both potion types — for free.</td><td>All towns</td></tr>
+        <tr><td><b>Waypoint</b></td><td>Fast travel between unlocked areas (<span class="kbd">G</span>).</td><td>All towns</td></tr>
+        <tr><td><b>Enchanter</b></td><td>Imbue one chosen stat onto any item (overwrites).</td><td>Aldermere, Highreach, Emberhold</td></tr>
+        <tr><td><b>Gambler</b></td><td>Buy an unidentified random item near your level (a chance at any rarity).</td><td>Highreach, Emberhold</td></tr>
+        <tr><td><b>Jeweler</b></td><td>Sells rings &amp; amulets; re-rolls all affixes on an accessory.</td><td>Emberhold</td></tr>
+        <tr><td><b>Premium Vendor</b></td><td>Higher-tier wares: bigger item levels and boosted quality.</td><td>Emberhold</td></tr>
+      </tbody>
+    </table>
+
+    <h4>The Gambler</h4>
+    <p>Pay gold for a surprise item — you don't see it until it's bought. Item level and odds improve in
+    higher-tier towns:</p>
+    <div class="formula">gamble cost = 50 + Level × 15 + townTier × 150
+gamble ilvl = Level + 1 + townTier × 2 ,  quality = 0.10 + townTier × 0.12</div>
+
+    <h3>Loot Filter <span class="pill">v46</span></h3>
+    <p>Set in <b>Settings → Loot</b>. Toggle which rarities and slots you care about, and a minimum item
+    level. Anything that <em>fails</em> the filter is <b>auto-salvaged into gold the instant you walk over it</b>
+    — it's converted, never destroyed, and never clutters your bag.</p>
+    <ul class="clean">
+      <li>Unchecked <b>rarity</b> or <b>slot</b> → salvaged on pickup for its sell value.</li>
+      <li>Item level below your <b>minimum</b> → salvaged… except <b class="rc-set">Set</b> and
+        <b class="rc-unique">Unique</b> items, which always bypass the minimum-level rule so you never lose them.</li>
+      <li>Gold and potions are always picked up regardless of the filter.</li>
+    </ul>
+
+    <h3>Potions</h3>
+    <div class="formula">heal / restore = round(maxHP-or-maxMP × (40% + potionTier × 5%))</div>
+    <ul class="clean">
+      <li>Health potions also <b>cleanse one DoT</b> (Burn / Bleed / Poison).</li>
+      <li>The town <b>Cauldron</b> fully <b>heals your HP, restores your mana, and refills both potion types</b> — for <b>free</b>.</li>
+      <li>You carry up to <code>potionCap</code> of each (base 10, up to 30 via the Alchemist).</li>
+      <li>Potions and gold are also dropped directly by monsters.</li>
+    </ul>
+  </section>
+
+  <!-- ============ ZONES ============ -->
+  <section id="zones">
+    <h2>Zones &amp; Travel</h2>
+    <p>The three old wilderness maps are now one large <b>open world</b> <span class="pill">v48</span> you explore
+    on foot. Towns are safe hubs reached through <b>portals hidden in the wilds</b>; the endless dungeon is
+    entered from the cave portal near spawn. The <b>Waypoint</b> (fast travel, <span class="kbd">G</span>) still
+    works — but a town only joins your waypoint network once you've <b>physically reached it</b> at least once.</p>
+
+    <h3>The Wilds — one open world <span class="pill">v48</span></h3>
+    <p>A single ~960-unit map divided into three concentric <b>biome rings</b> by distance from the centre. The
+    further you roam, the deadlier it gets — region difficulty replaces the old per-area level. Ground colour and
+    fog shift as you cross each ring; new monster spawns scale to the ring you're standing in (monsters already
+    on the field keep the stats they spawned with).</p>
+    <table>
+      <thead><tr><th>Region</th><th>Ring</th><th class="num">Level</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td><b>Greenwilds</b></td><td>Inner (centre → ~260)</td><td class="num">1</td><td>Starter band around the central hub; home town &amp; cave portal.</td></tr>
+        <tr><td><b>Frostfen</b></td><td>Middle (~260 → ~380)</td><td class="num">7</td><td>Frozen marsh; Highreach's portal is out here.</td></tr>
+        <tr><td><b>Ashlands</b></td><td>Outer (~380 → edge)</td><td class="num">14</td><td>Scorched far reaches; Emberhold's portal is the deepest find.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Towns &amp; the dungeon</h3>
+    <table>
+      <thead><tr><th>Area</th><th>Type</th><th>How you reach it</th></tr></thead>
+      <tbody>
+        <tr><td><b>Aldermere</b></td><td>Town (tier 0)</td><td>Home hub — its portal sits at the centre of the Wilds. Merchant, Smith, Alchemist, Stash, Cauldron, Waypoint. <b>Known from the start.</b></td></tr>
+        <tr><td><b>Highreach</b></td><td>Town (tier 1)</td><td>Find its portal in the <b>Frostfen</b> ring. Adds the Gambler &amp; premium wares.</td></tr>
+        <tr><td><b>Emberhold</b></td><td>Town (tier 2)</td><td>Find its portal deep in the <b>Ashlands</b> ring. Full NPC roster incl. Jeweler &amp; Premium Vendor. <span class="pill">v48</span> No longer a fixed Depth-10 lock — the dangerous outer ring is the gate.</td></tr>
+        <tr><td><b>The Descent</b></td><td>Dungeon</td><td>Cave portal near the centre of the Wilds. Endless; depth scales forever; boss every 5th floor.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Finding towns &amp; fast travel <span class="pill">v48</span></h3>
+    <ul class="clean">
+      <li><b>Roads &amp; signposts</b> radiate from the central hub toward each town portal — follow them to search the wilds.</li>
+      <li>Walking into a town portal travels there and <b>discovers</b> that town. Discovered towns then appear in the Waypoint network for instant fast travel; undiscovered ones show as <em>"— undiscovered"</em> until you find them.</li>
+      <li>The minimap marks town portals: gold once discovered, grey while still unknown.</li>
+      <li><b>Depth selector</b> <span class="pill">v47</span>: from the Waypoint you can jump straight to <em>any dungeon depth you have already reached</em> (1 … your deepest), not just Depth 1 or your deepest checkpoint.</li>
+    </ul>
+    <div class="note">Towns &amp; dungeons still confine you to a circular arena; the Wilds are one large open
+    map (a hard clamp bounds the very edge). Roads and signs, the town portals, and the cave/waypoint all sit on
+    the rolling terrain.</div>
+  </section>
+
+  <!-- ============ DIFFICULTY ============ -->
+  <section id="difficulty">
+    <h2>Difficulty &amp; Scaling</h2>
+    <h3>Difficulty multipliers</h3>
+    <p>Chosen in Settings; multiplies enemy Life, Damage and XP across the board.</p>
+    <table>
+      <thead><tr><th>Difficulty</th><th class="num">HP ×</th><th class="num">Damage ×</th><th class="num">XP ×</th></tr></thead>
+      <tbody>
+        <tr><td><b>Normal</b></td><td class="num">1.0</td><td class="num">1.0</td><td class="num">1.0</td></tr>
+        <tr><td><b>Hard</b></td><td class="num">1.6</td><td class="num">1.4</td><td class="num">1.3</td></tr>
+        <tr><td><b>Hell</b></td><td class="num">2.6</td><td class="num">2.0</td><td class="num">1.8</td></tr>
+        <tr><td><b>Inferno</b></td><td class="num">4.0</td><td class="num">3.0</td><td class="num">2.5</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Depth scaling (dungeon)</h3>
+    <p>On top of difficulty, dungeon floors ramp with depth <code>d</code> (early floors near-linear, late floors curve up hard):</p>
+    <div class="formula">HP  ×= 1 + d×0.40 + (d×0.05)²
+DMG ×= 1 + d×0.28 + (d×0.04)²
+XP  ×= 1 + d×0.50 + (d×0.04)²
+drop ilvl = Level + d×2 ,  Loot Luck = min(50%, d×2%)</div>
+
+    <h3>Wild scaling</h3>
+    <div class="formula">HP ×= 1 + regionLevel×0.12 ,  DMG ×= 1 + regionLevel×0.09 ,  XP ×= 1 + regionLevel×0.15</div>
+    <p class="muted"><span class="pill">v48</span> In the open world <code>regionLevel</code> is the level of the
+    biome ring you're standing in — <b>1</b> (Greenwilds), <b>7</b> (Frostfen) or <b>14</b> (Ashlands) — so the
+    farther you wander from the centre, the harder new spawns hit. Crossing a ring re-applies the scaling to
+    future spawns only.</p>
+    <p class="muted">Enemy resistances also <b>deepen</b> with depth (existing resistances grow stronger,
+    floored so nothing becomes fully immune); vulnerabilities are left as-is.</p>
+  </section>
+
+  <!-- ============ MONSTERS ============ -->
+  <section id="monsters">
+    <h2>Monsters</h2>
+    <p>Eight base archetypes spawn in the wilds and dungeon (their stats are then scaled by difficulty and
+    depth). Resistance <b>&lt;1×</b> means it takes <em>less</em> of that damage; <b>&gt;1×</b> means it takes
+    <em>more</em> (a vulnerability).</p>
+    <table>
+      <thead><tr><th>Monster</th><th class="num">HP</th><th class="num">Dmg</th><th class="num">Speed</th><th class="num">XP</th><th>Resists / Vulnerabilities</th></tr></thead>
+      <tbody>
+        <tr><td><b>Fallen</b></td><td class="num">18</td><td class="num">5</td><td class="num">fast</td><td class="num">6</td><td>Fire ×0.5 · Frost ×1.25</td></tr>
+        <tr><td><b>Zombie</b></td><td class="num">30</td><td class="num">6</td><td class="num">slow</td><td class="num">8</td><td>Poison ×0.5 · Fire ×1.25</td></tr>
+        <tr><td><b>Shaman</b> (ranged)</td><td class="num">42</td><td class="num">10</td><td class="num">med</td><td class="num">15</td><td>Frost ×0.5 · Lightning ×1.25</td></tr>
+        <tr><td><b>Brute</b></td><td class="num">95</td><td class="num">14</td><td class="num">slow</td><td class="num">22</td><td>Fire ×0.5 · Frost ×1.25</td></tr>
+        <tr><td><b>Skeleton</b> <span class="pill">v47</span></td><td class="num">26</td><td class="num">8</td><td class="num">med</td><td class="num">12</td><td>Poison ×0.25 · Phys ×1.15 · Fire ×1.15</td></tr>
+        <tr><td><b>Imp</b> <span class="pill">v47</span></td><td class="num">16</td><td class="num">7</td><td class="num">fast</td><td class="num">11</td><td>Fire ×0.4 · Frost ×1.3</td></tr>
+        <tr><td><b>Hellhound</b> <span class="pill">v47</span></td><td class="num">34</td><td class="num">12</td><td class="num">fast</td><td class="num">18</td><td>Fire ×0.4 · Frost ×1.25</td></tr>
+        <tr><td><b>Wraith</b> <span class="pill">v47</span> (ranged)</td><td class="num">30</td><td class="num">11</td><td class="num">slow</td><td class="num">16</td><td>Phys ×0.6 · Poison ×0.4 · Fire ×1.2</td></tr>
+      </tbody>
+    </table>
+    <p class="muted">The Shaman and the <b>Wraith</b> fire homing orbs from range and keep their distance. Brutes
+    are big, slow, high-HP bruisers. <b>Skeletons</b> shrug off poison but crack to physical and fire; <b>Imps</b>
+    and <b>Hellhounds</b> are fast infernal hunters that resist fire and hate frost.</p>
+    <h3>Where they spawn <span class="pill">v47</span></h3>
+    <p>The open <b>Wilds</b> draw from a fixed pool (Fallen, Zombie, Shaman, Brute). The <b>dungeon</b> rolls a
+    <b>random biome</b> each time you enter, and that biome decides both the theme and the monster pool — e.g.
+    Catacombs &amp; Bone Cathedral field Skeletons, Frozen Wastes &amp; The Void send Wraiths, and the Infernal
+    Deep (and the Depth-666 Inferno) is packed with Imps and Hellhounds.</p>
+    <h3>Elemental damage types</h3>
+    <p>Damage is typed as Fire, Frost, Poison, Lightning, or Physical. ("Cold" is treated as Frost.) Match
+    the element to a monster's vulnerability to do more; avoid hitting its resistance.</p>
+  </section>
+
+  <!-- ============ ELITES ============ -->
+  <section id="elites">
+    <h2>Elites &amp; Champions</h2>
+    <p>Sometimes a tougher version of a monster spawns, glowing with an aura. Elites are <b>×3 HP, ×1.6
+    Damage, ×4 XP</b> and bigger, and carry one or more modifiers. A <b>Champion</b> pack is an elite plus
+    three normal minions.</p>
+    <table>
+      <thead><tr><th>Modifier</th><th>Effect</th></tr></thead>
+      <tbody>
+        <tr><td><b>Swift</b></td><td>×1.6 movement speed.</td></tr>
+        <tr><td><b>Mighty</b></td><td>×1.6 damage.</td></tr>
+        <tr><td><b>Vile</b></td><td>×1.6 health.</td></tr>
+        <tr><td><b>Fiery</b></td><td>Fire-resistant; <b>explodes on death</b> for heavy damage if you're close.</td></tr>
+        <tr><td><b>Frozen</b></td><td>Frost-resistant; chills you on hit.</td></tr>
+        <tr><td><b>Arcane</b></td><td>Lightning-resistant; fires arcane projectiles.</td></tr>
+      </tbody>
+    </table>
+    <h3>Empowered monsters</h3>
+    <p>From dungeon depth 6+, ordinary monsters have a growing chance (up to 50%) to spawn <b>Empowered</b>:
+    ×1.6 HP, ×1.35 Damage, ×1.12 Speed, ×1.4 XP, and they erupt in a small blast on death.</p>
+    <h3>Loot</h3>
+    <ul class="clean">
+      <li><b>Elites</b> always drop an item (best of several rolls) plus gold and often a potion.</li>
+      <li><b>Normal monsters:</b> ~85% gold, ~30% item (rising with depth), ~12% potion.</li>
+    </ul>
+  </section>
+
+  <!-- ============ BOSSES ============ -->
+  <section id="bosses">
+    <h2>Bosses</h2>
+    <p>A boss guards every <b>5th dungeon floor</b> (depth 5, 10, 15, …). It blocks the way down until
+    slain. Bosses pull from five names — Gravewarden, The Flesh Tyrant, Maw of the Deep, Ashen Overlord,
+    Dread Sovereign — and a depth-based combat <b>variant</b>:</p>
+    <table>
+      <thead><tr><th>Variant</th><th>Appears at</th><th>Behaviour</th></tr></thead>
+      <tbody>
+        <tr><td><b>Brute</b></td><td>Depth &lt; 8</td><td>Volleys + ground slams; summons minions in phase 2.</td></tr>
+        <tr><td><b>Caster</b></td><td>Depth 8–13</td><td>Chilling volleys, slams, and short teleports.</td></tr>
+        <tr><td><b>Summoner</b></td><td>Depth 14+</td><td>Summons Fallen, shields itself, slams, volleys.</td></tr>
+      </tbody>
+    </table>
+    <div class="note">At <b>50% HP</b> a boss <b>enrages</b> (phase 2): +50% movement speed and faster, deadlier
+    abilities. Boss attack cooldowns also get shorter the deeper you are.</div>
+    <h3>Boss stats</h3>
+    <div class="formula">HP  = round(380 × (1 + d×0.5 + (d×0.05)²) × difficultyHP)
+DMG = round(14  × (1 + d×0.3 + (d×0.03)²) × difficultyDmg)
+XP  = round(300 × (1 + d×0.6) × difficultyXP)</div>
+    <h3>Boss rewards</h3>
+    <ul class="clean">
+      <li><b>5 items</b>, each the best of several rolls at ilvl + 4 and boosted quality.</li>
+      <li><b>150–300 gold</b> (plus depth × 20).</li>
+      <li><b>2 health + 2 mana potions.</b></li>
+      <li>The portal to the next floor opens.</li>
+    </ul>
+    <h3>Belphegor, Lord of the Inferno <span class="pill">v47</span></h3>
+    <p>A secret final boss waits at <b>Depth 666</b> in <b>The Inferno</b> — a unique hell biome you can reach
+    <em>only by descending</em> (the depth selector will not jump you there). Belphegor is roughly a normal boss
+    with <b>×3 HP</b>, <b>×1.5 Damage</b> and <b>×4 XP</b> on top of the usual depth &amp; difficulty scaling, with
+    a giant body and a punishing kit: twin <b>fire + chilling volleys</b>, ground slams, short teleports, a
+    self-<b>shield</b>, and it <b>summons broods of Imps &amp; Hellhounds</b>. Like every boss it enrages at 50% HP.</p>
+  </section>
+
+  <!-- ============ SAVE ============ -->
+  <section id="save">
+    <h2>Saves</h2>
+    <table>
+      <thead><tr><th>Property</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td>Character slots</td><td>3</td></tr>
+        <tr><td>Storage</td><td>Browser <code>localStorage</code> (key <code>sanctuarys_end_saves</code>)</td></tr>
+        <tr><td>Save format version</td><td>5</td></tr>
+        <tr><td>Autosave</td><td>Every ~8 seconds, on zone change, and on level up.</td></tr>
+      </tbody>
+    </table>
+    <div class="note">Saves live in your browser. Clearing site data, or opening the game from a different
+    browser/profile, will not show the same characters. Old saves are auto-migrated forward when the format
+    version changes.</div>
+    <h3>Export &amp; Import <span class="pill">v48</span></h3>
+    <p>Open <b>Settings → Saves</b> to back up or move your characters — it works fully offline:</p>
+    <ul class="clean">
+      <li><b>Export</b> writes <em>all three slots plus your settings</em> as a JSON blob. Use <b>Download File</b>
+      to save a <code>.json</code> backup, or <b>Copy</b> to put it on the clipboard.</li>
+      <li><b>Import</b> takes that JSON back — paste it (or <b>Load File</b>) and hit <b>Import &amp; Reload</b>.
+      After a confirmation it <b>replaces all</b> local saves &amp; settings and reloads the game (old/lower
+      formats are migrated forward on load). Export first if you want to keep your current saves.</li>
+    </ul>
+    <p class="muted">Handy for backing up before a risky build experiment, or carrying a character to another
+    browser, profile, or PC.</p>
+  </section>
+
+  <!-- ============ CHANGELOG ============ -->
+  <section id="changelog">
+    <h2>Version History</h2>
+    <p class="lead">What was added in each release, newest first. This wiki currently documents
+    <strong>v48</strong>.</p>
+    <div class="note">The expansion program began from the <b>v26</b> baseline. The performance pass and the
+    eight endgame features were applied to that file, which was then renamed <b>v30</b> — so there are no
+    separate v27–v29 snapshots. Early releases (v30–v33) are summarised at the feature level; later releases
+    are documented in finer detail.</div>
+
+    <table>
+      <thead><tr><th>Version</th><th>Theme</th><th>What was added</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><b>v48</b></td><td>Open World &amp; Save I/O</td>
+          <td>The three separate wilderness maps are merged into one large <b>open world</b> (~2.4× bigger),
+          divided into three concentric <b>biome rings</b> — Greenwilds (Lv 1) → Frostfen (Lv 7) → Ashlands
+          (Lv 14) — so danger grows the further you roam. Towns are now reached by <b>finding their portals out
+          in the wilds</b>; <b>roads &amp; signposts</b> point the way, and a town only joins your <b>fast-travel
+          Waypoint network once you've physically reached it</b> (discovery-gated). Denser, region-flavoured
+          scenery (more trees, ferns, bushes, flowers) and true per-biome <b>ground colour</b>; roads conform to
+          the rolling terrain. New <b>Settings → Saves</b> tab: <b>export/import</b> all characters &amp; settings
+          (download / copy / load-file / paste), for backups or moving between browsers &amp; devices.</td>
+        </tr>
+        <tr>
+          <td><b>v47</b></td><td>Skills, Dungeons, Towns &amp; a Secret Boss</td>
+          <td>Live <b>skill tooltips</b> on the action bar (damage, cost, cooldown, effect). The dungeon now rolls
+          a <b>random biome</b> each entry (theme + monster pool), and you can <b>jump to any depth you've already
+          reached</b> via the Waypoint. <b>Four new monsters</b> — Skeleton, Imp, Hellhound, Wraith — join the
+          biome pools. A secret final boss, <b>Belphegor, Lord of the Inferno</b>, waits at <b>Depth 666</b> in a
+          unique hell biome (reachable only by descending). <b>Town overhaul:</b> new <b>Alchemist</b> NPC owns the
+          potion upgrades (moved off the Smith, now upgrade-only); vendors <b>no longer sell potions</b> (free
+          refills at the Cauldron); gambling is consolidated to the Gambler; three visually distinct themed town
+          layouts; bigger, scroll-free Settings panel.</td>
+        </tr>
+        <tr>
+          <td><b>v46</b></td><td>Itemization &amp; Towns</td>
+          <td>Gear that powers your kit: <b>+to Skills</b>, <b>Skill Damage %</b>, <b>Active Skill Damage %</b>,
+          and <b>Fire / Cold / Lightning / Poison Damage %</b> affixes. <b>Health &amp; Mana regeneration</b>
+          (from VIT/ENG and new regen affixes). New <b>Enchanter</b> that imbues a <em>chosen</em> stat
+          (replacing the Smith's old random re-roll); Smith panel split into <b>Upgrade / Consumables</b> tabs.
+          New tier-2 town <b>Emberhold</b> (unlocks at Depth 10) with a <b>Jeweler</b> (accessory re-roll) and
+          <b>Premium Vendor</b>; the <b>Gambler</b> joins Highreach &amp; Emberhold. <b>Loot Filter</b> that
+          auto-salvages unwanted drops into gold on pickup. The town <b>Cauldron</b> now also fully heals your
+          HP and restores your mana (not just potions).</td>
+        </tr>
+        <tr>
+          <td><b>v45</b></td><td>Keybinds, Settings &amp; UX</td>
+          <td>Fully <b>rebindable keys</b> (Settings → Controls) via one centralized input dispatcher.
+          Settings reorganized into <b>Audio / Graphics / Gameplay / Controls</b> tabs. Modal click-through
+          fixed with a dimmed backdrop. The selected skill is now remembered, and the 10th slot is selectable
+          with <span class="kbd">0</span>. UI polish (focus outlines, stronger skill glow, clamped tooltips).
+          Bug fix: melee attacks reliably land on large enemies (brutes, bosses) by accounting for their size.</td>
+        </tr>
+        <tr>
+          <td><b>v44</b></td><td>glTF town NPCs &amp; QoL</td>
+          <td>Town NPCs swapped to imported models (vendor = Mage, smith = Barbarian, stash = Rogue). The mouse
+          wheel no longer zooms the camera while a panel or modal is open. Stash widened to an 8-column,
+          80-slot grid. New <b>Cauldron</b> prop that refills both potion types for free. Fixed a freeze when
+          champion packs spawned (elite/boss lights now respect the light budget).</td>
+        </tr>
+        <tr>
+          <td><b>v43</b></td><td>Imported model roster</td>
+          <td>Replaced the procedural cast with embedded, <b>animated glTF models</b> — hero = KayKit Knight;
+          monsters = Quaternius (Orc, Spiky Blob, Yeti, Wizard, and a Demon boss). Per-spawn skinned clones,
+          per-creature animation, and death animations.</td>
+        </tr>
+        <tr>
+          <td><b>v42</b></td><td>glTF proof-of-concept</td>
+          <td>Proved that embedded, animated glTF models work inside the single-file / <code>file://</code>
+          constraint (the Khronos Fox, base64-baked, loaded via GLTFLoader + AnimationMixer).</td>
+        </tr>
+        <tr>
+          <td><b>v41</b></td><td>Richer procedural models</td>
+          <td>Replaced the low-poly "blob" models with articulated monsters, a hulking demon boss, a more
+          detailed hero, and richer environment props — all still procedural and performance-safe.</td>
+        </tr>
+        <tr>
+          <td><b>v40</b></td><td>Item &amp; rarity overhaul</td>
+          <td>Rarity now multiplies an item's <b>base stat and every affix</b> (not just the affix count), so
+          higher rarity is meaningfully stronger. Drop tables rebalanced; depth, elites and bosses bias toward
+          better rarities. More base items, +8 uniques, +1 set (Emberwalker). Fixed a bug where some "uniques"
+          rolled without their signature effect.</td>
+        </tr>
+        <tr>
+          <td><b>v39</b></td><td>Graphics polish</td>
+          <td>Per-biome <b>color grading + vignette</b>, combat hit VFX (sparks + impact flash), and PBR
+          materials on the hero's armor.</td>
+        </tr>
+        <tr>
+          <td><b>v38</b></td><td>Performance fixes</td>
+          <td>Eliminated the hitch/freeze when using abilities or killing packs (removed unbudgeted transient
+          lights that forced shader recompiles; pooled and cached loot &amp; FX geometry/materials). Capped
+          floating combat text and de-duplicated level-up saves.</td>
+        </tr>
+        <tr>
+          <td><b>v37</b></td><td>Ambient occlusion &amp; soft shadows</td>
+          <td>Added SSAO and soft (PCF) shadows, both toggleable in Settings.</td>
+        </tr>
+        <tr>
+          <td><b>v36</b></td><td>PBR loot &amp; reflections</td>
+          <td>Physically-based metal on weapons, gold and loot drops, lit by a procedural image-based
+          environment map (reflections toggle).</td>
+        </tr>
+        <tr>
+          <td><b>v35</b></td><td>Post-processing</td>
+          <td>Bloom, SMAA anti-aliasing, and ACES tone-mapping with an exposure slider (A/B toggle). The player
+          torch now brightens with depth so deep floors aren't pitch-black; fixed movement speed on
+          high-refresh monitors.</td>
+        </tr>
+        <tr>
+          <td><b>v34</b></td><td>Content depth</td>
+          <td><b>Status effects</b> (Burn, Bleed, Poison, Chill, Stun) on a stacking DoT framework;
+          <b>elemental damage types and monster resistances</b> that deepen with depth; +10 new affixes
+          (elemental &amp; all-resist, crit-damage %, mana leech, leech-all, burn/bleed-on-hit); boss combat
+          <b>variants</b> (Brute / Caster / Summoner by depth); the Smith's affix re-roll (enchant).</td>
+        </tr>
+        <tr>
+          <td><b>v33</b></td><td>Detail &amp; biomes</td>
+          <td>Re-enabled ambient particles (snow, embers, dust, spores) and added rubble scatter; wove in new
+          depth-banded dungeon biomes including Frozen Wastes, Sunken Swamp and Bone Cathedral.</td>
+        </tr>
+        <tr>
+          <td><b>v32</b></td><td>Procedural textures (cont.)</td>
+          <td>Extended the canvas-texture factory to characters and glowing effects (cloth, skin, metal,
+          crystal, lava, energy, flame, water), completing the texture pass — still no external image files
+          (required for <code>file://</code> play).</td>
+        </tr>
+        <tr>
+          <td><b>v31</b></td><td>Procedural textures</td>
+          <td>Added a canvas-based texture factory and applied detail maps to the big surfaces and props
+          (ground with a normal map, stone, wood), multiplying each material's color so every zone keeps its
+          palette.</td>
+        </tr>
+        <tr>
+          <td><b>v30</b></td><td>Performance pass + endgame features</td>
+          <td><b>Performance:</b> switched scene materials to cheaper shading, added a point-light budget, and
+          instanced scenery to cut draw calls. <b>Endgame:</b> split potions into separate Health/Mana with a
+          Mana-potion key; added the <b>Smith</b> (gear &amp; potion upgrades); per-character inventory/stash
+          sizes with buyable slots; gold sinks (restock, bulk potions); Sell Junk / Sell All; the <b>Inferno</b>
+          difficulty plus steeper late-depth scaling, <b>Loot Luck</b>, "empowered" deep monsters and faster
+          deep bosses; <b>9 new active skills</b> (Ground Slam, Charge, War Cry, Arcane Orb, Blizzard, Shadow
+          Step, Fan of Knives, Teleport Storm, Second Wind). Save format bumped to v5. <span class="muted">(This
+          is the v26 working file after the in-place perf + endgame work, renamed to v30.)</span></td>
+        </tr>
+        <tr>
+          <td><b>v26</b></td><td>Baseline</td>
+          <td>The pre-expansion build this version history starts from, kept as the baseline snapshot. The perf
+          pass and the eight endgame features above were applied to it and it became v30 — there are no
+          separate v27–v29 snapshots.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <hr>
+    <p class="toc-top muted">Sanctuary's End — community field codex. Generated from the v48 game data.
+    Numbers reflect the in-game formulas; actual results vary with difficulty, depth, and gear.</p>
+  </section>
+
+</main>
+</div>
+
+<script>
+(function(){
+  // ---- scrollspy: highlight the nav link of the section in view ----
+  var links = Array.prototype.slice.call(document.querySelectorAll('nav.side a'));
+  var map = {};
+  links.forEach(function(a){ var id=a.getAttribute('href').slice(1); map[id]=a; });
+  var sections = Array.prototype.slice.call(document.querySelectorAll('main section'));
+  function spy(){
+    var top = window.scrollY + 120, cur = sections[0];
+    for(var i=0;i<sections.length;i++){ if(sections[i].offsetTop<=top) cur=sections[i]; }
+    links.forEach(function(a){ a.classList.remove('active'); });
+    if(cur && map[cur.id]) map[cur.id].classList.add('active');
+  }
+  window.addEventListener('scroll', spy, {passive:true});
+  window.addEventListener('resize', spy);
+  spy();
+
+  // ---- live search: filter rows + whole sections by text ----
+  var q = document.getElementById('q');
+  var noResults = document.getElementById('noResults');
+  var rows = Array.prototype.slice.call(document.querySelectorAll('main tbody tr'));
+  function search(){
+    var term = q.value.trim().toLowerCase();
+    if(!term){
+      document.body.classList.remove('searching');
+      rows.forEach(function(r){ r.classList.remove('hide-row'); });
+      sections.forEach(function(s){ s.classList.remove('has-match'); });
+      noResults.style.display='none';
+      return;
+    }
+    document.body.classList.add('searching');
+    var anySection=false;
+    sections.forEach(function(s){
+      var secText = (s.querySelector('h2') ? s.querySelector('h2').textContent : '').toLowerCase();
+      var secMatch = secText.indexOf(term)>=0;
+      // whole-section prose match (covers paragraphs/lists alongside any table)
+      var textMatch = s.textContent.toLowerCase().indexOf(term)>=0;
+      var secRows = s.querySelectorAll('tbody tr');
+      var rowMatch=false;
+      if(secRows.length){
+        secRows.forEach(function(r){
+          var hit = r.textContent.toLowerCase().indexOf(term)>=0;
+          if(hit){ r.classList.remove('hide-row'); rowMatch=true; }
+          else if(secMatch || textMatch){ r.classList.remove('hide-row'); }
+          else { r.classList.add('hide-row'); }
+        });
+      }
+      var show = secMatch || rowMatch || textMatch;
+      if(show){ s.classList.add('has-match'); anySection=true; }
+      else { s.classList.remove('has-match'); }
+    });
+    noResults.style.display = anySection ? 'none' : 'block';
+  }
+  q.addEventListener('input', search);
+  q.addEventListener('keydown', function(e){ if(e.key==='Escape'){ q.value=''; search(); q.blur(); } });
+})();
+</script>
+</body>
+</html>
