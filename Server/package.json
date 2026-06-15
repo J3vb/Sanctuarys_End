@@ -1,0 +1,17 @@
+{
+  "name": "sanctuarys-end-relay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Co-op WebSocket relay for Sanctuary's End. Forwards presence/chat between players; the game itself runs client-side.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "license": "MIT"
+}
