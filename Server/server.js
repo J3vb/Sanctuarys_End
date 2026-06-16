@@ -17,8 +17,10 @@
  *   - Over the internet: forward this port (TCP 8787) on the host's
  *     router to the host machine, and players use the host's public IP.
  *
- * Open the game from a local file or an http:// page (not https://) so the
- * browser allows the ws:// connection.
+ * The game now loads Three.js as ES modules, so it must be served over
+ * http:// (a local static server) -- file:// no longer works. Serve the repo
+ * and open it at http://localhost:8000 (not https://) so the browser allows
+ * the ws:// connection. See the project README "Play it -> Locally".
  */
 const WebSocket = require('ws');
 const PORT = process.env.PORT || 8787;

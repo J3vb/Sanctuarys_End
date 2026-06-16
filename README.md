@@ -10,7 +10,20 @@ Sanctuary's End is a hack-and-slash ARPG packed into a single HTML file and rend
 
 **Online:** https://j3vb.github.io/Sanctuarys_End/sanctuary.html — just click and play.
 
-**Locally:** download the repo and open `sanctuary.html` in a modern browser (WebGL support required). It's a static file with no build step. The Three.js libraries load from a CDN, so you'll need an internet connection the first time.
+**Locally:** the game now loads Three.js as ES modules, so it **must be served over `http://`** — double-clicking `sanctuary.html` (a `file://` URL) will no longer work (browsers block module loads from `file://`). Serve the repo with any static server and open the game over `http://localhost`.
+
+Always use the **same fixed port** (`8000` below) every session. Browser saves (localStorage) are keyed per origin, so `localhost:8000` and `localhost:3000` are *different* save stores — switching ports hides your characters.
+
+```
+# from the repo root, pick ONE and stick with port 8000:
+python -m http.server 8000
+#   or
+npx serve . -l 8000
+```
+
+Then open `http://localhost:8000/sanctuary.html`. WebGL support and (the first time) an internet connection for the CDN libraries are required.
+
+> **Migrating an existing `file://` save?** Saves made by the old double-click build live in the `file://` origin and will *not* appear at `http://localhost:8000`. To carry them over: open your old `file://` build, go to **Settings → Saves → Download** (or **Copy**), then open the new `http://localhost:8000` build, paste/load the file under **Settings → Saves → Import & Reload**.
 
 ## Features
 
@@ -36,7 +49,7 @@ npm start
 
 It defaults to port 8787 — start it, then connect from the in-game Multiplayer menu. Each player's game runs locally; the server just relays presence and chat.
 
-Note: co-op uses a `ws://` (non-TLS) connection, so play from a local file or an `http://` page — browsers block `ws://` from the `https://` hosted page above. For LAN/internet play, share the host's IP + port.
+Note: co-op uses a `ws://` (non-TLS) connection, so play from a locally-served `http://` page (see **Play it → Locally**) — browsers block `ws://` from the `https://` hosted page above, and the game can no longer be launched from `file://`. For best results each player serves their own local copy at `http://localhost:8000` (a secure context). For LAN/internet play, share the host's IP + port.
 
 ## Learn more
 
