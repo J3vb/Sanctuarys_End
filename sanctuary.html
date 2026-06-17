@@ -424,37 +424,43 @@
   <button class="btn small" id="quitBtn">Quit to Menu</button>
 </div>
 
-<!-- three.js r184 loaded as ES modules via import map (Phase 1a: r128 -> r184, still WebGLRenderer). -->
-<!-- Launch over http://localhost (a local static server) - module scripts cannot load over file://. -->
+<!-- three.js r184 loaded as ES modules via import map (Phase 1b: WebGPURenderer + TSL post-FX). -->
+<!-- Launch over http://localhost (a local static server) - module scripts cannot load over file://; WebGPU also needs a secure context (localhost qualifies, LAN http://192.168.x.x does not -> WebGL2 fallback). -->
+<!-- R5: bare "three" is remapped to the three.webgpu.js build (matching the official webgpu_postprocessing_bloom example) so GLTFLoader/SkeletonUtils/PMREMGenerator bind to the SAME module graph as the renderer/scene. -->
 <script type="importmap">
 {
   "imports": {
-    "three": "https://unpkg.com/three@0.184.0/build/three.module.js",
+    "three": "https://unpkg.com/three@0.184.0/build/three.webgpu.js",
+    "three/webgpu": "https://unpkg.com/three@0.184.0/build/three.webgpu.js",
+    "three/tsl": "https://unpkg.com/three@0.184.0/build/three.tsl.js",
     "three/addons/": "https://unpkg.com/three@0.184.0/examples/jsm/"
   }
 }
 </script>
-<!-- Shim: populate window.THREE (core + the 8 addon classes game.js expects as globals) BEFORE the deferred classic game.js parses. -->
+<!-- Shim: populate window.THREE (core + addon/TSL factories game.js expects as globals) BEFORE the deferred classic game.js parses. -->
 <!-- An ES module namespace object is non-extensible, so we copy it into a fresh mutable object rather than assigning onto it. -->
+<!-- Phase 1b: core comes from three/webgpu (WebGPURenderer + RenderPipeline + WebGPU PMREMGenerator are all bundled there). -->
+<!-- The EffectComposer/RenderPass/ShaderPass/UnrealBloomPass/SMAAPass/SSAOPass/OutputPass addons are gone - post-FX is TSL RenderPipeline now. -->
 <script type="module">
-  import * as THREE_NS from 'three';
-  import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-  import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-  import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-  import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-  import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
-  import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
-  import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+  import * as THREE_NS from 'three/webgpu';
+  import * as TSL_NS from 'three/tsl';
+  import { bloom } from 'three/addons/tsl/display/BloomNode.js';
+  import { ao } from 'three/addons/tsl/display/GTAONode.js';
+  import { smaa } from 'three/addons/tsl/display/SMAANode.js';
   import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
   import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
-  // Phase 1a: r184 has no aggregate SkeletonUtils export - re-wrap the named `clone` to keep THREE.SkeletonUtils.clone working.
+  // r184 has no aggregate SkeletonUtils export - re-wrap the named `clone` to keep THREE.SkeletonUtils.clone working.
+  // RenderPipeline + PMREMGenerator + WebGPURenderer come through THREE_NS (three/webgpu build); the addon TSL
+  // factories (bloom/ao/smaa) are threaded individually; all of three/tsl is exposed as window.TSL for the
+  // hand-ported grade/vignette node (which needs Fn/uniform/vec3/screenUV/etc.).
   window.THREE = Object.assign({}, THREE_NS, {
-    EffectComposer, RenderPass, ShaderPass, UnrealBloomPass, SMAAPass, SSAOPass, OutputPass,
+    bloom, ao, smaa,
     GLTFLoader, SkeletonUtils: { clone: skeletonClone }
   });
-  // Path A (Phase 1a): preserve the r128 legacy/linear palette so no hex retune is needed.
+  window.TSL = TSL_NS;
+  // Path A (Phase 1a, preserved in 1b): keep the r128 legacy/linear palette so no hex retune is needed.
   // ColorManagement is copied BY REFERENCE in the Object.assign above (same singleton), so this
-  // mutates the live three.js setting before game.js constructs the first THREE.Color (game.js:252).
+  // mutates the live three.js setting before game.js constructs the first THREE.Color (game.js:277).
   window.THREE.ColorManagement.enabled = false;
 </script>
 <!-- game.js stays a CLASSIC defer script: it relies on top-level globals + inline on*= handlers. -->
