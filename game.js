@@ -248,7 +248,7 @@ const SAVE = {
     try { this._data = JSON.parse(localStorage.getItem(this.KEY)); } catch (e) { this._data = null; }
     if (!this._data) this._data = { version: this.VERSION, slots: Array(this.NUM_SLOTS).fill(null) };
     this._data.version = this.VERSION; if (!this._data.slots) this._data.slots = Array(this.NUM_SLOTS).fill(null);
-    this._data.slots = this._data.slots.map(s => s ? this.migrate(s) : null); this._data.settings = Object.assign({ difficulty: 'Normal', muted: false, volume: 60, music: true, sfx: true, shake: true, dmgnum: true, resScale: 100, shadows: true, postfx: true, bloom: 0.9, exposure: 1.0, reflections: true, ssao: true, colorgrade: true, vfx: true, lootFilter: { rarity: { common: true, magic: true, rare: true, set: true, unique: true }, slot: { weapon: true, helm: true, armor: true, gloves: true, boots: true, ring: true, amulet: true }, minIlvl: 0 }, keybinds: {} }, this._data.settings || {}); this.persist(); return this._data;
+    this._data.slots = this._data.slots.map(s => s ? this.migrate(s) : null); this._data.settings = Object.assign({ difficulty: 'Normal', muted: false, volume: 60, music: true, sfx: true, shake: true, dmgnum: true, resScale: 100, shadows: true, postfx: true, bloom: 0.9, exposure: 1.0, reflections: true, ssao: true, colorgrade: true, vfx: true, particles: true, lootFilter: { rarity: { common: true, magic: true, rare: true, set: true, unique: true }, slot: { weapon: true, helm: true, armor: true, gloves: true, boots: true, ring: true, amulet: true }, minIlvl: 0 }, keybinds: {} }, this._data.settings || {}); this.persist(); return this._data;
   },
   migrate(ch) {
     ch.base = ch.base || { hpMax: ch.hpMax || 100, mpMax: ch.mpMax || 50, dmg: (ch.dmg || 10) };
@@ -373,6 +373,7 @@ function markGlows() { scene.traverse(o => { if (o.material) { const ms = Array.
 function applyPostFX() { const s = SAVE._data.settings; const on = SAVE._data.settings.postfx !== false; renderer.toneMapping = on ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping; /* renderOutput() reads this; off-path keeps NoToneMapping for the plain-render branch. */ renderer.toneMappingExposure = (s.exposure != null ? s.exposure : 1.0) * MANAGED_EXPO; /* Phase 2: user exposure setting (slider, default 1.0) x managed-color base compensation. */ if (bloomPass && bloomPass.strength) bloomPass.strength.value = (s.bloom != null ? s.bloom : 0.9); markGlows(); scene.traverse(o => { if (o.material) { const ms = Array.isArray(o.material) ? o.material : [o.material]; ms.forEach(m => { if (m) m.needsUpdate = true; }); } }); }
 let _lastDraws = 0, _lastTris = 0;
 function renderFrame() {
+  _stepParticles(); /* Phase 5: advance the GPU ambient field (no-op unless built) before the render reads its buffer. */
   if (postOn()) post.render(); else renderer.render(scene, camera);
   _lastDraws = renderer.info.render.drawCalls; _lastTris = renderer.info.render.triangles; /* Phase 0 rig: capture NOW — info.render resets at the next render's start, and updateDebug() runs in update() before the next renderFrame, so reading it there gives 0. */
   if (_tsSupported) renderer.resolveTimestampsAsync(THREE.TimestampQuery.RENDER).then(() => { _gpuMs = renderer.info.render.timestamp || _gpuMs; }).catch(() => {}); /* resolve per render (every render path — menu/game/warm — must resolve or the query pool overflows); perf mode only */
@@ -386,6 +387,48 @@ let envTex = null;
 function buildEnv() { try { const cv = document.createElement('canvas'); cv.width = 128; cv.height = 64; const c = cv.getContext('2d'); const g = c.createLinearGradient(0, 0, 0, 64); g.addColorStop(0, '#3a3220'); g.addColorStop(0.45, '#1a160e'); g.addColorStop(1, '#070503'); c.fillStyle = g; c.fillRect(0, 0, 128, 64); const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; /* Phase 2: painted sRGB gradient -> decode for correct reflection tint. */ tex.mapping = THREE.EquirectangularReflectionMapping; envTex = tex; applyReflections(); } catch (err) { console.warn('IBL env build failed; metals will use light-only shading:', err); } }
 function applyReflections() { scene.environment = (SAVE._data.settings.reflections !== false && envTex) ? envTex : null; }
 /* NOTE: buildEnv() runs inside the renderer.init().then(...) bootstrap (R4: PMREM/env setup is GPU-dependent). */
+
+/* ================= Phase 5: GPU-compute ambient particles (WebGPU-only, High preset) =================
+   A bounded additive ambient field (drifting embers/dust) simulated in a TSL compute pass on the GPU.
+   Gated through the quality system (the `particles` knob is High-only; Auto maps WebGL2->Medium) AND a hard
+   isWebGPUBackend guard, so the WebGL2 fallback simply omits it - no CPU sim => no mid-hardware regression;
+   "absent on fallback" IS the lighter fallback for pure ambience. Built ONCE and reused across zones (the
+   tint follows the zone + the field follows the camera each frame), so there's no per-zone rebuild churn and
+   the pipeline compiles behind #loading in the init bootstrap (no gameplay first-encounter freeze). */
+const PART_COUNT = 500, PART_R = 55, PART_Y = 24;
+const _uPartCam = (window.TSL && TSL.uniform) ? TSL.uniform(new THREE.Vector3()) : null;
+const _uPartTint = (window.TSL && TSL.uniform) ? TSL.uniform(new THREE.Color(0xffd2a0)) : null;
+let _particles = null;
+function _particlesWanted() { const s = SAVE._data.settings; return !!(isWebGPUBackend && window.TSL && TSL.instancedArray && THREE.SpriteNodeMaterial && s.particles !== false); }
+function buildParticles() {
+  try {
+    const T = TSL;
+    const positions = T.instancedArray(PART_COUNT, 'vec3'), velocities = T.instancedArray(PART_COUNT, 'vec3');
+    const ii = T.instanceIndex; /* hash() takes the uint index directly + integer offsets (matches the r184 webgpu_compute_particles example); float(index)+frac did NOT randomize -> particles fell on a line. */
+    const computeInit = T.Fn(() => {
+      const p = positions.element(ii), v = velocities.element(ii);
+      p.x = T.hash(ii).sub(0.5).mul(PART_R * 2); p.y = T.hash(ii.add(1)).mul(PART_Y); p.z = T.hash(ii.add(2)).sub(0.5).mul(PART_R * 2);
+      v.x = T.hash(ii.add(3)).sub(0.5).mul(1.2); v.y = T.hash(ii.add(4)).mul(1.4).add(0.5); v.z = T.hash(ii.add(5)).sub(0.5).mul(1.2);
+    })().compute(PART_COUNT);
+    const computeUpdate = T.Fn(() => {
+      const p = positions.element(ii), v = velocities.element(ii);
+      p.addAssign(v.mul(T.deltaTime));
+      p.x = T.mod(p.x.add(PART_R), PART_R * 2).sub(PART_R); p.y = T.mod(p.y, PART_Y); p.z = T.mod(p.z.add(PART_R), PART_R * 2).sub(PART_R);
+    })().compute(PART_COUNT);
+    renderer.compute(computeInit);
+    const mat = new THREE.SpriteNodeMaterial(); mat.transparent = true; mat.depthWrite = false; mat.blending = THREE.AdditiveBlending;
+    const base = positions.toAttribute();
+    const wx = T.mod(base.x.sub(_uPartCam.x).add(PART_R), PART_R * 2).sub(PART_R).add(_uPartCam.x);
+    const wz = T.mod(base.z.sub(_uPartCam.z).add(PART_R), PART_R * 2).sub(PART_R).add(_uPartCam.z);
+    mat.positionNode = T.vec3(wx, base.y, wz); mat.colorNode = _uPartTint; mat.scaleNode = T.float(0.4); mat.opacityNode = T.shapeCircle().mul(0.13);
+    const sprite = new THREE.Sprite(mat); sprite.count = PART_COUNT; sprite.frustumCulled = false; sprite.renderOrder = 6; sprite.userData.noDispose = true;
+    scene.add(sprite);
+    _particles = { sprite, mat, computeUpdate, dispose() { scene.remove(sprite); try { mat.dispose(); } catch (e) {} try { positions.dispose && positions.dispose(); velocities.dispose && velocities.dispose(); } catch (e) {} } };
+  } catch (e) { console.warn('Ambient particles unavailable; skipping:', e && e.message); _particles = null; }
+}
+function applyParticles() { if (!_uPartCam) return; const want = _particlesWanted(); if (want && !_particles) buildParticles(); else if (!want && _particles) { _particles.dispose(); _particles = null; } }
+/* per-frame: follow the camera (XZ only; Y stays in the stored low band) + tint by zone, then dispatch the GPU update. */
+function _stepParticles() { if (!_particles) return; const cx = (typeof player !== 'undefined' && player) ? player.x : camera.position.x, cz = (typeof player !== 'undefined' && player) ? player.z : camera.position.z; _uPartCam.value.set(cx, 0, cz); _uPartTint.value.set((typeof zone !== 'undefined' && zone === 'dungeon') ? 0xff7a2e : 0xffd2a0); renderer.compute(_particles.computeUpdate); }
 /* Phase 1a relight: r184 removed useLegacyLights, so ambient/hemisphere/directional intensities are x Math.PI for a clean legacy restore; point lights use x Math.PI as a starting point (inverse-square decay=2 has no exact factor) and are eyeball/A-B retuned. */
 const hemi = new THREE.HemisphereLight(0x443322, 0x110a05, 0.55 * Math.PI); scene.add(hemi);
 const moon = new THREE.DirectionalLight(0x9fb6ff, 0.7 * Math.PI); moon.position.set(30, 60, 20); moon.castShadow = true; moon.shadow.mapSize.set(1024, 1024); moon.shadow.bias = -0.0005;
@@ -2135,14 +2178,14 @@ function menuLoop() { if (!menuActive) return; menuT += 0.0032; const r = 44; ca
    and Custom (manual). Big low-end levers: resolution, shadows, AO, reflections, light budget, shadow-map
    size. postfx/colorgrade/vfx stay on across tiers (cheap and core to the art style). */
 const QUALITY_PRESETS = {
-  low: { resScale: 70, shadows: false, ssao: false, reflections: false, bloom: 0.6, postfx: true, colorgrade: true, vfx: true, plMax: 4, shadowSize: 512 },
-  medium: { resScale: 90, shadows: true, ssao: false, reflections: true, bloom: 0.9, postfx: true, colorgrade: true, vfx: true, plMax: 7, shadowSize: 1024 },
-  high: { resScale: 100, shadows: true, ssao: true, reflections: true, bloom: 0.9, postfx: true, colorgrade: true, vfx: true, plMax: 9, shadowSize: 1024 },
+  low: { resScale: 70, shadows: false, ssao: false, reflections: false, bloom: 0.6, postfx: true, colorgrade: true, vfx: true, plMax: 4, shadowSize: 512, particles: false },
+  medium: { resScale: 90, shadows: true, ssao: false, reflections: true, bloom: 0.9, postfx: true, colorgrade: true, vfx: true, plMax: 7, shadowSize: 1024, particles: false },
+  high: { resScale: 100, shadows: true, ssao: true, reflections: true, bloom: 0.9, postfx: true, colorgrade: true, vfx: true, plMax: 9, shadowSize: 1024, particles: true },
 };
 function autoTier() { return isWebGPUBackend ? 'high' : 'medium'; } /* WebGL2 fallback => Medium (conservative); WebGPU => High. (A GPU-time probe could refine later — deferred; no low-end device to calibrate against.) */
 function applyLights() { const s = SAVE._data.settings; PL_MAX = (s.plMax != null ? s.plMax : 9); if (typeof cullLights === 'function') cullLights(); }
 function applyShadowSize() { const s = SAVE._data.settings; const sz = (s.shadowSize === 512 || s.shadowSize === 2048) ? s.shadowSize : 1024; if (moon.shadow.mapSize.width !== sz) { moon.shadow.mapSize.set(sz, sz); if (moon.shadow.map) { moon.shadow.map.dispose(); moon.shadow.map = null; } moon.shadow.needsUpdate = true; } } /* resize requires disposing the existing depth target so it regenerates */
-function applyAllGfx() { applyGraphics(); applyShadowSize(); applyLights(); if (typeof buildPipeline === 'function') buildPipeline(); applyPostFX(); applyReflections(); applyGrade(); }
+function applyAllGfx() { applyGraphics(); applyShadowSize(); applyLights(); if (typeof buildPipeline === 'function') buildPipeline(); applyPostFX(); applyReflections(); applyGrade(); if (typeof applyParticles === 'function') applyParticles(); }
 /* Resolve s.quality into concrete settings. 'auto' re-resolves by backend each boot; 'custom' leaves the
    individual settings untouched. Returns the bundle applied (or null for custom). */
 function resolveQuality() { const s = SAVE._data.settings; if (!s.quality) s.quality = 'auto'; if (s.quality === 'custom') return null; const tier = (s.quality === 'auto') ? autoTier() : s.quality; const p = QUALITY_PRESETS[tier]; if (p) Object.assign(s, p); return p || null; }
