@@ -385,8 +385,31 @@ let envTex = null;
 /* Phase 1b: assign the equirect CanvasTexture directly to scene.environment and let WebGPU's EnvironmentNode auto-PMREM it.
    This sidesteps the two-same-named-PMREMGenerator-classes ambiguity (the bare-three one is WebGL-only). Runs post-init. */
 function buildEnv() { try { const cv = document.createElement('canvas'); cv.width = 128; cv.height = 64; const c = cv.getContext('2d'); const g = c.createLinearGradient(0, 0, 0, 64); g.addColorStop(0, '#3a3220'); g.addColorStop(0.45, '#1a160e'); g.addColorStop(1, '#070503'); c.fillStyle = g; c.fillRect(0, 0, 128, 64); const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; /* Phase 2: painted sRGB gradient -> decode for correct reflection tint. */ tex.mapping = THREE.EquirectangularReflectionMapping; envTex = tex; applyReflections(); } catch (err) { console.warn('IBL env build failed; metals will use light-only shading:', err); } }
-function applyReflections() { scene.environment = (SAVE._data.settings.reflections !== false && envTex) ? envTex : null; }
+/* Region-aware: in the open-world wild zone reflections sample the loaded sky HDRI; everywhere else the dark
+   procedural canvas env (envTex). Called by buildEnv (init), the reflections settings toggle, and applyHDRI/restoreProcEnv. */
+function applyReflections() { const on = SAVE._data.settings.reflections !== false; const tex = (zone === 'wild' && curRegion && _envCache[curRegion.id]) ? _envCache[curRegion.id] : envTex; scene.environment = (on && tex) ? tex : null; }
 /* NOTE: buildEnv() runs inside the renderer.init().then(...) bootstrap (R4: PMREM/env setup is GPU-dependent). */
+
+/* ================= HDRI sky + IBL per open-world region (lazy-loaded, cached) =================
+   Real 2K Radiance maps in assets/hdri/, one per REGION. HDRLoader output is LINEAR radiance — do NOT tag it
+   sRGB (that washes the colors). Assigned straight to scene.background (skybox) + scene.environment; WebGPU's
+   EnvironmentNode auto-PMREMs it (same proven path as buildEnv, no PMREMGenerator). Only the wild zone gets a
+   sky; town/dungeon keep the dark procedural env. Intensities dial the bright sky down to fit the moody grade. */
+const REGION_HDRI = { greenwilds: 'greenwilds_alps_field_2k.hdr', frostfen: 'frostfen_frozen_lake_2k.hdr', ashlands: 'ashlands_the_sky_is_on_fire_2k.hdr' };
+const HDRI_BASE = 'assets/hdri/'; let _hdrLoader = null; const _envCache = {};
+function ensureColorBg() { if (!(scene.background && scene.background.isColor)) scene.background = new THREE.Color(0x000000); }
+function applyHDRI(tex) { scene.background = tex; scene.backgroundIntensity = 0.5; scene.environmentIntensity = 0.7; applyReflections(); }
+function restoreProcEnv() { scene.backgroundIntensity = 1; scene.environmentIntensity = 1; applyReflections(); }
+function loadRegionEnv(region) {
+  if (!region) return; const file = REGION_HDRI[region.id]; if (!file) { restoreProcEnv(); return; }
+  if (_envCache[region.id]) { applyHDRI(_envCache[region.id]); return; }
+  if (!(window.THREE && THREE.HDRLoader)) return; /* loader missing -> dark procedural env stays as fallback */
+  if (!_hdrLoader) _hdrLoader = new THREE.HDRLoader();
+  _hdrLoader.load(HDRI_BASE + file,
+    tex => { tex.mapping = THREE.EquirectangularReflectionMapping; _envCache[region.id] = tex; if (zone === 'wild' && curRegion && curRegion.id === region.id) applyHDRI(tex); },
+    undefined,
+    err => { console.warn('HDRI load fail: ' + file, err); });
+}
 
 /* ================= Phase 5: GPU-compute ambient particles (WebGPU-only, High preset) =================
    A bounded additive ambient field (drifting embers/dust) simulated in a TSL compute pass on the GPU.
@@ -958,7 +981,7 @@ function buildDungeon(depth) {
 
 /* ---- hero ---- */
 /* ===================== glTF animated roster: KayKit hero + Quaternius monsters, SkeletonUtils-cloned + AnimationMixer-driven; procedural fallback until models parse ===================== */
-const GLB_MANIFEST = {"hero":{"file":"hero.glb","bytes":2474424},"zombie":{"file":"zombie.glb","bytes":129956},"fallen":{"file":"fallen.glb","bytes":203148},"brute":{"file":"brute.glb","bytes":499836},"shaman":{"file":"shaman.glb","bytes":90632},"boss":{"file":"boss.glb","bytes":540700},"vendor":{"file":"vendor.glb","bytes":340752},"smith":{"file":"smith.glb","bytes":352692},"stash":{"file":"stash.glb","bytes":341684},"warrior":{"file":"heroes/Knight.glb","bytes":341688},"mage":{"file":"heroes/Mage.glb","bytes":352472},"rogue":{"file":"heroes/Rogue.glb","bytes":409188},"skeleton":{"file":"monsters/Skeleton_Minion.glb","bytes":318520},"imp":{"file":"monsters/Demon.gltf","bytes":1264925},"hellhound":{"file":"monsters/Dino.gltf","bytes":1211215},"wraith":{"file":"monsters/Ghost.gltf","bytes":643180}}; const GLB_BASE = 'assets/models/'; /* P3: roster extracted to external GLBs; loaded async by loadRoster */
+const GLB_MANIFEST = {"hero":{"file":"hero.glb","bytes":2474424},"zombie":{"file":"zombie.glb","bytes":129956},"fallen":{"file":"fallen.glb","bytes":203148},"brute":{"file":"brute.glb","bytes":499836},"shaman":{"file":"shaman.glb","bytes":90632},"boss":{"file":"boss.glb","bytes":540700},"vendor":{"file":"vendor.glb","bytes":340752},"smith":{"file":"smith.glb","bytes":352692},"stash":{"file":"stash.glb","bytes":341684},"warrior":{"file":"heroes/Knight.glb","bytes":341688},"mage":{"file":"heroes/Mage.glb","bytes":352472},"rogue":{"file":"heroes/Rogue.glb","bytes":409188},"skeleton":{"file":"monsters/Skeleton_Minion.glb","bytes":318520},"imp":{"file":"monsters/Demon.gltf","bytes":1264925},"hellhound":{"file":"monsters/Dino.gltf","bytes":1211215},"wraith":{"file":"monsters/Ghost.gltf","bytes":643180},"boss_mushking":{"file":"bosses/MushroomKing.gltf","bytes":1219690},"boss_bluedemon":{"file":"bosses/BlueDemon.gltf","bytes":1190068},"boss_goleling":{"file":"bosses/Goleling_Evolved.gltf","bytes":494339},"boss_mushnub":{"file":"bosses/Mushnub_Evolved.gltf","bytes":246194},"boss_dragon":{"file":"bosses/Dragon.gltf","bytes":427100},"boss_dragonevo":{"file":"bosses/Dragon_Evolved.gltf","bytes":991335}}; const GLB_BASE = 'assets/models/'; /* P3: roster extracted to external GLBs; loaded async by loadRoster */
 const ROLE_CLIPS = { hero: { idle: 'Idle', walk: 'Walking_A', run: 'Running_A', attack: '1H_Melee_Attack_Chop', death: 'Death_A' }, zombie: { idle: 'Idle', walk: 'Walk', attack: 'Bite_Front', death: 'Death', hit: 'HitRecieve' }, fallen: { idle: 'Idle', walk: 'Walk', attack: 'Bite_Front', death: 'Death', hit: 'HitRecieve' }, shaman: { idle: 'Idle', walk: 'Walk', attack: 'Bite_Front', death: 'Death', hit: 'HitRecieve' }, brute: { idle: 'Idle', walk: 'Walk', run: 'Run', attack: 'Punch', death: 'Death', hit: 'HitReact' }, boss: { idle: 'Idle', walk: 'Walk', run: 'Run', attack: 'Punch', death: 'Death', hit: 'HitReact' } };
 const ROLE_HEIGHT = { hero: 3.4, zombie: 3.2, fallen: 2.4, brute: 5.2, shaman: 3.0, boss: 8.5 };
 const ROLE_FACE = 0; /* model-forward offset so they face the player after lookAt; flip 0<->Math.PI if they face backwards (TUNABLE by eye) */
@@ -970,6 +993,12 @@ const RIG_BASE = 'assets/animations/', RIG_FILES = ['Rig_Medium_General.glb', 'R
 const _RIG_CLIPMAP = { idle: 'Idle_A', walk: 'Walking_A', run: 'Running_A', attack: 'Melee_1H_Attack_Chop', death: 'Death_A', hit: 'Hit_A' };
 Object.assign(ROLE_CLIPS, { warrior: _RIG_CLIPMAP, mage: _RIG_CLIPMAP, rogue: _RIG_CLIPMAP, skeleton: _RIG_CLIPMAP, imp: { idle: 'Idle', walk: 'Walk', run: 'Run', attack: 'Punch', death: 'Death', hit: 'HitReact' }, hellhound: { idle: 'Idle', walk: 'Walk', run: 'Run', attack: 'Punch', death: 'Death', hit: 'HitReact' }, wraith: { idle: 'Flying_Idle', walk: 'Fast_Flying', attack: 'Punch', death: 'Death', hit: 'HitReact' } });
 Object.assign(ROLE_HEIGHT, { warrior: 3.4, mage: 3.4, rogue: 3.4, skeleton: 3.0, imp: 2.4, hellhound: 2.0, wraith: 3.4 });
+/* Distinct boss roster (assets/models/bosses). Two rig families reuse clip maps already proven on the monster roster:
+   humanoid (Demon/Dino-style: Idle/Walk/Run/Punch) and flying (Ghost-style: Flying_Idle/Fast_Flying/Headbutt). Mushnub is its own. */
+const _BCLH = { idle: 'Idle', walk: 'Walk', run: 'Run', attack: 'Punch', death: 'Death', hit: 'HitReact' };
+const _BCLF = { idle: 'Flying_Idle', walk: 'Fast_Flying', attack: 'Headbutt', death: 'Death', hit: 'HitReact' };
+Object.assign(ROLE_CLIPS, { boss_mushking: _BCLH, boss_bluedemon: _BCLH, boss_goleling: _BCLF, boss_dragon: _BCLF, boss_dragonevo: _BCLF, boss_mushnub: { idle: 'Idle', walk: 'Walk', attack: 'Bite_Front', death: 'Death', hit: 'HitRecieve' } });
+Object.assign(ROLE_HEIGHT, { boss_mushking: 8.5, boss_bluedemon: 8.0, boss_goleling: 7.5, boss_mushnub: 6.5, boss_dragon: 9.5, boss_dragonevo: 12.0 });
 function curHeroRole() { return (typeof character !== 'undefined' && character && HERO_ROLE[character.class]) || 'hero'; }
 const GLB_PROTO = {}; let GLB_READY = false; const _dying = [];
 function buildGLBEntity(role, mul) {
@@ -1223,9 +1252,22 @@ function spawnPack() {
   for (let i = 0; i < 3; i++) { const a = rand(0, 6.28); const mp = { x: cx + Math.cos(a) * 5, z: cz + Math.sin(a) * 5 }; clampEntToZone(mp); spawnMonster(t, null, { x: mp.x, z: mp.z }); }
   cullLights(); showMsg('A champion appears!');
 }
-function buildBoss() {
-  if (GLB_PROTO.boss) { const _ge = buildGLBEntity('boss', 1); if (_ge) { const _bl = regLight(new THREE.PointLight(0xff3020, 2 * Math.PI, 40, 2), true); _bl.visible = false; _bl.position.y = 4; _ge.add(_bl); _ge.userData.eliteLight = _bl; return _ge; } } const g = new THREE.Group(); const sc = 3;
-  const bodyMat = new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0x8a2030, flatShading: true, map: texSkin(1, 1) });
+/* Distinct named bosses: each maps a model + a FIXED AI variant (reusing bossAI's brute/caster/summoner kits) +
+   a signature color/aura. pickBossDef rotates by depth tier so weaker forms front-load and _Evolved forms gate deep. */
+const BOSS_DEFS = [
+  { role: 'boss_mushnub',   name: 'Sporelord Myconid',      variant: 'summoner', col: 0x7ad84a, light: 0x9aff5a, minDepth: 0 },
+  { role: 'boss_bluedemon', name: 'Azurath the Profane',    variant: 'caster',   col: 0x4a8aff, light: 0x6aa0ff, minDepth: 0 },
+  { role: 'boss_mushking',  name: 'The Mycelial Throne',    variant: 'summoner', col: 0xb070ff, light: 0xc090ff, minDepth: 0 },
+  { role: 'boss_goleling',  name: 'Gravelmaw the Unbroken', variant: 'brute',    col: 0xc8a060, light: 0xe0b070, minDepth: 10 },
+  { role: 'boss_dragon',    name: 'Cinderwing',             variant: 'brute',    col: 0xff5020, light: 0xff6a30, minDepth: 15 },
+  { role: 'boss_dragonevo', name: 'Pyraxis, Elder Wyrm',    variant: 'caster',   col: 0xff3010, light: 0xff4a18, minDepth: 25 },
+];
+function pickBossDef(d) { const pool = BOSS_DEFS.filter(b => d >= (b.minDepth || 0)); if (!pool.length) return BOSS_DEFS[0]; return pool[Math.floor(d / 5) % pool.length]; }
+function buildBoss(def) {
+  def = def || BOSS_DEFS[0];
+  const _role = (def.role && GLB_PROTO[def.role]) ? def.role : (GLB_PROTO.boss ? 'boss' : null);
+  if (_role) { const _ge = buildGLBEntity(_role, def.heightMul || 1); if (_ge) { const _ac = (def.col != null ? def.col : 0xff3020); const _aura = new THREE.Mesh(_mGeo('bossaura', () => new THREE.TorusGeometry(2.6, 0.34, 8, 28)), _mMat('bossaura' + _ac, () => new THREE.MeshBasicMaterial({ color: _ac, toneMapped: false }))); _aura.rotation.x = Math.PI / 2; _aura.position.y = 0.35; _ge.add(_aura); _ge.userData.aura = _aura; const _bl = regLight(new THREE.PointLight((def.light != null ? def.light : _ac), 2.4 * Math.PI, 42, 2), true); _bl.visible = false; _bl.position.y = 4; _ge.add(_bl); _ge.userData.eliteLight = _bl; return _ge; } } const g = new THREE.Group(); const sc = 3;
+  const bodyMat = new THREE.MeshPhongMaterial({ specular: 0x000000, color: (def.col != null ? def.col : 0x8a2030), flatShading: true, map: texSkin(1, 1) });
   const dark = new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0x4a1018, flatShading: true, map: texSkin(1, 1) });
   const torso = new THREE.Mesh(new THREE.CylinderGeometry(1.0 * sc, 1.28 * sc, 2.0 * sc, 8), bodyMat); torso.position.y = 1.7 * sc; torso.castShadow = true; g.add(torso);
   const shG = new THREE.SphereGeometry(0.55 * sc, 8, 6); const shL = new THREE.Mesh(shG, dark); shL.position.set(-1.12 * sc, 2.5 * sc, 0); shL.castShadow = true; g.add(shL); const shR = new THREE.Mesh(shG, dark); shR.position.set(1.12 * sc, 2.5 * sc, 0); shR.castShadow = true; g.add(shR);
@@ -1234,13 +1276,12 @@ function buildBoss() {
   const head = new THREE.Mesh(new THREE.IcosahedronGeometry(0.62 * sc, 0), bodyMat); head.position.y = 3.0 * sc; head.castShadow = true; g.add(head);
   const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff5030 }); const eg = new THREE.SphereGeometry(0.14 * sc, 6, 6); const e1 = new THREE.Mesh(eg, eyeMat); e1.position.set(0.24 * sc, 3.05 * sc, 0.54 * sc); g.add(e1); const e2 = new THREE.Mesh(eg, eyeMat); e2.position.set(-0.24 * sc, 3.05 * sc, 0.54 * sc); g.add(e2);
   for (let i = 0; i < 4; i++) { const ang = (i - 1.5) * 0.42; const horn = new THREE.Mesh(new THREE.ConeGeometry(0.16 * sc, 1.5 * sc, 5), new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0x1a1014, flatShading: true })); horn.position.set(Math.sin(ang) * 0.55 * sc, 3.55 * sc, -0.05 * sc); horn.rotation.z = ang * 0.8; horn.rotation.x = -0.18; g.add(horn); }
-  const aura = new THREE.Mesh(new THREE.TorusGeometry(1.35 * sc, 0.3, 8, 24), new THREE.MeshBasicMaterial({ color: 0xff3020 })); aura.rotation.x = Math.PI / 2; aura.position.y = 0.4; g.add(aura); g.userData.aura = aura;
-  const lt = regLight(new THREE.PointLight(0xff3020, 2 * Math.PI, 32, 2), true); lt.visible = false; lt.position.y = 3; g.add(lt); g.userData.body = torso; g.userData.eliteLight = lt; return g;
+  const aura = new THREE.Mesh(new THREE.TorusGeometry(1.35 * sc, 0.3, 8, 24), new THREE.MeshBasicMaterial({ color: (def.col != null ? def.col : 0xff3020) })); aura.rotation.x = Math.PI / 2; aura.position.y = 0.4; g.add(aura); g.userData.aura = aura;
+  const lt = regLight(new THREE.PointLight((def.light != null ? def.light : 0xff3020), 2 * Math.PI, 32, 2), true); lt.visible = false; lt.position.y = 3; g.add(lt); g.userData.body = torso; g.userData.eliteLight = lt; return g;
 }
 function spawnBoss(d) {
-  const dm = DIFF[difficulty] || DIFF.Normal; const B = BOSS_SCALE; const hp = Math.round(B.hpBase * (1 + d * B.hpLin + Math.pow(d * B.hpQuad, 2)) * dm.hp); const cdMul = clamp(1 - d * 0.015, 0.5, 1); const mesh = buildBoss(); mesh.position.set(0, 0, -30); scene.add(mesh); cullLights();
-  const names = ['Gravewarden', 'The Flesh Tyrant', 'Maw of the Deep', 'Ashen Overlord', 'Dread Sovereign', 'The Bone Choir', 'Vermillion Hush', 'Warden of Cinders', 'The Hollow King', 'Throat of the Pit'];
-  const b = Object.assign({ type: 'boss', x: 0, z: -30, hp, hpMax: hp, r: 4.2, dmg: Math.round(B.dmgBase * (1 + d * B.dmgLin + Math.pow(d * B.dmgQuad, 2)) * dm.dmg), xp: Math.round(B.xpBase * (1 + d * B.xpLin) * dm.xp), speed: 0.07, col: 0x8a2030, scale: 3, atkCd: 0, slow: 0, flash: 0, mesh, bob: 0, elite: null, boss: true, cdMul, name: choice(names) + ' · Depth ' + d, phase: 1, boltCd: 120, slamCd: 300, summonCd: 480, variant: choice(['brute', 'caster', 'summoner']), tpCd: 240, shield: 0, shieldMul: 0.5 });
+  const dm = DIFF[difficulty] || DIFF.Normal; const B = BOSS_SCALE; const hp = Math.round(B.hpBase * (1 + d * B.hpLin + Math.pow(d * B.hpQuad, 2)) * dm.hp); const cdMul = clamp(1 - d * 0.015, 0.5, 1); const def = pickBossDef(d); const mesh = buildBoss(def); mesh.position.set(0, 0, -30); scene.add(mesh); cullLights();
+  const b = Object.assign({ type: 'boss', x: 0, z: -30, hp, hpMax: hp, r: 4.2, dmg: Math.round(B.dmgBase * (1 + d * B.dmgLin + Math.pow(d * B.dmgQuad, 2)) * dm.dmg), xp: Math.round(B.xpBase * (1 + d * B.xpLin) * dm.xp), speed: 0.07, col: def.col, scale: 3, atkCd: 0, slow: 0, flash: 0, mesh, bob: 0, elite: null, boss: true, cdMul, name: def.name + ' · Depth ' + d, phase: 1, boltCd: 120, slamCd: 300, summonCd: 480, variant: def.variant, tpCd: 240, shield: 0, shieldMul: 0.5 });
   monsters.push(b); boss = b; sfx('boss');
 }
 /* ---- depth-666 unique: the big devil + hell arena (reachable only by descending) ---- */
@@ -1551,9 +1592,9 @@ function clearField() { for (const d of _dying) removeMesh(d.g); _dying.length =
 function setZoneVisuals() {
   wildGroup.visible = zone === 'wild'; townGroup.visible = zone === 'town'; dungeonGroup.visible = zone === 'dungeon'; if (typeof markGlows === 'function') markGlows();
   /* Phase 1a relight: these per-zone overrides re-set hemi/moon/torch intensity every zone transition, so they get the same x Math.PI scale as the construction sites (otherwise zones darken to ~1/pi while the menu looks fine). */
-  if (zone === 'town') { scene.background.setHex(0x12100a); scene.fog.color.setHex(0x12100a); scene.fog.near = 70; scene.fog.far = 180; hemi.intensity = 0.6 * Math.PI; moon.intensity = 0.7 * Math.PI; if (groundMat.vertexColors) { groundMat.vertexColors = false; groundMat.needsUpdate = true; } groundMat.color.setHex(0x3a2f22); setAmbient('ember', 0xffb060); torch.intensity = 1.4 * Math.PI; torch.distance = 64; setBiomeGrade({ t: [1.06, 1.00, 0.90], v: 0.28 }); }
-  else if (zone === 'wild') { scene.background.setHex(0x0c1108); scene.fog.color.setHex(0x0c1108); scene.fog.near = 58; scene.fog.far = 168; hemi.intensity = 0.52 * Math.PI; moon.intensity = 0.75 * Math.PI; if (!groundMat.vertexColors) { groundMat.vertexColors = true; groundMat.needsUpdate = true; } groundMat.color.setHex(0xffffff); setAmbient('ember', 0x9ad86a); torch.intensity = 1.5 * Math.PI; torch.distance = 66; setBiomeGrade({ t: [0.96, 1.05, 0.95], v: 0.30 }); }
-  else { const th = curTheme || dungeonTheme(depth); const dk = clamp(0.52 - depth * 0.018, 0.34, 0.52) * Math.PI; scene.background.setHex(th.fog); scene.fog.color.setHex(th.fog); scene.fog.near = 42; scene.fog.far = clamp(150 - depth * 5, 100, 150); hemi.intensity = dk; moon.intensity = 0.34 * Math.PI; if (groundMat.vertexColors) { groundMat.vertexColors = false; groundMat.needsUpdate = true; } groundMat.color.setHex(th.ground); setAmbient(th.amb, th.ambCol); torch.intensity = clamp(2.2 + depth * 0.09, 2.2, 4.4) * Math.PI; torch.distance = clamp(76 + depth * 1.6, 76, 114); setBiomeGrade(th.grade); }
+  if (zone === 'town') { ensureColorBg(); scene.background.setHex(0x12100a); scene.fog.color.setHex(0x12100a); scene.fog.near = 70; scene.fog.far = 180; hemi.intensity = 0.6 * Math.PI; moon.intensity = 0.7 * Math.PI; if (groundMat.vertexColors) { groundMat.vertexColors = false; groundMat.needsUpdate = true; } groundMat.color.setHex(0x3a2f22); setAmbient('ember', 0xffb060); torch.intensity = 1.4 * Math.PI; torch.distance = 64; setBiomeGrade({ t: [1.06, 1.00, 0.90], v: 0.28 }); restoreProcEnv(); }
+  else if (zone === 'wild') { if (scene.background.isColor) scene.background.setHex(0x0c1108); scene.fog.color.setHex(0x0c1108); scene.fog.near = 58; scene.fog.far = 168; hemi.intensity = 0.52 * Math.PI; moon.intensity = 0.75 * Math.PI; if (!groundMat.vertexColors) { groundMat.vertexColors = true; groundMat.needsUpdate = true; } groundMat.color.setHex(0xffffff); setAmbient('ember', 0x9ad86a); torch.intensity = 1.5 * Math.PI; torch.distance = 66; setBiomeGrade({ t: [0.96, 1.05, 0.95], v: 0.30 }); loadRegionEnv(curRegion); }
+  else { const th = curTheme || dungeonTheme(depth); const dk = clamp(0.52 - depth * 0.018, 0.34, 0.52) * Math.PI; ensureColorBg(); scene.background.setHex(th.fog); scene.fog.color.setHex(th.fog); scene.fog.near = 42; scene.fog.far = clamp(150 - depth * 5, 100, 150); hemi.intensity = dk; moon.intensity = 0.34 * Math.PI; if (groundMat.vertexColors) { groundMat.vertexColors = false; groundMat.needsUpdate = true; } groundMat.color.setHex(th.ground); setAmbient(th.amb, th.ambCol); torch.intensity = clamp(2.2 + depth * 0.09, 2.2, 4.4) * Math.PI; torch.distance = clamp(76 + depth * 1.6, 76, 114); setBiomeGrade(th.grade); restoreProcEnv(); }
 }
 const AREAS = [
   { id: 'town', name: 'Aldermere', kind: 'town', tier: 0, townTheme: { ground: 0x3a2f22, fog: 0x12100a } },
@@ -1568,8 +1609,8 @@ let curRegion = REGIONS[0];
 const _fogFrom = new THREE.Color(), _fogTo = new THREE.Color(); let _fogT = 1;
 buildTown(curTownArea); // build the default town once so the title screen has scenery before any enterTown()
 function themeTown(a) { if (a && a.townTheme) { groundMat.color.setHex(a.townTheme.ground); scene.background.setHex(a.townTheme.fog); scene.fog.color.setHex(a.townTheme.fog); } }
-function themeWild() { const r = regionAt(player.x, player.z); curRegion = r; scene.background.setHex(r.fog); scene.fog.color.setHex(r.fog); setAmbient('ember', r.amb); for (const f of wildFires) { f.light.color.setHex(r.fire); f.flame.material.color.setHex(r.fire); } }
-function onRegionChange(r) { _fogFrom.copy(scene.fog.color); _fogTo.setHex(r.fog); _fogT = 0; setAmbient('ember', r.amb); for (const f of wildFires) { f.light.color.setHex(r.fire); f.flame.material.color.setHex(r.fire); } setScale(); zoneTxt.textContent = r.name + ' · Lv ' + r.lvl; showMsg(r.name); }
+function themeWild() { const r = regionAt(player.x, player.z); curRegion = r; if (scene.background.isColor) scene.background.setHex(r.fog); scene.fog.color.setHex(r.fog); setAmbient('ember', r.amb); for (const f of wildFires) { f.light.color.setHex(r.fire); f.flame.material.color.setHex(r.fire); } loadRegionEnv(r); }
+function onRegionChange(r) { _fogFrom.copy(scene.fog.color); _fogTo.setHex(r.fog); _fogT = 0; setAmbient('ember', r.amb); for (const f of wildFires) { f.light.color.setHex(r.fire); f.flame.material.color.setHex(r.fire); } setScale(); zoneTxt.textContent = r.name + ' · Lv ' + r.lvl; showMsg(r.name); loadRegionEnv(r); }
 function setScale() {
   const dm = DIFF[difficulty] || DIFF.Normal; if (zone === 'dungeon') {
     const D = DSCALE;
@@ -1675,7 +1716,7 @@ function update(dt) {
   if (running) tickStatuses(player, dt, true);
   if (zone === 'wild') {
     const r = regionAt(player.x, player.z); if (r !== curRegion) { curRegion = r; onRegionChange(r); }
-    if (_fogT < 1) { _fogT = Math.min(1, _fogT + dt / 900); scene.fog.color.copy(_fogFrom).lerp(_fogTo, _fogT); scene.background.copy(scene.fog.color); }
+    if (_fogT < 1) { _fogT = Math.min(1, _fogT + dt / 900); scene.fog.color.copy(_fogFrom).lerp(_fogTo, _fogT); if (scene.background.isColor) scene.background.copy(scene.fog.color); }
   }
 
   if (isCombat()) for (const m of monsters) {
