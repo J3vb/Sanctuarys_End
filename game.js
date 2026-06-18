@@ -958,13 +958,19 @@ function buildDungeon(depth) {
 
 /* ---- hero ---- */
 /* ===================== glTF animated roster: KayKit hero + Quaternius monsters, SkeletonUtils-cloned + AnimationMixer-driven; procedural fallback until models parse ===================== */
-const GLB_MANIFEST = {"hero":{"file":"hero.glb","bytes":2474424},"zombie":{"file":"zombie.glb","bytes":129956},"fallen":{"file":"fallen.glb","bytes":203148},"brute":{"file":"brute.glb","bytes":499836},"shaman":{"file":"shaman.glb","bytes":90632},"boss":{"file":"boss.glb","bytes":540700},"vendor":{"file":"vendor.glb","bytes":340752},"smith":{"file":"smith.glb","bytes":352692},"stash":{"file":"stash.glb","bytes":341684}}; const GLB_BASE = 'assets/models/'; /* P3: roster extracted to external GLBs; loaded async by loadRoster */
+const GLB_MANIFEST = {"hero":{"file":"hero.glb","bytes":2474424},"zombie":{"file":"zombie.glb","bytes":129956},"fallen":{"file":"fallen.glb","bytes":203148},"brute":{"file":"brute.glb","bytes":499836},"shaman":{"file":"shaman.glb","bytes":90632},"boss":{"file":"boss.glb","bytes":540700},"vendor":{"file":"vendor.glb","bytes":340752},"smith":{"file":"smith.glb","bytes":352692},"stash":{"file":"stash.glb","bytes":341684},"warrior":{"file":"heroes/Knight.glb","bytes":341688},"mage":{"file":"heroes/Mage.glb","bytes":352472},"rogue":{"file":"heroes/Rogue.glb","bytes":409188},"skeleton":{"file":"monsters/Skeleton_Minion.glb","bytes":318520},"imp":{"file":"monsters/Demon.gltf","bytes":1264925},"hellhound":{"file":"monsters/Dino.gltf","bytes":1211215},"wraith":{"file":"monsters/Ghost.gltf","bytes":643180}}; const GLB_BASE = 'assets/models/'; /* P3: roster extracted to external GLBs; loaded async by loadRoster */
 const ROLE_CLIPS = { hero: { idle: 'Idle', walk: 'Walking_A', run: 'Running_A', attack: '1H_Melee_Attack_Chop', death: 'Death_A' }, zombie: { idle: 'Idle', walk: 'Walk', attack: 'Bite_Front', death: 'Death', hit: 'HitRecieve' }, fallen: { idle: 'Idle', walk: 'Walk', attack: 'Bite_Front', death: 'Death', hit: 'HitRecieve' }, shaman: { idle: 'Idle', walk: 'Walk', attack: 'Bite_Front', death: 'Death', hit: 'HitRecieve' }, brute: { idle: 'Idle', walk: 'Walk', run: 'Run', attack: 'Punch', death: 'Death', hit: 'HitReact' }, boss: { idle: 'Idle', walk: 'Walk', run: 'Run', attack: 'Punch', death: 'Death', hit: 'HitReact' } };
 const ROLE_HEIGHT = { hero: 3.4, zombie: 3.2, fallen: 2.4, brute: 5.2, shaman: 3.0, boss: 8.5 };
 const ROLE_FACE = 0; /* model-forward offset so they face the player after lookAt; flip 0<->Math.PI if they face backwards (TUNABLE by eye) */
 const NPC_KINDS = new Set(['vendor', 'smith', 'stash']);
 Object.assign(ROLE_CLIPS, { vendor: { idle: 'Idle' }, smith: { idle: 'Idle' }, stash: { idle: 'Idle' } });
 Object.assign(ROLE_HEIGHT, { vendor: 3.2, smith: 3.4, stash: 3.2 });
+/* Per-class hero meshes + extra monster variety. KayKit chars (warrior/mage/rogue/skeleton) ship 0 clips -> borrow the shared Rig_Medium set (verified 100% bone-name match). Quaternius monsters carry their own clips. */
+const RIG_BASE = 'assets/animations/', RIG_FILES = ['Rig_Medium_General.glb', 'Rig_Medium_MovementBasic.glb', 'Rig_Medium_CombatMelee.glb']; const KAYKIT_RIG_CLIPS = []; const RIG_ROLES = new Set(['warrior', 'mage', 'rogue', 'skeleton']); const HERO_ROLE = { warrior: 'warrior', mage: 'mage', rogue: 'rogue' };
+const _RIG_CLIPMAP = { idle: 'Idle_A', walk: 'Walking_A', run: 'Running_A', attack: 'Melee_1H_Attack_Chop', death: 'Death_A', hit: 'Hit_A' };
+Object.assign(ROLE_CLIPS, { warrior: _RIG_CLIPMAP, mage: _RIG_CLIPMAP, rogue: _RIG_CLIPMAP, skeleton: _RIG_CLIPMAP, imp: { idle: 'Idle', walk: 'Walk', run: 'Run', attack: 'Punch', death: 'Death', hit: 'HitReact' }, hellhound: { idle: 'Idle', walk: 'Walk', run: 'Run', attack: 'Punch', death: 'Death', hit: 'HitReact' }, wraith: { idle: 'Flying_Idle', walk: 'Fast_Flying', attack: 'Punch', death: 'Death', hit: 'HitReact' } });
+Object.assign(ROLE_HEIGHT, { warrior: 3.4, mage: 3.4, rogue: 3.4, skeleton: 3.0, imp: 2.4, hellhound: 2.0, wraith: 3.4 });
+function curHeroRole() { return (typeof character !== 'undefined' && character && HERO_ROLE[character.class]) || 'hero'; }
 const GLB_PROTO = {}; let GLB_READY = false; const _dying = [];
 function buildGLBEntity(role, mul) {
   mul = mul || 1; const p = GLB_PROTO[role]; if (!p || !(window.THREE && THREE.SkeletonUtils)) return null;
@@ -978,29 +984,38 @@ function buildGLBEntity(role, mul) {
 function glbPlay(g, key, once) { const acts = g.userData && g.userData.actions; if (!acts) return; const a = acts[key]; if (!a || g.userData.cur === a) return; if (g.userData.cur) g.userData.cur.fadeOut(0.15); a.reset(); a.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, once ? 1 : Infinity); a.clampWhenFinished = !!once; a.fadeIn(0.15).play(); g.userData.cur = a; }
 function killMesh(m) { const g = m.mesh, ud = g && g.userData; if (ud && ud.glb && ud.actions && ud.actions.death) { glbPlay(g, 'death', true); _dying.push({ g, t: 1400 }); } else removeMob(g); }
 function swapNPCsToGLB(kind) { if (!GLB_PROTO[kind] || typeof npcs === 'undefined') return; for (const n of npcs) { if (n.kind !== kind) continue; const ent = buildGLBEntity(kind, 1); if (!ent) continue; if (n.group.userData.procBody) n.group.userData.procBody.visible = false; n.group.add(ent); n.group.userData.npcEnt = ent; glbPlay(ent, 'idle'); } }
-function swapHeroToGLB() { if (!GLB_PROTO.hero || typeof hero === 'undefined' || !hero) return; const ent = buildGLBEntity('hero', 1); if (!ent) return; hero.children.forEach(c => c.visible = false); hero.add(ent); hero.userData.mixer = ent.userData.mixer; hero.userData.actions = ent.userData.actions; hero.userData.model = ent.userData.model; hero.userData.glb = true; hero.userData.sword = null; glbPlay(hero, 'idle'); }
+function swapHeroToGLB() { if (typeof hero === 'undefined' || !hero) return; let role = curHeroRole(); if (!GLB_PROTO[role]) role = 'hero'; if (!GLB_PROTO[role]) return; const ent = buildGLBEntity(role, 1); if (!ent) return; hero.children.forEach(c => c.visible = false); hero.add(ent); hero.userData.mixer = ent.userData.mixer; hero.userData.actions = ent.userData.actions; hero.userData.model = ent.userData.model; hero.userData.glb = true; hero.userData.glbRole = role; hero.userData.sword = null; glbPlay(hero, 'idle'); }
 function loadRoster() {
   if (!(window.THREE && THREE.GLTFLoader && THREE.SkeletonUtils)) { console.warn('glTF roster: GLTFLoader/SkeletonUtils missing -> procedural models'); return; }
   const loader = new THREE.GLTFLoader();
-  const roles = Object.keys(GLB_MANIFEST), totalBytes = roles.reduce((a, r) => a + GLB_MANIFEST[r].bytes, 0);
-  const got = {}; let pending = roles.length;
-  const fill = document.getElementById('modelfill'), barBox = document.getElementById('modelload');
-  if (barBox) barBox.style.display = 'block';
-  function progress() { if (!fill) return; let sum = 0; for (const r in got) sum += got[r]; fill.style.width = Math.min(100, (sum / totalBytes) * 100).toFixed(1) + '%'; }
-  function done() { if (--pending <= 0) { GLB_READY = true; console.log('glTF roster loaded'); if (barBox) barBox.style.display = 'none'; } }
-  for (const role of roles) {
-    const m = GLB_MANIFEST[role];
-    loader.load(GLB_BASE + m.file,
-      gltf => {
-        const sc = gltf.scene, bb = new THREE.Box3().setFromObject(sc), sz = new THREE.Vector3(); bb.getSize(sz); const scale = (ROLE_HEIGHT[role] || 3) / (sz.y || 1);
-        GLB_PROTO[role] = { scene: sc, clips: gltf.animations || [], scale, yOff: -bb.min.y * scale };
-        if (role === 'hero') swapHeroToGLB(); else if (NPC_KINDS.has(role)) swapNPCsToGLB(role);
-        got[role] = m.bytes; progress(); done();
-      },
-      e => { if (e && e.lengthComputable) { got[role] = Math.min(e.loaded, m.bytes); progress(); } },
-      err => { console.warn('glTF load fail: ' + role, err); got[role] = m.bytes; progress(); done(); }
-    );
+  function startModels() {
+    const roles = Object.keys(GLB_MANIFEST), totalBytes = roles.reduce((a, r) => a + GLB_MANIFEST[r].bytes, 0);
+    const got = {}; let pending = roles.length;
+    const fill = document.getElementById('modelfill'), barBox = document.getElementById('modelload');
+    if (barBox) barBox.style.display = 'block';
+    function progress() { if (!fill) return; let sum = 0; for (const r in got) sum += got[r]; fill.style.width = Math.min(100, (sum / totalBytes) * 100).toFixed(1) + '%'; }
+    function done() { if (--pending <= 0) { GLB_READY = true; console.log('glTF roster loaded'); if (barBox) barBox.style.display = 'none'; } }
+    for (const role of roles) {
+      const m = GLB_MANIFEST[role];
+      loader.load(GLB_BASE + m.file,
+        gltf => {
+          const sc = gltf.scene, bb = new THREE.Box3().setFromObject(sc), sz = new THREE.Vector3(); bb.getSize(sz); const scale = (ROLE_HEIGHT[role] || 3) / (sz.y || 1);
+          GLB_PROTO[role] = { scene: sc, clips: RIG_ROLES.has(role) ? KAYKIT_RIG_CLIPS : (gltf.animations || []), scale, yOff: -bb.min.y * scale };
+          if (role === 'hero' || role === curHeroRole()) swapHeroToGLB(); else if (NPC_KINDS.has(role)) swapNPCsToGLB(role);
+          got[role] = m.bytes; progress(); done();
+        },
+        e => { if (e && e.lengthComputable) { got[role] = Math.min(e.loaded, m.bytes); progress(); } },
+        err => { console.warn('glTF load fail: ' + role, err); got[role] = m.bytes; progress(); done(); }
+      );
+    }
   }
+  /* KayKit character meshes ship 0 clips -> load the shared Rig_Medium set FIRST, then the models (rig-driven roles reference KAYKIT_RIG_CLIPS, populated by now). Models still load if a rig fetch fails; those roles just stay static. */
+  let rigPending = RIG_FILES.length; if (!rigPending) startModels();
+  RIG_FILES.forEach(fn => loader.load(RIG_BASE + fn,
+    gltf => { for (const c of (gltf.animations || [])) KAYKIT_RIG_CLIPS.push(c); if (--rigPending <= 0) startModels(); },
+    undefined,
+    err => { console.warn('rig clips load fail: ' + fn, err); if (--rigPending <= 0) startModels(); }
+  ));
 }
 function buildHero() {
   const g = new THREE.Group();
@@ -2125,6 +2140,7 @@ function enterGame() {
   recompute(); syncActives(); player.hp = player.hpMax; player.mp = player.mpMax;
   charName.textContent = character.name; lvlNum.textContent = player.level; killsTxt.textContent = 'Slain: ' + player.kills; goldTxt.textContent = player.gold + ' g';
   hero.userData.cloak.material.color.setHex((CLASSES[character.class] || CLASSES.warrior).col);
+  swapHeroToGLB(); /* re-pick hero mesh by class — roster loaded on the title screen before a class was chosen, so the per-class swap must fire again here */
   show(null); setHud(true); renderSkillbar(); const _si = character.activeSkillId ? visibleActives.indexOf(character.activeSkillId) : -1; activeSkill = _si >= 0 ? _si : 0; renderSkillbar(); updateGlobes(); updatePips(); saveTimer = 8000; enterTown(); applyGraphics(); running = true; last = now(); loop();
   Audio2.init(); Audio2.muted = SAVE._data.settings.muted; applySettings(); document.getElementById('soundBtn').textContent = Audio2.muted ? '🔇' : '🔊'; if (!Audio2.muted) MUSIC.start();
   try { if (!localStorage.getItem('sanctuary_helpseen')) { openHelp(); localStorage.setItem('sanctuary_helpseen', '1'); } } catch (_) { }
