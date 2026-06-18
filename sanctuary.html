@@ -61,6 +61,9 @@
   .btn.small{padding:8px 20px;font-size:14px;margin-top:6px;}
   .hint{color:#6a5a44;font-size:12px;margin-top:18px;max-width:480px;text-align:center;line-height:1.7;}
   #loading{color:#9a8a6a;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:30;font-size:18px;}
+  #modelload{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);z-index:31;text-align:center;color:#9a8a6a;font:11px monospace;display:none;pointer-events:none;}
+  #modelload .bar{width:240px;height:5px;margin-top:4px;background:rgba(0,0,0,.55);border:1px solid #2a2418;border-radius:3px;overflow:hidden;}
+  #modelfill{display:block;height:100%;width:0;background:#9a8a6a;transition:width .15s;}
   #slots{display:flex;flex-direction:column;gap:12px;width:440px;margin-top:8px;}
   .slot{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;background:rgba(30,22,14,.85);border:2px solid #3a2e22;border-radius:8px;cursor:pointer;}
   .slot:hover{border-color:#6a4a28;background:rgba(46,34,22,.9);}
@@ -404,6 +407,7 @@
   <button class="btn small" id="helpGo" style="margin-top:16px">Got it</button>
 </div>
 <div id="loading">Summoning the world…</div>
+<div id="modelload">Loading models…<div class="bar"><i id="modelfill"></i></div></div>
 
 <div id="selectScreen" class="screen" style="display:none">
   <h1>SANCTUARY'S END</h1><h2>Choose Your Hero</h2>
