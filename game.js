@@ -51,6 +51,15 @@ let shake = 0;
 const SLOTS = ['weapon', 'helm', 'armor', 'gloves', 'boots', 'ring', 'amulet'];
 const SLOT_ICON = { weapon: '⚔️', helm: '🪖', armor: '🛡️', gloves: '🧤', boots: '🥾', ring: '💍', amulet: '📿' };
 const BASE_NAMES = { weapon: ['Sword', 'Axe', 'Mace', 'Dagger', 'Blade', 'War Hammer', 'Cleaver', 'Scimitar', 'Flail', 'Glaive'], helm: ['Cap', 'Helm', 'Hood', 'Crown', 'Visor', 'Barbute', 'Sallet'], armor: ['Tunic', 'Mail', 'Plate', 'Robe', 'Cuirass', 'Brigandine', 'Hauberk'], gloves: ['Gloves', 'Gauntlets', 'Grips', 'Vambraces'], boots: ['Boots', 'Greaves', 'Sabatons', 'Treads'], ring: ['Ring', 'Band', 'Signet', 'Loop'], amulet: ['Amulet', 'Pendant', 'Talisman', 'Charm'] };
+/* Class-flavored weapon base names (cosmetic only — base does not affect stats; baseStat comes from ilvl/rarity).
+   Lets the visible weapon model be loot-driven for every class: mages roll caster bases, rogues ranged, warriors melee. */
+const WEAPON_BASES = {
+  melee: ['Sword', 'Axe', 'Mace', 'Dagger', 'Blade', 'War Hammer', 'Cleaver', 'Scimitar', 'Flail', 'Glaive'],
+  caster: ['Staff', 'Wand', 'Scepter', 'Rod', 'Spire', 'Branch'],
+  ranged: ['Bow', 'Crossbow', 'Longbow', 'Shortbow', 'Recurve', 'Hunting Bow'],
+};
+const CLASS_WEAPON_FAMILY = { warrior: 'melee', mage: 'caster', rogue: 'ranged' };
+function pickWeaponBase() { return choice(WEAPON_BASES[CLASS_WEAPON_FAMILY[(typeof character !== 'undefined' && character && character.class)] || 'melee']); }
 const PREFIX = ['Sturdy', 'Cruel', 'Vicious', 'Glowing', 'Ancient', 'Savage', 'Blessed', 'Howling', 'Grim', 'Radiant'];
 const SUFFIX = ['of the Bear', 'of Flames', 'of Vigor', 'of the Fox', 'of Power', 'of the Owl', 'of Warding', 'of Fury', 'of the Wolf', 'of Doom'];
 const AFFIXES = {
@@ -111,7 +120,7 @@ function depthQuality() { const d = (typeof depth === 'number' ? depth : 0); ret
 function luckyRarity(bonus) { let r = rollRarity(); const p = Math.min(0.8, (lootLuck || 0) + (bonus || 0)); if (p > 0) { if (Math.random() < p) r = bumpRarity(r, 1); if (Math.random() < p * 0.35) r = bumpRarity(r, 1); } return r; }
 function buildUnique(def, ilvl) { const a = {}; for (const k in def.affixes) a[k] = def.affixes[k]; return { id: _itemId++, slot: def.slot, rarity: 'unique', ilvl, base: def.name, baseStat: def.base ? Math.round(def.base + ilvl * 0.8) : 0, affixes: a, effect: def.effect, effVal: def.effVal, effectDesc: def.desc, upgrade: 0, name: '\u2726 ' + def.name }; }
 function buildSetItem(sid, slot, ilvl) {
-  const sd = SET_DEFS[sid]; const base = choice(BASE_NAMES[slot]);
+  const sd = SET_DEFS[sid]; const base = (slot === 'weapon') ? pickWeaponBase() : choice(BASE_NAMES[slot]);
   const item = { id: _itemId++, slot, rarity: 'set', ilvl, base, affixes: {}, baseStat: baseStatRoll(slot, ilvl, 'set'), set: sid, upgrade: 0, name: sd.name + ' ' + base };
   const pool = [...AFFIX_KEYS]; const [lo, hi] = RARITY_AFFIX.set; const cnt = randi(lo, hi); for (let i = 0; i < cnt; i++) { const k = pool.splice(randi(0, pool.length - 1), 1)[0]; item.affixes[k] = affixRoll(k, ilvl, 'set'); } return item;
 }
@@ -119,7 +128,7 @@ function rollItem(ilvl, forceSlot, quality) {
   const slot = forceSlot || choice(SLOTS); let rarity = luckyRarity(depthQuality() + (quality || 0));
   if (rarity === 'unique') { const opts = UNIQUE_DEFS.filter(u => u.slot === slot); if (opts.length) return buildUnique(choice(opts), ilvl); rarity = 'rare'; }
   if (rarity === 'set') { const setOpts = []; for (const sid in SET_DEFS) { if (SET_DEFS[sid].pieces.includes(slot)) setOpts.push(sid); } if (setOpts.length) return buildSetItem(choice(setOpts), slot, ilvl); rarity = 'rare'; }
-  const base = choice(BASE_NAMES[slot]);
+  const base = (slot === 'weapon') ? pickWeaponBase() : choice(BASE_NAMES[slot]);
   const item = { id: _itemId++, slot, rarity, ilvl, base, affixes: {}, baseStat: baseStatRoll(slot, ilvl, rarity), upgrade: 0 };
   const [lo, hi] = RARITY_AFFIX[rarity]; const count = randi(lo, hi); const pool = [...AFFIX_KEYS];
   for (let i = 0; i < count; i++) { if (!pool.length) break; const k = pool.splice(randi(0, pool.length - 1), 1)[0]; item.affixes[k] = affixRoll(k, ilvl, rarity); }
@@ -1013,7 +1022,43 @@ function buildGLBEntity(role, mul) {
 function glbPlay(g, key, once) { const acts = g.userData && g.userData.actions; if (!acts) return; const a = acts[key]; if (!a || g.userData.cur === a) return; if (g.userData.cur) g.userData.cur.fadeOut(0.15); a.reset(); a.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, once ? 1 : Infinity); a.clampWhenFinished = !!once; a.fadeIn(0.15).play(); g.userData.cur = a; }
 function killMesh(m) { const g = m.mesh, ud = g && g.userData; if (ud && ud.glb && ud.actions && ud.actions.death) { glbPlay(g, 'death', true); _dying.push({ g, t: 1400 }); } else removeMob(g); }
 function swapNPCsToGLB(kind) { if (!GLB_PROTO[kind] || typeof npcs === 'undefined') return; for (const n of npcs) { if (n.kind !== kind) continue; const ent = buildGLBEntity(kind, 1); if (!ent) continue; if (n.group.userData.procBody) n.group.userData.procBody.visible = false; n.group.add(ent); n.group.userData.npcEnt = ent; glbPlay(ent, 'idle'); } }
-function swapHeroToGLB() { if (typeof hero === 'undefined' || !hero) return; let role = curHeroRole(); if (!GLB_PROTO[role]) role = 'hero'; if (!GLB_PROTO[role]) return; const ent = buildGLBEntity(role, 1); if (!ent) return; hero.children.forEach(c => c.visible = false); hero.add(ent); hero.userData.mixer = ent.userData.mixer; hero.userData.actions = ent.userData.actions; hero.userData.model = ent.userData.model; hero.userData.glb = true; hero.userData.glbRole = role; hero.userData.sword = null; glbPlay(hero, 'idle'); }
+/* ===================== hero weapon: static KayKit weapon GLB parented to the rig's handslot.r bone =====================
+   Loot-driven model (item.base -> WEAPON_MODEL), class default for uniques/unarmed. Loaded at NATIVE scale via a dedicated
+   cache (NOT GLB_MANIFEST, which height-normalizes). The attack animation swings the arm, so the bone-parented weapon follows. */
+const WEAPON_BASE_PATH = 'assets/models/weapons/';
+const WEAPON_FILES = { sword1h: 'sword_1handed.gltf', sword2h: 'sword_2handed.gltf', axe1h: 'axe_1handed.gltf', axe2h: 'axe_2handed.gltf', dagger: 'dagger.gltf', staff: 'staff.gltf', wand: 'wand.gltf', bow: 'bow.gltf', crossbow: 'crossbow_1handed.gltf' };
+const WEAPON_MODEL = { Sword: 'sword1h', Blade: 'sword1h', Scimitar: 'sword1h', Glaive: 'sword2h', Axe: 'axe1h', Cleaver: 'axe1h', Mace: 'axe2h', 'War Hammer': 'axe2h', Flail: 'axe2h', Dagger: 'dagger', Staff: 'staff', Spire: 'staff', Branch: 'staff', Scepter: 'wand', Rod: 'wand', Wand: 'wand', Bow: 'bow', Longbow: 'bow', Shortbow: 'bow', Recurve: 'bow', 'Hunting Bow': 'bow', Crossbow: 'crossbow' };
+const WEAPON_CLASS_DEFAULT = { warrior: 'sword1h', mage: 'staff', rogue: 'bow' };
+/* per-model mount offset in the handslot.r bone's local space — TUNE BY EYE (start identity; bow/staff/crossbow likely need rot) */
+const WEAPON_FIX = { _default: { pos: [0, 0, 0], rot: [0, 0, 0], scale: 1 } };
+const _weaponCache = {}; let _wLoader = null;
+function loadWeaponProto(key, cb) {
+  const file = WEAPON_FILES[key]; if (!file) return;
+  if (_weaponCache[key]) { cb(_weaponCache[key]); return; }
+  if (!(window.THREE && THREE.GLTFLoader)) return;
+  if (!_wLoader) _wLoader = new THREE.GLTFLoader();
+  _wLoader.load(WEAPON_BASE_PATH + file, gltf => { _weaponCache[key] = gltf.scene; cb(gltf.scene); }, undefined, err => console.warn('weapon load fail: ' + file, err));
+}
+function pickWeaponKey() {
+  const w = (typeof character !== 'undefined' && character && character.equipment) ? character.equipment.weapon : null;
+  if (w && w.base && WEAPON_MODEL[w.base]) return WEAPON_MODEL[w.base];
+  return WEAPON_CLASS_DEFAULT[(typeof character !== 'undefined' && character && character.class)] || 'sword1h';
+}
+function attachHeroWeapon() {
+  if (typeof hero === 'undefined' || !hero || !hero.userData.glb) return; /* procedural hero keeps its userData.sword */
+  const model = hero.userData.model; if (!model) return;
+  const bone = model.getObjectByName('handslotr') || model.getObjectByName('handr'); if (!bone) return; /* GLTFLoader strips dots: handslot.r -> handslotr (child of handr->wristr->arm, so it tracks the attack swing) */
+  if (hero.userData.weaponMesh) { bone.remove(hero.userData.weaponMesh); hero.userData.weaponMesh = null; } /* cached proto -> no dispose */
+  const key = pickWeaponKey(); const tok = (hero.userData._wtok = (hero.userData._wtok || 0) + 1);
+  loadWeaponProto(key, scene => {
+    if (hero.userData._wtok !== tok || !hero.userData.glb) return; /* class/weapon changed mid-load */
+    const w = scene.clone(true); const f = WEAPON_FIX[key] || WEAPON_FIX._default;
+    w.position.fromArray(f.pos); w.rotation.fromArray(f.rot); w.scale.setScalar(f.scale != null ? f.scale : 1);
+    w.traverse(o => { if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; } });
+    bone.add(w); hero.userData.weaponMesh = w;
+  });
+}
+function swapHeroToGLB() { if (typeof hero === 'undefined' || !hero) return; let role = curHeroRole(); if (!GLB_PROTO[role]) role = 'hero'; if (!GLB_PROTO[role]) return; const ent = buildGLBEntity(role, 1); if (!ent) return; hero.children.forEach(c => c.visible = false); hero.add(ent); hero.userData.mixer = ent.userData.mixer; hero.userData.actions = ent.userData.actions; hero.userData.model = ent.userData.model; hero.userData.glb = true; hero.userData.glbRole = role; hero.userData.sword = null; glbPlay(hero, 'idle'); attachHeroWeapon(); }
 function loadRoster() {
   if (!(window.THREE && THREE.GLTFLoader && THREE.SkeletonUtils)) { console.warn('glTF roster: GLTFLoader/SkeletonUtils missing -> procedural models'); return; }
   const loader = new THREE.GLTFLoader();
@@ -2046,8 +2091,8 @@ function renderInv() {
   document.getElementById('charStats').innerHTML = `<b>${character.name}</b> · Level ${player.level}<br>Damage <b>${player.dmg}</b> &nbsp; Crit <b>${(player.crit * 100).toFixed(0)}%</b> &nbsp; Atk Spd <b>${(1000 / player.attackRate).toFixed(2)}/s</b><br>Life <b>${player.hpMax}</b> &nbsp; Mana <b>${player.mpMax}</b> &nbsp; Armor <b>${player.armor}</b><br>${sline('str', 'STR')} ${sline('dex', 'DEX')} ${sline('vit', 'VIT')} ${sline('eng', 'ENG')}<span style="color:#8a7a5a">All stats now come from the skill forest (K)</span>`;
   const ig = document.getElementById('invGrid'); ig.innerHTML = ''; for (let i = 0; i < character.invMax; i++) { const it = character.inventory[i]; const c = document.createElement('div'); c.className = 'cell' + (it ? ' r-' + it.rarity : ''); if (it) { const up = itemScore(it) > itemScore(character.equipment[it.slot]); c.innerHTML = (up ? '<span class="upg">▲</span>' : '') + SLOT_ICON[it.slot]; if (up) c.classList.add('isupg'); bindTip(c, it); c.onclick = () => equipFromInv(i); } ig.appendChild(c); }
 }
-function equipFromInv(i) { const it = character.inventory[i]; if (!it) return; const prev = character.equipment[it.slot]; character.equipment[it.slot] = it; character.inventory.splice(i, 1); if (prev) character.inventory.push(prev); recompute(); renderInv(); tooltip.style.display = 'none'; saveProgress(false); }
-function unequip(s) { const it = character.equipment[s]; if (!it) return; if (character.inventory.length >= character.invMax) { showMsg('Bag full'); return; } character.inventory.push(it); character.equipment[s] = null; recompute(); renderInv(); tooltip.style.display = 'none'; saveProgress(false); }
+function equipFromInv(i) { const it = character.inventory[i]; if (!it) return; const prev = character.equipment[it.slot]; character.equipment[it.slot] = it; character.inventory.splice(i, 1); if (prev) character.inventory.push(prev); recompute(); attachHeroWeapon(); renderInv(); tooltip.style.display = 'none'; saveProgress(false); }
+function unequip(s) { const it = character.equipment[s]; if (!it) return; if (character.inventory.length >= character.invMax) { showMsg('Bag full'); return; } character.inventory.push(it); character.equipment[s] = null; recompute(); attachHeroWeapon(); renderInv(); tooltip.style.display = 'none'; saveProgress(false); }
 let ptT = { x: 0, y: 0, s: 1 };
 const PT_NAMES = { str: 'Strength', dex: 'Dexterity', vit: 'Vitality', eng: 'Energy', hp: 'Life', mp: 'Mana', dmg: 'Damage', armor: 'Armor', crit: 'Crit Chance', meleePct: '% Melee Damage', spellPct: '% Spell Damage', armorPct: '% Armor', hpPct: '% Life', allskills: 'to All Skills', pierce: 'Pierce', lifesteal: 'Life Leech', movespeed: '% Move Speed', thorns: 'Thorns' };
 function ptNote() { document.getElementById('skillPtsNote').textContent = character.skillPoints + ' point' + (character.skillPoints === 1 ? '' : 's') + ' to spend · drag to pan · scroll to zoom'; }
