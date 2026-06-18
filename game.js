@@ -288,7 +288,7 @@ const _forceWebGL = /[?&]forceWebGL=1\b/.test(location.search);
 const _perf = /[?&]perf(test)?=1\b/.test(location.search); /* Phase 0 rig: ?perf=1 (or ?perftest=1) turns on GPU-timestamp tracking + the perf HUD. Off in normal play — timestamp queries add a little GPU overhead, so don't pay it unless measuring. */
 const _perftest = /[?&]perftest=1\b/.test(location.search); /* ?perftest=1 also seeds RNG (top of file) + exposes window.perfRun() — the deterministic scripted measurement harness. */
 const renderer = new THREE.WebGPURenderer({ powerPreference: 'high-performance', forceWebGL: _forceWebGL, trackTimestamp: _perf }); renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
-renderer.outputColorSpace = THREE.LinearSRGBColorSpace; /* Path A (preserved in 1b): reproduce r128 default (linear) output; ColorManagement disabled in shim so the palette stays pixel-faithful. renderOutput() reads this so it does NOT re-impose sRGB. */
+renderer.outputColorSpace = THREE.SRGBColorSpace; /* Phase 2: managed color (sRGB output). ColorManagement enabled in shim; renderOutput() reads this and applies the linear->sRGB encode (single transform; post.outputColorTransform stays false so it isn't double-applied). */
 renderer.setSize(innerWidth, innerHeight); renderer.shadowMap.enabled = (SAVE._data.settings.shadows !== false); renderer.shadowMap.type = THREE.PCFShadowMap; /* Phase 1b: WebGPURenderer.shadowMap is only {enabled,transmitted,type} - no autoUpdate/needsUpdate. The autoUpdate=false write moves to moon.shadow.autoUpdate after moon is created (avoids a TDZ ReferenceError - moon is a const below); per-frame needsUpdate writes route to moon.shadow.needsUpdate. */
 let isWebGPUBackend = false; /* set once, post-init, in the renderer.init() bootstrap; gates backend-conditional behavior (e.g. AO default-OFF on the WebGL2 fallback). */
 renderer.domElement.id = 'game'; document.getElementById('app').appendChild(renderer.domElement);
@@ -308,13 +308,14 @@ function applyGraphics() { const s = SAVE._data.settings; const pr = clamp((devi
      ldr = renderOutput(...)                               (ACES tone map + colorspace; reads renderer.toneMapping/exposure/outputColorSpace)
      graded = gradeVignette(ldr)                           (hand-ported _GRADE_SHADER on LDR; contrast pivot 0.5 + max(col,0) vignette)
      [+ smaa(graded)]                                      (AA on final LDR)
-   post.outputColorTransform=false because renderOutput() applies the transform ourselves (Path A: outputColorSpace stays
-   LinearSRGBColorSpace, so renderOutput does NOT re-impose sRGB - palette stays pixel-faithful to 1a). */
+   post.outputColorTransform=false because renderOutput() applies the transform ourselves (Phase 2: outputColorSpace is
+   SRGBColorSpace, so renderOutput applies ACES tone map + the linear->sRGB encode exactly once). */
 let post = null; /* THREE.RenderPipeline; null until buildPipeline() runs post-init (or if build fails -> plain render fallback). */
 let bloomPass = null; /* live BloomNode (strength/threshold/radius are uniform nodes). */
 /* live grade uniforms (TSL): per-biome tint (vec3), vignette amount (float), and a 0/1 enable for the colorgrade toggle. */
 const _uGradeTint = TSL.uniform(new THREE.Vector3(1, 1, 1)); const _uGradeVig = TSL.uniform(0.28); const _uGradeOn = TSL.uniform(1);
 const _GRADE_CONTRAST = 1.06; /* matches the old _GRADE_SHADER gradeContrast literal. */
+const MANAGED_EXPO = 1.8; /* Phase 2: managed color applies the proper linear->sRGB output encode (Path A skipped it, over-brightening the frame); the existing light rig was tuned for that over-bright output, so the color-managed frame renders ~half as bright. This code-side base lifts it back to a playable level. Kept SEPARATE from the user exposure setting so it reaches every save (incl. ones that already persisted exposure:1.0) and the slider stays a relative trim around the designed look. */
 let _gTint = [1, 1, 1], _gVig = 0.28;
 /* hand-ported _GRADE_SHADER as a TSL Fn: multiply tint, contrast pivot at 0.5, screen-space vignette = clamp(1 - vig*dot(d,d)*2.2). */
 function _gradeVignette(ldr) {
@@ -358,7 +359,7 @@ function buildPipeline() {
     }
     bloomPass = THREE.bloom(beauty, (s.bloom != null ? s.bloom : 0.9), 0.5, 0.72); /* strength, radius, threshold (matches 1a UnrealBloom 0.9/0.5/0.72). */
     const hdr = beauty.add(bloomPass);
-    let outNode = T.renderOutput(hdr); /* null toneMapping/colorSpace -> reads renderer.toneMapping/exposure + outputColorSpace (Path A linear). */
+    let outNode = T.renderOutput(hdr); /* null toneMapping/colorSpace -> reads renderer.toneMapping/exposure + outputColorSpace (Phase 2: SRGBColorSpace -> ACES + sRGB encode). */
     outNode = _gradeVignette(outNode);
     if (THREE.smaa) { try { outNode = THREE.smaa(outNode); } catch (e) { console.warn('SMAA wiring skipped:', e && e.message); } }
     post.outputNode = outNode; applyGrade(); applyGradeUniforms();
@@ -369,7 +370,7 @@ function applySSAO() { buildPipeline(); } /* structural: rebuild to include/excl
 function postOn() { return SAVE._data.settings.postfx !== false && !!post; } /* re-gated on the RenderPipeline instance (EffectComposer is gone). */
 /* markGlows: under the 1a path (composer + OutputPass) the whole image was tone-mapped uniformly, so toneMapped=false was already effectively a no-op for additive glows; renderOutput() does the same uniform tone map -> keep as a harmless carryover that matches 1a (no per-material skip engineered, which would diverge from baseline). */
 function markGlows() { scene.traverse(o => { if (o.material) { const ms = Array.isArray(o.material) ? o.material : [o.material]; ms.forEach(m => { if (m && m.isMeshBasicMaterial) m.toneMapped = false; }); } }); }
-function applyPostFX() { const s = SAVE._data.settings; const on = SAVE._data.settings.postfx !== false; renderer.toneMapping = on ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping; /* renderOutput() reads this; off-path keeps NoToneMapping for the plain-render branch. */ renderer.toneMappingExposure = (s.exposure != null ? s.exposure : 1.0); if (bloomPass && bloomPass.strength) bloomPass.strength.value = (s.bloom != null ? s.bloom : 0.9); markGlows(); scene.traverse(o => { if (o.material) { const ms = Array.isArray(o.material) ? o.material : [o.material]; ms.forEach(m => { if (m) m.needsUpdate = true; }); } }); }
+function applyPostFX() { const s = SAVE._data.settings; const on = SAVE._data.settings.postfx !== false; renderer.toneMapping = on ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping; /* renderOutput() reads this; off-path keeps NoToneMapping for the plain-render branch. */ renderer.toneMappingExposure = (s.exposure != null ? s.exposure : 1.0) * MANAGED_EXPO; /* Phase 2: user exposure setting (slider, default 1.0) x managed-color base compensation. */ if (bloomPass && bloomPass.strength) bloomPass.strength.value = (s.bloom != null ? s.bloom : 0.9); markGlows(); scene.traverse(o => { if (o.material) { const ms = Array.isArray(o.material) ? o.material : [o.material]; ms.forEach(m => { if (m) m.needsUpdate = true; }); } }); }
 let _lastDraws = 0, _lastTris = 0;
 function renderFrame() {
   if (postOn()) post.render(); else renderer.render(scene, camera);
@@ -382,7 +383,7 @@ function renderFrame() {
 let envTex = null;
 /* Phase 1b: assign the equirect CanvasTexture directly to scene.environment and let WebGPU's EnvironmentNode auto-PMREM it.
    This sidesteps the two-same-named-PMREMGenerator-classes ambiguity (the bare-three one is WebGL-only). Runs post-init. */
-function buildEnv() { try { const cv = document.createElement('canvas'); cv.width = 128; cv.height = 64; const c = cv.getContext('2d'); const g = c.createLinearGradient(0, 0, 0, 64); g.addColorStop(0, '#3a3220'); g.addColorStop(0.45, '#1a160e'); g.addColorStop(1, '#070503'); c.fillStyle = g; c.fillRect(0, 0, 128, 64); const tex = new THREE.CanvasTexture(cv); tex.mapping = THREE.EquirectangularReflectionMapping; envTex = tex; applyReflections(); } catch (err) { console.warn('IBL env build failed; metals will use light-only shading:', err); } }
+function buildEnv() { try { const cv = document.createElement('canvas'); cv.width = 128; cv.height = 64; const c = cv.getContext('2d'); const g = c.createLinearGradient(0, 0, 0, 64); g.addColorStop(0, '#3a3220'); g.addColorStop(0.45, '#1a160e'); g.addColorStop(1, '#070503'); c.fillStyle = g; c.fillRect(0, 0, 128, 64); const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; /* Phase 2: painted sRGB gradient -> decode for correct reflection tint. */ tex.mapping = THREE.EquirectangularReflectionMapping; envTex = tex; applyReflections(); } catch (err) { console.warn('IBL env build failed; metals will use light-only shading:', err); } }
 function applyReflections() { scene.environment = (SAVE._data.settings.reflections !== false && envTex) ? envTex : null; }
 /* NOTE: buildEnv() runs inside the renderer.init().then(...) bootstrap (R4: PMREM/env setup is GPU-dependent). */
 /* Phase 1a relight: r184 removed useLegacyLights, so ambient/hemisphere/directional intensities are x Math.PI for a clean legacy restore; point lights use x Math.PI as a starting point (inverse-square decay=2 has no exact factor) and are eyeball/A-B retuned. */
@@ -445,7 +446,7 @@ function _paint(size, fn) {
   const cv = document.createElement('canvas'); cv.width = cv.height = size; const ctx = cv.getContext('2d'), img = ctx.createImageData(size, size), d = img.data;
   for (let y = 0; y < size; y++)for (let x = 0; x < size; x++) { const c = fn(x / size, y / size), i = (y * size + x) * 4; d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = 255; } ctx.putImageData(img, 0, 0); return cv;
 }
-function _mkTex(cv, rx, ry) { const t = new THREE.CanvasTexture(cv); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rx || 1, ry || 1); t.anisotropy = _MAXANI; t.needsUpdate = true; return t; }
+function _mkTex(cv, rx, ry) { const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; /* Phase 2: these procedural canvases are albedo/color maps -> decode sRGB. Data maps (texGroundNormal) override back to NoColorSpace. */ t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rx || 1, ry || 1); t.anisotropy = _MAXANI; t.needsUpdate = true; return t; }
 function _cobbleH(u, v) { u -= Math.floor(u); v -= Math.floor(v); const cell = 5, gx = u * cell, gy = v * cell, cx = Math.floor(gx), cy = Math.floor(gy), px = gx - cx - 0.5, py = gy - cy - 0.5, dist = Math.min(1, Math.hypot(px, py) * 2); let h = 1 - dist * dist; if (h < 0) h = 0; return h * (0.82 + 0.18 * _fbm(u, v, 3)); }
 function texGround(rep) {
   const k = 'g' + (rep || 30); if (_texCache[k]) return _texCache[k];
@@ -455,7 +456,7 @@ function texGround(rep) {
 function texGroundNormal(rep) {
   const k = 'gn' + (rep || 30); if (_texCache[k]) return _texCache[k];
   if (!_texCache._gncv) { const e = 1 / 256; _texCache._gncv = _paint(256, (u, v) => { const hl = _cobbleH(u - e, v), hr = _cobbleH(u + e, v), hd = _cobbleH(u, v - e), hu = _cobbleH(u, v + e), nx = (hl - hr) * 3, ny = (hd - hu) * 3, nz = 1, L = Math.hypot(nx, ny, nz); return [(nx / L * 0.5 + 0.5) * 255, (ny / L * 0.5 + 0.5) * 255, (nz / L * 0.5 + 0.5) * 255]; }); }
-  return _texCache[k] = _mkTex(_texCache._gncv, rep || 30, rep || 30);
+  const t = _mkTex(_texCache._gncv, rep || 30, rep || 30); t.colorSpace = THREE.NoColorSpace; /* Phase 2: normal map = linear data, NOT a color map. */ return _texCache[k] = t;
 }
 function texStone(rx, ry) {
   const k = 's' + (rx || 2) + 'x' + (ry || 2); if (_texCache[k]) return _texCache[k];
@@ -665,7 +666,7 @@ function _signTex(label) {
   c.fillStyle = '#1a1208'; c.font = 'bold 30px Georgia,serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(label, 128, 50);
   c.strokeStyle = '#1a1208'; c.lineWidth = 8; c.beginPath(); c.moveTo(64, 92); c.lineTo(184, 92); c.stroke();
   c.beginPath(); c.moveTo(192, 92); c.lineTo(168, 77); c.lineTo(168, 107); c.closePath(); c.fillStyle = '#1a1208'; c.fill();
-  return new THREE.CanvasTexture(cv);
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; /* Phase 2: sign label is a color map. */ return t;
 }
 function wSign(x, z, label, angle) {
   const g = new THREE.Group();

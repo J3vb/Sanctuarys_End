@@ -463,10 +463,11 @@
     GLTFLoader, SkeletonUtils: { clone: skeletonClone }
   });
   window.TSL = TSL_NS;
-  // Path A (Phase 1a, preserved in 1b): keep the r128 legacy/linear palette so no hex retune is needed.
-  // ColorManagement is copied BY REFERENCE in the Object.assign above (same singleton), so this
-  // mutates the live three.js setting before game.js constructs the first THREE.Color (game.js:277).
-  window.THREE.ColorManagement.enabled = false;
+  // Phase 2: adopt r184 managed color (sRGB-linear workflow). ColorManagement is copied BY REFERENCE in
+  // the Object.assign above (same singleton), so leaving it ENABLED (the r184 default) takes effect before
+  // game.js constructs the first THREE.Color: hex literals now decode sRGB->linear on input, lighting runs
+  // in linear, and renderer.outputColorSpace=SRGBColorSpace (game.js) re-encodes on output. Retires Path A.
+  window.THREE.ColorManagement.enabled = true;
 </script>
 <!-- game.js stays a CLASSIC defer script: it relies on top-level globals + inline on*= handlers. -->
 <!-- defer + module scripts share the deferred queue and run in document order: shim first, then game.js with THREE present. -->
