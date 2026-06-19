@@ -579,7 +579,9 @@ function cullLights() {
   cands.sort((a, b) => a._d - b._d); for (let i = 0; i < cands.length; i++) cands[i].light.visible = (i < PL_MAX);
 }
 
-const MAP = 480, DUNG_PLAY_R = 88, DUNG_WALL_R = 90, TOWN_R = 48, WILD_R = 150;
+const MAP = 480, DUNG_PLAY_R = 88, DUNG_WALL_R = 90, DUNG_HALF = 80, DUNG_BACK_R = 122, TOWN_R = 48, WILD_R = 150;
+/* DUNG_HALF: half-extent of the rectangular stone hall (kit walls at ±(DUNG_HALF+2), player/mob clamp at ±DUNG_HALF).
+   DUNG_BACK_R: radius of the persistent brick backdrop cylinder — must exceed the hall's corner reach (DUNG_HALF·√2≈113). */
 const EMBER_UNLOCK = 10; /* maxDepth required to breach Frostfen → Ashlands (declared early: referenced in REGIONS) */
 /* ---- biome regions. Each is now its OWN bounded map (origin-centered, radius WILD_R), reached through a portal —
    NOT concentric rings of one open world. `town` = the settlement this wilderness adjoins; `next`/`prev` chain the
@@ -1177,8 +1179,8 @@ const dungeonGroup = new THREE.Group(); dungeonGroup.visible = false; scene.add(
    in loadDungeonWall instead of rebuilt each descent (avoids per-dive material/pipeline churn). */
 const dungeonExtraGroup = new THREE.Group(); dungeonExtraGroup.visible = false; scene.add(dungeonExtraGroup);
 const dungeonWallMat = new THREE.MeshStandardMaterial({ color: 0x3a3340, roughness: 1.0, metalness: 0.0, map: texStone(16, 2), normalMap: _flatNormal(), roughnessMap: _whitePx(), aoMap: _whitePx(), side: THREE.DoubleSide }); dungeonWallMat.normalScale.set(0.7, 0.7);
-const dungeonWallGeo = new THREE.CylinderGeometry(DUNG_WALL_R, DUNG_WALL_R, 2.4, 64, 1, true); dungeonWallGeo.setAttribute('uv1', dungeonWallGeo.attributes.uv);
-const dungeonWall = new THREE.Mesh(dungeonWallGeo, dungeonWallMat); dungeonWall.position.y = 1.2; dungeonWall.userData.noDispose = true; dungeonExtraGroup.add(dungeonWall);
+const dungeonWallGeo = new THREE.CylinderGeometry(DUNG_BACK_R, DUNG_BACK_R, 11, 80, 1, true); dungeonWallGeo.setAttribute('uv1', dungeonWallGeo.attributes.uv);
+const dungeonWall = new THREE.Mesh(dungeonWallGeo, dungeonWallMat); dungeonWall.position.y = 5.5; dungeonWall.userData.noDispose = true; dungeonExtraGroup.add(dungeonWall);
 let dungeonFires = []; let d_deeperPortal = null; let curTheme = null;
 function disposeObj(o) { if (!o) return; o.traverse(c => { if (c.isInstancedMesh) c.dispose(); /* frees instanceMatrix only, not geo/mat */ const g = c.geometry; if (g && !(g.userData && g.userData.sharedProto)) g.dispose(); if (c.material) { const ms = Array.isArray(c.material) ? c.material : [c.material]; for (const mm of ms) if (mm && !(mm.userData && mm.userData.sharedProto)) mm.dispose(); } }); } /* shared prop prototypes (userData.sharedProto) survive zone rebuilds */
 function removeMesh(o) { if (!o) return; if (o.userData && o.userData.eliteLight) { unregLight(o.userData.eliteLight); o.userData.eliteLight = null; } scene.remove(o); if (o.userData && o.userData.noDispose) return; disposeObj(o); }
@@ -1209,7 +1211,7 @@ function makePropInst(geo, mat, tf, group, opts) { /* tf items: {x,z,ry?,rx?,rz?
 }
 function buildDungeon(depth) {
   clearGroup(dungeonGroup); clearLightBucket('dungeon'); _lightBucket = 'dungeon'; dungeonFires = []; dungeonColliders.length = 0; const th = curTheme = pickBiome(depth);
-  const R = 90;
+  const R = DUNG_HALF - 6; /* interior scatter stays inside the rectangular hall (kit walls sit at ±(DUNG_HALF+2)) */
   const useProps = PROPS_READY && PROP_PROTO['pillar'] && PROP_PROTO['rubble_large'];
   if (useProps) {
     // pillars: KayKit pillar + pillar_decorated (full-height pieces), height-targeted, tinted to biome stone
@@ -1229,7 +1231,7 @@ function buildDungeon(depth) {
     for (let i = 0; i < 25; i++) { const x = rand(-R, R), z = rand(-R, R), s = rand(1, 2.4); E.set(rand(0, 6), rand(0, 6), rand(0, 6)); Q.setFromEuler(E); V.set(x, s * 0.4, z); Sc.set(s, s, s); M.compose(V, Q, Sc); rim.setMatrixAt(i, M); dungeonColliders.push({ x, z, r: s * 0.9 }); }
     rim.instanceMatrix.needsUpdate = true; dungeonGroup.add(rim);
   }
-  for (let i = 0; i < 8; i++) { const ang = rand(0, 6.28), d = rand(15, R - 10); makeFire(Math.cos(ang) * d, Math.sin(ang) * d, dungeonGroup, dungeonFires, dungeonColliders, th.fire); }
+  for (let i = 0; i < 6; i++) { const ang = rand(0, 6.28), d = rand(15, R - 10); makeFire(Math.cos(ang) * d, Math.sin(ang) * d, dungeonGroup, dungeonFires, dungeonColliders, th.fire); }
   // themed decorations
   for (let i = 0; i < 22; i++) {
     const ang = rand(0, 6.28), d = rand(8, R - 6), x = Math.cos(ang) * d, z = Math.sin(ang) * d; const lit = (i % 3 === 0);
@@ -1254,9 +1256,45 @@ function buildDungeon(depth) {
     const dim = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(0.35, 0), new THREE.MeshPhongMaterial({ specular: 0x000000, color: th.rock, flatShading: true, map: texStone(1, 1) }), 36); dim.receiveShadow = true; dim.frustumCulled = false;
     for (let i = 0; i < 36; i++) { const ang = rand(0, 6.28), d = rand(6, R - 4), x = Math.cos(ang) * d, z = Math.sin(ang) * d, s = rand(0.5, 1.4); E2.set(rand(0, 6), rand(0, 6), rand(0, 6)); Q2.setFromEuler(E2); V2.set(x, s * 0.18, z); S2.set(s, s * 0.6, s); M2.compose(V2, Q2, S2); dim.setMatrixAt(i, M2); } dim.instanceMatrix.needsUpdate = true; dungeonGroup.add(dim);
   }
-  {
-    const wallH = 2.4, wr = DUNG_WALL_R; /* perimeter wall itself is now the persistent dungeonWall (brick PBR); only the animated glow ring is rebuilt per biome here */
-    const glow = new THREE.Mesh(new THREE.TorusGeometry(wr, 0.18, 8, 80), new THREE.MeshBasicMaterial({ color: th.fire, map: texEnergy(16, 1) })); glow.rotation.x = -Math.PI / 2; glow.position.y = wallH; dungeonGroup.add(glow);
+  { /* KayKit modular stone hall: rectangular wall ring + corners + doorways + wall torches (shared dungeon atlas, biome-tinted).
+       Walls/corners/torches are InstancedMesh (skip merge); the rectangular clamp (clampEntToZone) is the boundary, so no wall colliders.
+       Falls back to the (enlarged) persistent brick backdrop cylinder if the arch kit failed to load. */
+    const hasArch = useProps && PROP_PROTO['wall'] && PROP_PROTO['wall_corner'];
+    if (hasArch) {
+      const HW = DUNG_HALF, WL = HW + 2, WALL_H = 7.5;
+      const wp = PROP_PROTO['wall'], ws = WALL_H / wp.base, segW = wp.size.x * ws;
+      const wallMat = tintPropMat(wp.mat, th.pillar);
+      const n = Math.max(4, Math.round((2 * HW) / segW)), step = (2 * HW) / n, doorI = Math.floor(n / 2);
+      const wtf = [], dtf = [];
+      for (let i = 0; i < n; i++) {
+        const t = -HW + (i + 0.5) * step;
+        if (i === doorI) { dtf.push({ x: t, z: -WL, ry: 0 }, { x: t, z: WL, ry: Math.PI }); }
+        else { wtf.push({ x: t, z: -WL, s: ws, ry: 0 }, { x: t, z: WL, s: ws, ry: Math.PI }); }
+        wtf.push({ x: -WL, z: t, s: ws, ry: Math.PI / 2 }, { x: WL, z: t, s: ws, ry: -Math.PI / 2 });
+      }
+      makePropInst(wp.geo, wallMat, wtf, dungeonGroup, { cast: true, recv: true });
+      // doorway frames at the N/S gaps (entrance + deeper-portal exit); fall back to plain wall if the doorway proto is missing
+      if (PROP_PROTO['wall_doorway']) { const dp = PROP_PROTO['wall_doorway'], dsc = WALL_H / dp.base; for (const d of dtf) d.s = dsc; makePropInst(dp.geo, tintPropMat(dp.mat, th.pillar), dtf, dungeonGroup, { cast: true, recv: true }); }
+      else { for (const d of dtf) d.s = ws; makePropInst(wp.geo, wallMat, dtf, dungeonGroup, { cast: true, recv: true }); }
+      // corners
+      const cp = PROP_PROTO['wall_corner'], csc = WALL_H / cp.base;
+      makePropInst(cp.geo, tintPropMat(cp.mat, th.pillar), [{ x: -WL, z: -WL, s: csc, ry: 0 }, { x: WL, z: -WL, s: csc, ry: -Math.PI / 2 }, { x: WL, z: WL, s: csc, ry: Math.PI }, { x: -WL, z: WL, s: csc, ry: Math.PI / 2 }], dungeonGroup, { cast: true, recv: true });
+      // wall-mounted torches (every 3rd segment) + additive flame embers (visual glow only — no per-torch PointLight, so the light budget is untouched)
+      if (PROP_PROTO['torch_mounted']) {
+        const tp = PROP_PROTO['torch_mounted'], tsc = 2.8 / tp.base, inset = WL - 1.1, ti = [];
+        for (let i = 0; i < n; i++) { if (i % 3 !== 1) continue; const t = -HW + (i + 0.5) * step; ti.push({ x: t, z: -inset, s: tsc, ry: 0 }, { x: t, z: inset, s: tsc, ry: Math.PI }, { x: -inset, z: t, s: tsc, ry: Math.PI / 2 }, { x: inset, z: t, s: tsc, ry: -Math.PI / 2 }); }
+        if (ti.length) {
+          makePropInst(tp.geo, tp.mat, ti, dungeonGroup, { cast: false, recv: false });
+          const flameMat = new THREE.MeshBasicMaterial({ color: th.fire, map: texFlame(1, 1), transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false });
+          makePropInst(new THREE.ConeGeometry(0.42, 1.1, 6), flameMat, ti.map(t => ({ x: t.x, z: t.z, y: 2.5, s: 0.7 })), dungeonGroup, { cast: false, recv: false });
+          /* budgeted torch lights at a spaced subset — cullLights keeps only the PL_MAX nearest visible, so the
+             wall the player is near lights up (torchlit hall) while distant torches stay dark candidates. */
+          for (let j = 0; j < ti.length; j += 2) { const lt = regLight(new THREE.PointLight(th.fire, 1.2 * Math.PI, 22, 2)); lt.position.set(ti[j].x, 3.0, ti[j].z); dungeonGroup.add(lt); }
+        }
+      }
+      // central floor dais under the deeper portal (accent tile, biome-tinted)
+      if (PROP_PROTO['floor_tile_large_rocks']) { const fp = PROP_PROTO['floor_tile_large_rocks'], fsc = fp.size.x ? 5.2 / fp.size.x : 1; makePropInst(fp.geo, tintPropMat(fp.mat, th.ground), [{ x: 0, z: -50, sx: fsc, sy: 1, sz: fsc, y: 0.05 }], dungeonGroup, { recv: true }); }
+    }
   }
   try { mergeStaticScenery(dungeonGroup, new Set(dungeonFires.map(f => f.flame))); } catch (e) { console.warn('dungeon scenery merge failed; using unmerged:', e && e.message); } /* Phase 4 follow-up: collapse static deco draws; skip animated fire flames. Runs BEFORE the portal so its animated ring is never merged. */
   d_deeperPortal = makePortal(0, -50, 0xc04aff); dungeonGroup.add(d_deeperPortal.group);
@@ -1350,9 +1388,12 @@ function swapHeroToGLB() { if (typeof hero === 'undefined' || !hero) return; let
 /* ===================== KayKit prop kits (dungeon + nature) — each kit is ONE opaque atlas material; we extract
    the prop names we use into reusable {geo,mat,size,base} prototypes drawn as InstancedMesh (dungeon/wild) or
    merged meshes (town). Shared geo/mat carry userData.sharedProto so disposeObj skips them across zone rebuilds. */
-const PROP_KIT_MANIFEST = { dungeon: { file: 'dungeon.glb', bytes: 4650000 }, nature: { file: 'nature.glb', bytes: 1290000 } };
+const PROP_KIT_MANIFEST = { dungeon: { file: 'dungeon.glb', bytes: 4650000 }, dungeon_arch: { file: 'dungeon_arch.glb', bytes: 227020 }, nature: { file: 'nature.glb', bytes: 1290000 } };
 const PROP_PROTO = {}; let PROPS_READY = false; /* name -> { geo, mat, size:Vector3, base:number } */
 const DUNGEON_PROPS = ['pillar', 'column', 'pillar_decorated', 'rubble_large', 'rubble_half', 'barrel_large', 'barrel_small', 'box_large', 'box_small', 'crates_stacked', 'table_medium', 'chest'];
+/* KayKit Dungeon Remastered modular architecture, packed separately into dungeon_arch.glb (same single
+   dungeon_texture.png atlas as the dungeon kit). buildDungeon lays these as a rectangular stone hall. */
+const ARCH_PROPS = ['wall', 'wall_corner', 'wall_doorway', 'wall_broken', 'torch_mounted', 'floor_tile_large_rocks'];
 /* all share nature.glb's single atlas (1 material / 1 image) → every variant instances for free. Must cover the
    union of every REGIONS biome's trees/bushes/grasses/rocks lists. */
 const NATURE_PROPS = [
@@ -1422,7 +1463,8 @@ function loadRoster() {
       const m = PROP_KIT_MANIFEST[key];
       loader.load(GLB_BASE + m.file,
         gltf => {
-          const names = new Set(key === 'dungeon' ? [...DUNGEON_PROPS, ...TOWN_PROPS] : NATURE_PROPS);
+          const KIT_NAMES = { dungeon: [...DUNGEON_PROPS, ...TOWN_PROPS], dungeon_arch: ARCH_PROPS, nature: NATURE_PROPS };
+          const names = new Set(KIT_NAMES[key] || []);
           for (const nm of names) { if (!PROP_PROTO[nm]) { const p = _extractProp(gltf.scene, nm); if (p) PROP_PROTO[nm] = p; } }
           got[key] = m.bytes; progress();
           if (--propPending <= 0) { PROPS_READY = true; console.log('prop kits loaded'); rebuildZoneScenery(); }
@@ -2233,7 +2275,7 @@ function updateDebug() {
   el.innerHTML = `FPS ${_fps.toFixed(0)}  gpu ${_tsSupported ? _gpuMs.toFixed(2) + 'ms' : (_perf ? '—' : 'off')}\nframe p50 ${ft.p50.toFixed(1)} p95 ${ft.p95.toFixed(1)} p99 ${ft.p99.toFixed(1)} max ${ft.max.toFixed(1)}ms\nzone ${zone}${zone === 'dungeon' ? ' d' + depth : ''}\ndraws ${_lastDraws}  tris ${(_lastTris / 1000).toFixed(1)}k\nmonsters ${monsters.length}  proj ${projectiles.length}\nloot ${loots.length}  fx ${fx.length}  floats ${floats.length}\nscene objs ${scene.children.length}  lights ${lights}\nremotes ${typeof NET !== 'undefined' ? NET.remotes.size : 0}` +
     (_errCount ? `\n<span class="err">errors ${_errCount}: ${escapeHtml(_lastErr).slice(0, 60)}</span>` : '');
 }
-function clampEntToZone(e) { if (zone === 'town') { const d = Math.hypot(e.x, e.z); if (d > TOWN_R) { e.x = e.x / d * TOWN_R; e.z = e.z / d * TOWN_R; } } else if (zone === 'dungeon') { const d = Math.hypot(e.x, e.z); if (d > DUNG_PLAY_R) { e.x = e.x / d * DUNG_PLAY_R; e.z = e.z / d * DUNG_PLAY_R; } } else { const d = Math.hypot(e.x, e.z); if (d > WILD_R) { e.x = e.x / d * WILD_R; e.z = e.z / d * WILD_R; } } }
+function clampEntToZone(e) { if (zone === 'town') { const d = Math.hypot(e.x, e.z); if (d > TOWN_R) { e.x = e.x / d * TOWN_R; e.z = e.z / d * TOWN_R; } } else if (zone === 'dungeon') { if (e.x > DUNG_HALF) e.x = DUNG_HALF; else if (e.x < -DUNG_HALF) e.x = -DUNG_HALF; if (e.z > DUNG_HALF) e.z = DUNG_HALF; else if (e.z < -DUNG_HALF) e.z = -DUNG_HALF; } else { const d = Math.hypot(e.x, e.z); if (d > WILD_R) { e.x = e.x / d * WILD_R; e.z = e.z / d * WILD_R; } } }
 function clampToZone() { clampEntToZone(player); }
 function moveToward(tx, tz, dt) {
   const a = Math.atan2(tx - player.x, tz - player.z); const fr = Math.min(dt || 16.667, 50) / 16.667; const sp = player.speed * 0.96 * fr * (now() < player.chillUntil ? 0.5 : 1); player.x += Math.sin(a) * sp; player.z += Math.cos(a) * sp; player.dir = a; player.bob += 0.3;
@@ -2595,6 +2637,7 @@ if (_perftest) {
     return out;
   };
   console.log('[perfRun] deterministic harness ready — load a character, then call perfRun() in the console.');
+  Object.assign(window, { enterDungeon, enterTown, enterWild }); /* perftest-only: lets the QA harness jump zones/biomes from the console (pairs with window.perfRun) */
 }
 function show(id) { ['selectScreen', 'createScreen', 'overScreen'].forEach(s => document.getElementById(s).style.display = 'none'); if (id) document.getElementById(id).style.display = 'flex'; }
 function setHud(on) { document.getElementById('hud').style.display = on ? 'block' : 'none'; document.getElementById('topbar').style.display = on ? 'flex' : 'none'; document.getElementById('xpbar').style.display = on ? 'block' : 'none'; document.getElementById('minimap').style.display = on ? 'block' : 'none'; document.getElementById('prompt').style.display = 'none'; document.getElementById('bossBar').style.display = 'none'; if (!on) closeAll(); }
