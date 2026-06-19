@@ -296,6 +296,7 @@ const scene = new THREE.Scene(); scene.background = new THREE.Color(0x0d0a07); s
 const _forceWebGL = /[?&]forceWebGL=1\b/.test(location.search);
 const _perf = /[?&]perf(test)?=1\b/.test(location.search); /* Phase 0 rig: ?perf=1 (or ?perftest=1) turns on GPU-timestamp tracking + the perf HUD. Off in normal play — timestamp queries add a little GPU overhead, so don't pay it unless measuring. */
 const _perftest = /[?&]perftest=1\b/.test(location.search); /* ?perftest=1 also seeds RNG (top of file) + exposes window.perfRun() — the deterministic scripted measurement harness. */
+let _perfGod = _perftest; /* perf rig: god-mode (perftest only) so perfRun's L1 char survives the depth-5 boss instead of dying → corrupting the test save. Toggle via window.__perfGod. */
 const renderer = new THREE.WebGPURenderer({ powerPreference: 'high-performance', forceWebGL: _forceWebGL, trackTimestamp: _perf }); renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
 renderer.outputColorSpace = THREE.SRGBColorSpace; /* Phase 2: managed color (sRGB output). ColorManagement enabled in shim; renderOutput() reads this and applies the linear->sRGB encode (single transform; post.outputColorTransform stays false so it isn't double-applied). */
 renderer.setSize(innerWidth, innerHeight); renderer.shadowMap.enabled = (SAVE._data.settings.shadows !== false); renderer.shadowMap.type = THREE.PCFShadowMap; /* Phase 1b: WebGPURenderer.shadowMap is only {enabled,transmitted,type} - no autoUpdate/needsUpdate. The autoUpdate=false write moves to moon.shadow.autoUpdate after moon is created (avoids a TDZ ReferenceError - moon is a const below); per-frame needsUpdate writes route to moon.shadow.needsUpdate. */
@@ -1906,7 +1907,7 @@ function castActive(id, aim, isEcho) {
   else if (def.kind === 'groundslam') { spawnExplosion(player.x + fwd.x * 3, player.z + fwd.z * 3, 0xc4a050); for (const m of [...monsters]) { const dx = m.x - player.x, dz = m.z - player.z, d = Math.hypot(dx, dz); if (d < 8) { const ma = Math.atan2(dx, dz); const da = Math.abs(Math.atan2(Math.sin(ma - ang), Math.cos(ma - ang))); if (da < 1.0) { meleeDamage(m, cf * skM, player); m.slow = Math.max(m.slow, 120); const kb = Math.min(4, 9 - d); m.x += Math.sin(ma) * kb; m.z += Math.cos(ma) * kb; } } } }
   else if (def.kind === 'charge') { const dd = Math.min(Math.hypot(aim.x - player.x, aim.z - player.z), 20); player.x += Math.sin(ang) * dd; player.z += Math.cos(ang) * dd; clampToZone(); spawnExplosion(player.x, player.z, 0xd8c060); for (const m of [...monsters]) { if (Math.hypot(m.x - player.x, m.z - player.z) < 5) { meleeDamage(m, cf * skM, player); m.slow = Math.max(m.slow, 90); } } }
   else if (def.kind === 'warcry') { player.buffs.cryUntil = now() + 8000; player.buffs.cryMul = 1.2 + 0.06 * rank; player.buffs.cryDR = Math.min(0.4, 0.1 + 0.04 * rank); spawnExplosion(player.x, player.z, 0xffcf3a); floatText('War Cry!', player.x, player.z - 1, '#ffcf3a'); }
-  else if (def.kind === 'arcaneorb') { const p = spawnProj(player.x, player.z, fwd, 0.45, player.dmg * cf * sm, 'fire'); p.pierce = 3; p.slow = 60; p.mesh.scale.setScalar(0.85); }
+  else if (def.kind === 'arcaneorb') { const p = spawnProj(player.x, player.z, fwd, 0.45, player.dmg * cf * sm, 'fire'); p.pierce = 3; if (!p.hit) p.hit = new Set(); p.slow = 60; p.mesh.scale.setScalar(0.85); }
   else if (def.kind === 'blizzard') { const cx = aim.x, cz = aim.z, reps = 4 + rank, oh = def.onHit; for (let i = 0; i < reps; i++) { setTimeout(() => { if (!running || !isCombat()) return; const ox = cx + rand(-5, 5), oz = cz + rand(-5, 5); spawnExplosion(ox, oz, 0x6ad8ff); for (const m of [...monsters]) { if (Math.hypot(m.x - ox, m.z - oz) < 5) { const dd = player.dmg * cf * sm; hitMonsterProj(m, dd, 'frost'); if (m.hp > 0) { m.slow = Math.max(m.slow, 120); if (oh) applyOnHit(m, oh, dd); } } } }, i * 220); } }
   else if (def.kind === 'teleportstorm') { const blast = () => { spawnExplosion(player.x, player.z, 0x9f6aff); for (const m of [...monsters]) { if (Math.hypot(m.x - player.x, m.z - player.z) < 6) hitMonsterProj(m, player.dmg * cf * sm, 'lightning'); } }; blast(); const dd = Math.min(Math.hypot(aim.x - player.x, aim.z - player.z), 22); player.x += Math.sin(ang) * dd; player.z += Math.cos(ang) * dd; clampToZone(); blast(); }
   else if (def.kind === 'shadowstep') { let best = null, bd = 1e9; for (const m of monsters) { const d = Math.hypot(m.x - player.x, m.z - player.z); if (d < bd) { bd = d; best = m; } } if (best) { const ba = Math.atan2(best.x - player.x, best.z - player.z); player.x = best.x - Math.sin(ba) * 2.2; player.z = best.z - Math.cos(ba) * 2.2; clampToZone(); player.dir = ba; spawnExplosion(player.x, player.z, 0x6a3a8a); const dmg = player.dmg * player.meleeMult * skM * cf * (player.effects.critdmg ? 3 : 2); best.hp -= dmg; best.flash = 8; floatText('✸' + Math.round(dmg), best.x, best.z, '#ffd24d'); if (player.effects.lifesteal > 0) player.hp = Math.min(player.hpMax, player.hp + dmg * player.effects.lifesteal); if (best.hp <= 0) killMonster(best); } else floatText('No target', player.x, player.z, '#aaa'); }
@@ -1918,7 +1919,7 @@ function castActive(id, aim, isEcho) {
 const _orbGeo = new THREE.SphereGeometry(1, 8, 8); const _matCache = {};
 function projMat(hex) { if (!_matCache[hex]) _matCache[hex] = new THREE.MeshBasicMaterial({ color: hex }); return _matCache[hex]; }
 function makeOrb(x, y, z, hex, r) { const m = new THREE.Mesh(_orbGeo, projMat(hex)); m.scale.setScalar(r); m.position.set(x, y, z); m.userData.noDispose = true; return m; }
-function spawnProj(x, z, dir, sp, dmg, kind, slow, onHit) { const col = kind === 'frost' ? 0x9fe8ff : kind === 'poison' ? 0x8fe07a : (kind === 'phys' ? 0xd8d8e8 : 0xff8a3a); const mesh = makeOrb(x, 2, z, col, 0.5); scene.add(mesh); const p = { x, z, vx: dir.x * sp, vz: dir.z * sp, dmg, kind, life: 120, mesh, slow: slow || 120, onHit: onHit || null, hit: new Set(), pierce: ((kind === 'phys' || kind === 'poison') ? (player.effects.pierce || 0) : 0) }; projectiles.push(p); return p; }
+function spawnProj(x, z, dir, sp, dmg, kind, slow, onHit) { const col = kind === 'frost' ? 0x9fe8ff : kind === 'poison' ? 0x8fe07a : (kind === 'phys' ? 0xd8d8e8 : 0xff8a3a); const mesh = makeOrb(x, 2, z, col, 0.5); scene.add(mesh); const pierce = ((kind === 'phys' || kind === 'poison') ? (player.effects.pierce || 0) : 0); const p = { x, z, vx: dir.x * sp, vz: dir.z * sp, dmg, kind, life: 120, mesh, slow: slow || 120, onHit: onHit || null, hit: pierce > 0 ? new Set() : null, pierce }; projectiles.push(p); return p; }
 function castChain(rank, skM) {
   skM = skM || 1; let dmg = player.dmg * SKILL_COEF.chain.coef(rank) * skM; const jumps = 2 + rank; const hitSet = new Set(); let cur = { x: player.x, z: player.z }; const pts = [new THREE.Vector3(player.x, 2.6, player.z)];
   for (let j = 0; j <= jumps; j++) { let best = null, bd = 1e9; for (const m of monsters) { if (hitSet.has(m)) continue; const d = Math.hypot(m.x - cur.x, m.z - cur.z); const range = j === 0 ? 40 : 18; if (d < range && d < bd) { bd = d; best = m; } } if (!best) break; hitSet.add(best); pts.push(new THREE.Vector3(best.x, 2.4, best.z)); hitMonsterProj(best, dmg, 'lightning'); dmg *= 0.85; cur = { x: best.x, z: best.z }; }
@@ -1978,7 +1979,7 @@ function tickStatuses(ent, dt, isPlayer) {
     else if (s.type === 'stun') ent.stunned = true;
   }
   if (dot > 0) {
-    if (isPlayer) { player.hp -= dot; if (player.hp < 0) player.hp = 0; updateGlobes(); if (player.hp <= 0 && running) { sfx('die'); gameOver(); } }
+    if (isPlayer) { if (!_perfGod) player.hp -= dot; if (player.hp < 0) player.hp = 0; updateGlobes(); if (player.hp <= 0 && running && !_perfGod) { sfx('die'); gameOver(); } }
     else { ent.hp -= dot; ent.flash = Math.max(ent.flash, 4); if (ent.dotAcc === undefined) ent.dotAcc = 0; ent.dotAcc += dot; if (ent.dotAcc >= 1) { floatText(Math.round(ent.dotAcc), ent.x, ent.z + 0.6, '#ff9a5b'); ent.dotAcc = 0; } if (ent.hp <= 0) { killMonster(ent); return; } }
   }
   ent.statuses = arr.filter(s => s.dur > 0);
@@ -2162,6 +2163,7 @@ function anyPanel() { return invOpen || skillOpen || vendorOpen || stashOpen || 
 function anyModal() { try { return (wpModal && wpModal.style.display === 'block') || (mpModal && mpModal.style.display === 'block') || (settingsModal && settingsModal.style.display === 'block') || (helpModal && helpModal.style.display === 'block'); } catch (_) { return false; } }
 function syncBackdrop() { const b = document.getElementById('backdrop'); if (b) b.style.display = anyModal() ? 'block' : 'none'; }
 function update(dt) {
+  const T = now(); /* Phase 1: one frame timestamp reused for all same-frame sine anims + time-gates below (was ~30-60 performance.now() calls/frame) */
   shake *= 0.85;
   if (running && !anyPanel()) {
     if (rmbDown && isCombat() && !player.stunned) { const hid = visibleActives[activeSkill], hd = SKILLDEFS[hid]; if (hd && hd.kind !== 'melee' && player.mp >= hd.cost) castActive(hid, { x: mouseWorld.x, z: mouseWorld.z }); }
@@ -2174,7 +2176,7 @@ function update(dt) {
     if (player.stunned) { /* stunned: cannot move or attack */ }
     else if (target) {
       const d = Math.hypot(target.x - player.x, target.z - player.z); const reach = player.range + (target.r || 0); if (d > reach) moveToward(target.x, target.z, dt);
-      else { player.dir = Math.atan2(target.x - player.x, target.z - player.z); if (now() - player.attackCd > player.attackRate) { player.attackCd = now(); player.swing = now(); hitMonster(target, player); } }
+      else { player.dir = Math.atan2(target.x - player.x, target.z - player.z); if (T - player.attackCd > player.attackRate) { player.attackCd = T; player.swing = T; hitMonster(target, player); } }
     }
     else if (moveTo) { moveToward(moveTo.x, moveTo.z, dt); if (Math.hypot(moveTo.x - player.x, moveTo.z - player.z) < 0.5) moveTo = null; }
   } else { if (moveTo) { moveToward(moveTo.x, moveTo.z, dt); if (Math.hypot(moveTo.x - player.x, moveTo.z - player.z) < 0.5) moveTo = null; } }
@@ -2194,7 +2196,7 @@ function update(dt) {
       else { if (d > m.r + player.r - 0.4) stepEnt(m, player.x, player.z, sp); else { m.atkCd--; if (m.atkCd <= 0) { m.atkCd = 60; damagePlayer(m.dmg, m.elite); if (player.effects.thorns > 0) { m.hp -= player.effects.thorns; m.flash = 8; if (m.hp <= 0) killMonster(m); } } } }
     }
     resolveCircles(m, m.r, activeColliders(), 1); { const dx = m.x - player.x, dz = m.z - player.z; let d = Math.hypot(dx, dz); const min = m.r + player.r; if (d < min && d > 0.0001) { m.x += dx / d * (min - d); m.z += dz / d * (min - d); } } clampEntToZone(m);
-    m.mesh.position.set(m.x, m.mesh.userData.glb ? 0 : Math.abs(Math.sin(now() * 0.004 + m.bob)) * 0.3, m.z); m.mesh.lookAt(player.x, m.mesh.position.y, player.z); if (m.mesh.userData.body) m.mesh.userData.body.material.emissive.setHex(m.flash > 0 ? 0x884400 : 0x000000); if (m.mesh.userData.mixer) m.mesh.userData.mixer.update(dt * 0.001); if (m.mesh.userData.aura) { m.mesh.userData.aura.rotation.z += 0.05; const s2 = 1 + Math.sin(now() * 0.006) * 0.12; m.mesh.userData.aura.scale.set(s2, s2, s2); }
+    m.mesh.position.set(m.x, m.mesh.userData.glb ? 0 : Math.abs(Math.sin(T * 0.004 + m.bob)) * 0.3, m.z); m.mesh.lookAt(player.x, m.mesh.position.y, player.z); if (m.mesh.userData.body) m.mesh.userData.body.material.emissive.setHex(m.flash > 0 ? 0x884400 : 0x000000); if (m.mesh.userData.mixer) m.mesh.userData.mixer.update(dt * 0.001); if (m.mesh.userData.aura) { m.mesh.userData.aura.rotation.z += 0.05; const s2 = 1 + Math.sin(T * 0.006) * 0.12; m.mesh.userData.aura.scale.set(s2, s2, s2); }
   }
 
   for (const p of projectiles) {
@@ -2217,7 +2219,7 @@ function update(dt) {
       if (l.kind === 'gold') { player.gold += l.payload; goldTxt.textContent = player.gold + ' g'; floatText(l.payload + 'g', player.x, player.z, '#ffe27a'); sfx('gold'); l.dead = true; }
       else if (l.kind === 'potion') { player.hpPotions = Math.min(character.potionCap, player.hpPotions + 1); floatText('+Potion', player.x, player.z, '#ff6b5b'); l.dead = true; }
       else if (l.kind === 'manapotion') { player.mpPotions = Math.min(character.potionCap, player.mpPotions + 1); floatText('+Mana', player.x, player.z, '#5a9bff'); l.dead = true; }
-      else { const lf = SAVE._data && SAVE._data.settings && SAVE._data.settings.lootFilter; if (lf && !lootPasses(lf, l.payload)) { const g = sellValue(l.payload); player.gold += g; goldTxt.textContent = player.gold + ' g'; floatText('+' + g + 'g', player.x, player.z, '#caa84a'); l.dead = true; } else if (character.inventory.length < character.invMax) { character.inventory.push(l.payload); floatText(l.payload.name, player.x, player.z, '#' + RCOL[l.payload.rarity].toString(16).padStart(6, '0')); l.dead = true; if (invOpen) renderInv(); updatePips(); } else if (now() - _bagFullAt > 2500) { _bagFullAt = now(); floatText('Bag full!', player.x, player.z, '#ff8'); } }
+      else { const lf = SAVE._data && SAVE._data.settings && SAVE._data.settings.lootFilter; if (lf && !lootPasses(lf, l.payload)) { const g = sellValue(l.payload); player.gold += g; goldTxt.textContent = player.gold + ' g'; floatText('+' + g + 'g', player.x, player.z, '#caa84a'); l.dead = true; } else if (character.inventory.length < character.invMax) { character.inventory.push(l.payload); floatText(l.payload.name, player.x, player.z, '#' + RCOL[l.payload.rarity].toString(16).padStart(6, '0')); l.dead = true; if (invOpen) renderInv(); updatePips(); } else if (T - _bagFullAt > 2500) { _bagFullAt = T; floatText('Bag full!', player.x, player.z, '#ff8'); } }
     }
   }
   _compact(loots, _deadFlag, _killMesh);
@@ -2225,13 +2227,13 @@ function update(dt) {
   for (const f of floats) { f.y += dt * 0.002; f.life--; } _compact(floats, _deadLife0, null);
 
   hero.position.set(player.x, Math.abs(Math.sin(player.bob)) * 0.15, player.z); hero.rotation.y = player.dir;
-  const sw = clamp((now() - player.swing) / 150, 0, 1); if (hero.userData.sword) hero.userData.sword.rotation.z = sw < 1 ? (-1.4 + sw * 2.4) : -0.2;
-  if (hero.userData.mixer) { hero.userData.mixer.update(dt * 0.001); const _mv = (player._px !== undefined) && (Math.hypot(player.x - player._px, player.z - player._pz) > 0.03); if ((now() - player.swing) < 300) glbPlay(hero, 'attack', true); else glbPlay(hero, _mv ? 'walk' : 'idle'); player._px = player.x; player._pz = player.z; }
+  const sw = clamp((T - player.swing) / 150, 0, 1); if (hero.userData.sword) hero.userData.sword.rotation.z = sw < 1 ? (-1.4 + sw * 2.4) : -0.2;
+  if (hero.userData.mixer) { hero.userData.mixer.update(dt * 0.001); const _mv = (player._px !== undefined) && (Math.hypot(player.x - player._px, player.z - player._pz) > 0.03); if ((T - player.swing) < 300) glbPlay(hero, 'attack', true); else glbPlay(hero, _mv ? 'walk' : 'idle'); player._px = player.x; player._pz = player.z; }
   const activeFires = zone === 'town' ? townFires : zone === 'wild' ? wildFires : dungeonFires;
-  for (const f of activeFires) { f.light.intensity = f.base + Math.sin(now() * 0.02 + f.x) * 1.26; f.flame.scale.y = 1 + Math.sin(now() * 0.03 + f.z) * 0.15; f.flame.rotation.y += 0.03; } /* Phase 1a: flicker amplitude scaled by ~Math.PI (0.4->1.26); f.base already scales with the x-pi construction intensity. */
-  for (const c of waypointMarks) { c.rotation.y += 0.03; c.position.y = 5.4 + Math.sin(now() * 0.003) * 0.18; }
+  for (const f of activeFires) { f.light.intensity = f.base + Math.sin(T * 0.02 + f.x) * 1.26; f.flame.scale.y = 1 + Math.sin(T * 0.03 + f.z) * 0.15; f.flame.rotation.y += 0.03; } /* Phase 1a: flicker amplitude scaled by ~Math.PI (0.4->1.26); f.base already scales with the x-pi construction intensity. */
+  for (const c of waypointMarks) { c.rotation.y += 0.03; c.position.y = 5.4 + Math.sin(T * 0.003) * 0.18; }
   if (zone === 'wild') { wpTown.ring.rotation.z += 0.02; wpCave.ring.rotation.z += 0.02; if (wpNext.group.visible) wpNext.ring.rotation.z += 0.02; if (wpPrev.group.visible) wpPrev.ring.rotation.z += 0.02; }
-  else if (zone === 'town') { t_wildPortal.ring.rotation.z += 0.02; for (const n of npcs) { n.group.userData.marker.rotation.y += 0.04; n.group.userData.marker.position.y = 4.6 + Math.sin(now() * 0.004) * 0.2; if (n.group.userData.npcEnt) n.group.userData.npcEnt.userData.mixer.update(dt * 0.001); } for (const v of townVillagers) { if (v.userData.mixer) v.userData.mixer.update(dt * 0.001); } if (t_cauldron) { t_cauldron.marker.rotation.y += 0.05; t_cauldron.marker.position.y = 3.4 + Math.sin(now() * 0.004) * 0.22; t_cauldron.brew.position.y = 2.02 + Math.sin(now() * 0.008) * 0.05; } }
+  else if (zone === 'town') { t_wildPortal.ring.rotation.z += 0.02; for (const n of npcs) { n.group.userData.marker.rotation.y += 0.04; n.group.userData.marker.position.y = 4.6 + Math.sin(T * 0.004) * 0.2; if (n.group.userData.npcEnt) n.group.userData.npcEnt.userData.mixer.update(dt * 0.001); } for (const v of townVillagers) { if (v.userData.mixer) v.userData.mixer.update(dt * 0.001); } if (t_cauldron) { t_cauldron.marker.rotation.y += 0.05; t_cauldron.marker.position.y = 3.4 + Math.sin(T * 0.004) * 0.22; t_cauldron.brew.position.y = 2.02 + Math.sin(T * 0.008) * 0.05; } }
   else if (d_deeperPortal) { d_deeperPortal.ring.rotation.z += 0.02; }
   torch.position.set(player.x, 9, player.z); playerGlow.position.set(player.x, 14, player.z); updateAmbient(dt); if (typeof NET !== 'undefined') NET.tick(dt);
 
@@ -2285,6 +2287,7 @@ function moveToward(tx, tz, dt) {
 }
 function stepEnt(e, tx, tz, sp) { const a = Math.atan2(tx - e.x, tz - e.z); e.x += Math.sin(a) * sp; e.z += Math.cos(a) * sp; clampEntToZone(e); }
 function damagePlayer(d, mods) {
+  if (_perfGod) return; /* perf rig: invincible under the perftest harness */
   const dr = player.armor / (player.armor + 40); d = d * (1 - Math.min(dr, 0.75));
   { const e = player.effects; let res = e.allRes || 0; if (mods && mods.includes) { if (mods.includes('fiery')) res += e.fireRes || 0; else if (mods.includes('frozen')) res += e.frostRes || 0; else if (mods.includes('arcane')) res += e.lightningRes || 0; } if (res > 0) d *= (1 - Math.min(res, 75) / 100); } if (player.buffs.cryUntil > now()) d *= (1 - player.buffs.cryDR); if (player.effects.manaShield > 0 && player.mp > 0) { const ab = Math.min(d * player.effects.manaShield, player.mp); player.mp -= ab; d -= ab; } player.hp -= d; if (player.hp < 0) player.hp = 0; floatText('-' + Math.round(d), player.x, player.z, '#ff5b4b'); sfx('hurt'); shake = Math.min(1.6, shake + 0.6); const hf = document.getElementById('hurtFlash'); hf.style.opacity = Math.min(0.6, 0.25 + d / player.hpMax); clearTimeout(hf._t); hf._t = setTimeout(() => hf.style.opacity = 0, 120); if (mods && mods.includes && mods.includes('frozen')) { player.chillUntil = now() + 1500; floatText('Chilled', player.x, player.z - 1, '#9ff'); } updateGlobes(); if (player.hp <= 0) { sfx('die'); gameOver(); }
 }
@@ -2638,6 +2641,7 @@ if (_perftest) {
   };
   console.log('[perfRun] deterministic harness ready — load a character, then call perfRun() in the console.');
   Object.assign(window, { enterDungeon, enterTown, enterWild }); /* perftest-only: lets the QA harness jump zones/biomes from the console (pairs with window.perfRun) */
+  Object.defineProperty(window, '__perfGod', { get: () => _perfGod, set: v => { _perfGod = !!v; } }); /* toggle god-mode from console (default on under ?perftest) */
 }
 function show(id) { ['selectScreen', 'createScreen', 'overScreen'].forEach(s => document.getElementById(s).style.display = 'none'); if (id) document.getElementById(id).style.display = 'flex'; }
 function setHud(on) { document.getElementById('hud').style.display = on ? 'block' : 'none'; document.getElementById('topbar').style.display = on ? 'flex' : 'none'; document.getElementById('xpbar').style.display = on ? 'block' : 'none'; document.getElementById('minimap').style.display = on ? 'block' : 'none'; document.getElementById('prompt').style.display = 'none'; document.getElementById('bossBar').style.display = 'none'; if (!on) closeAll(); }
