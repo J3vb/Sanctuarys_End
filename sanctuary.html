@@ -454,6 +454,7 @@
   import { smaa } from 'three/addons/tsl/display/SMAANode.js';
   import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
   import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
+  import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
   import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
   // r184 has no aggregate SkeletonUtils export - re-wrap the named `clone` to keep THREE.SkeletonUtils.clone working.
   // RenderPipeline + PMREMGenerator + WebGPURenderer come through THREE_NS (three/webgpu build); the addon TSL
@@ -461,7 +462,7 @@
   // hand-ported grade/vignette node (which needs Fn/uniform/vec3/screenUV/etc.).
   window.THREE = Object.assign({}, THREE_NS, {
     bloom, ao, smaa,
-    GLTFLoader, HDRLoader, SkeletonUtils: { clone: skeletonClone }
+    GLTFLoader, HDRLoader, KTX2Loader, SkeletonUtils: { clone: skeletonClone }
   });
   window.TSL = TSL_NS;
   // Phase 2: adopt r184 managed color (sRGB-linear workflow). ColorManagement is copied BY REFERENCE in

@@ -420,6 +420,93 @@ function loadRegionEnv(region) {
     err => { console.warn('HDRI load fail: ' + file, err); });
 }
 
+/* ================= PBR ground textures (KTX2, per-zone, lazy-loaded + cached) =================
+   Real ambientCG PBR sets in assets/textures/, transcoded by KTX2Loader (basis transcoder from the same
+   unpkg CDN as three). Mirrors the HDRI loader exactly: a zone/region -> set map, a lazy singleton loader,
+   a cache by set name, and a race-guarded apply. There is ONE shared `ground` plane for every zone (it's
+   added straight to `scene` and never hidden — just recolored/remapped per zone), so this all funnels through
+   `groundMat`. CRITICAL (perf-fixes-v38 / models-v41): the material keeps ALL map slots populated forever
+   (white/flat placeholders) so swapping a set only changes texture *contents* — no node-graph/pipeline
+   variant change, no shader-recompile hitch at a region boundary. Gated by the `groundTex` quality knob;
+   Low keeps the cheap procedural ground. */
+const REGION_GROUND = { greenwilds: 'greenwilds_grass', frostfen: 'frostfen_snow', ashlands: 'ashlands_dark_rock' };
+const TOWN_GROUND_SET = 'greenwilds_forest_floor';        /* default town ground -> earthy forest floor */
+const TOWN_GROUND_BY_ID = { emberhold: 'ashlands_dark_rock', highreach: 'frostfen_snow' }; /* per-town overrides: each town gets its biome ring's ground (Emberhold->Ashlands rock, Highreach->Frostfen snow), not grass */
+const DUNGEON_FLOOR_SET = 'dungeon_floor_cobble', DUNGEON_WALL_SET = 'dungeon_wall_brick';
+const TEX_BASE = 'assets/textures/';
+const BASIS_PATH = 'https://unpkg.com/three@0.184.0/examples/jsm/libs/basis/'; /* basis_transcoder.js + .wasm, same CDN as the import map */
+let _ktx2 = null; const _groundTexCache = {}, _groundTexLoading = {};
+let _whiteTex = null, _flatNTex = null;
+function _whitePx() { if (_whiteTex) return _whiteTex; _whiteTex = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1); _whiteTex.colorSpace = THREE.NoColorSpace; _whiteTex.needsUpdate = true; return _whiteTex; } /* neutral roughness(=1)/AO(=none) placeholder */
+function _flatNormal() { if (_flatNTex) return _flatNTex; _flatNTex = new THREE.DataTexture(new Uint8Array([128, 128, 255, 255]), 1, 1); _flatNTex.colorSpace = THREE.NoColorSpace; _flatNTex.needsUpdate = true; return _flatNTex; } /* flat tangent-space normal placeholder */
+function groundTexOn() { return SAVE._data.settings.groundTex !== false; }
+function _getKTX2() { if (_ktx2) return _ktx2; if (!(window.THREE && THREE.KTX2Loader)) return null; try { _ktx2 = new THREE.KTX2Loader().setTranscoderPath(BASIS_PATH).detectSupport(renderer); } catch (e) { console.warn('KTX2Loader init failed:', e && e.message); _ktx2 = null; } return _ktx2; }
+function _cfgTex(t, srgb, rx, ry) { t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rx, ry); t.anisotropy = _MAXANI; t.needsUpdate = true; return t; }
+/* Load albedo/normal/roughness(/ao) for a set once, configure colorspace+tiling, cache by set name. ao is
+   optional (some sets ship emission instead) -> tolerated as null and replaced by the white placeholder. */
+function loadGroundSet(setName, rx, ry) {
+  if (_groundTexCache[setName]) return Promise.resolve(_groundTexCache[setName]);
+  if (_groundTexLoading[setName]) return _groundTexLoading[setName];
+  const k = _getKTX2(); if (!k) return Promise.reject(new Error('KTX2Loader unavailable'));
+  const base = TEX_BASE + setName + '/';
+  const p = Promise.all([
+    k.loadAsync(base + 'albedo.ktx2').then(t => _cfgTex(t, true, rx, ry)),
+    k.loadAsync(base + 'normal.ktx2').then(t => _cfgTex(t, false, rx, ry)),
+    k.loadAsync(base + 'roughness.ktx2').then(t => _cfgTex(t, false, rx, ry)),
+    k.loadAsync(base + 'ao.ktx2').then(t => _cfgTex(t, false, rx, ry)).catch(() => null)
+  ]).then(([map, normalMap, roughnessMap, aoMap]) => { const b = { map, normalMap, roughnessMap, aoMap }; _groundTexCache[setName] = b; delete _groundTexLoading[setName]; return b; })
+    .catch(e => { delete _groundTexLoading[setName]; throw e; });
+  _groundTexLoading[setName] = p; return p;
+}
+/* Swap a cached set onto the shared groundMat (no slot ever set null -> stable pipeline). tintHex multiplies
+   the albedo (0xffffff = raw for wild/town; biome th.ground for dungeon mood). guard re-checks we're still in
+   the zone/region that requested the load (fast-travel race). */
+function _applyToGround(setName, tintHex, guard) {
+  const t = _groundTexCache[setName]; if (!t) return; if (guard && !guard()) return;
+  groundMat.vertexColors = false; groundMat.color.setHex(tintHex == null ? 0xffffff : tintHex);
+  groundMat.map = t.map; groundMat.normalMap = t.normalMap; groundMat.roughnessMap = t.roughnessMap || _whitePx(); groundMat.aoMap = t.aoMap || _whitePx();
+  groundMat.needsUpdate = true;
+}
+function restoreProcGround() { groundMat.map = texGround(30); groundMat.normalMap = texGroundNormal(30); groundMat.roughnessMap = _whitePx(); groundMat.aoMap = _whitePx(); groundMat.needsUpdate = true; } /* fallback (gate off / loader missing); vertexColors+color are owned by setZoneVisuals */
+function _requestGround(setName, rx, ry, tintHex, guard) {
+  if (!groundTexOn() || !setName) { restoreProcGround(); return; }
+  if (_groundTexCache[setName]) { _applyToGround(setName, tintHex, guard); return; }
+  if (!_getKTX2()) { restoreProcGround(); return; }
+  loadGroundSet(setName, rx, ry).then(() => _applyToGround(setName, tintHex, guard)).catch(e => console.warn('ground tex load fail ' + setName + ':', e && e.message));
+}
+function loadRegionGround(region) { if (!region) return; _requestGround(REGION_GROUND[region.id], 30, 30, 0xffffff, () => zone === 'wild' && curRegion && curRegion.id === region.id); }
+function loadTownGround() { const id = curTownArea && curTownArea.id, set = (id && TOWN_GROUND_BY_ID[id]) || TOWN_GROUND_SET; _requestGround(set, 40, 40, 0xffffff, () => zone === 'town' && curTownArea && curTownArea.id === id); ensureCobble(); }
+function loadDungeonGround(th) { _requestGround(DUNGEON_FLOOR_SET, 64, 64, (th && th.ground != null) ? th.ground : 0xffffff, () => zone === 'dungeon'); }
+/* Town roads/plaza re-skin with the dungeon_floor_cobble KTX2. Loaded ONCE at the dungeon's repeat (64) so the shared
+   set cache stays valid for the dungeon floor; each road segment then gets a CLONE of the albedo with a world-proportional
+   repeat so cobbles are a uniform size on every road. Procedural texStone until it arrives / if the groundTex knob is off;
+   a town rebuild re-skins the roads when it loads. Albedo only — mergeStaticScenery keeps `map` but drops normalMap. */
+let _cobbleBase = null, _cobbleLoading = false;
+function ensureCobble() {
+  if (_cobbleBase || _cobbleLoading || !groundTexOn() || !_getKTX2()) return;
+  _cobbleLoading = true;
+  loadGroundSet(DUNGEON_FLOOR_SET, 64, 64).then(b => { _cobbleBase = b; _cobbleLoading = false; if (typeof zone !== 'undefined' && zone === 'town') { try { buildTown(curTownArea); } catch (e) { console.warn('town cobble rebuild failed:', e && e.message); } } }).catch(e => { _cobbleLoading = false; console.warn('cobble load fail:', e && e.message); });
+}
+function _cobbleTex(map, w, l) { const TILE = 4, t = map.clone(); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.offset.set(0, 0); t.repeat.set(Math.max(1, w / TILE), Math.max(1, l / TILE)); t.needsUpdate = true; return t; }
+function _pavedMat(w, l, fallbackCol) {
+  if (_cobbleBase) return new THREE.MeshPhongMaterial({ specular: 0x0a0a0a, shininess: 6, color: fallbackCol || 0xc9bda6, map: _cobbleTex(_cobbleBase.map, w, l) });
+  return new THREE.MeshPhongMaterial({ specular: 0x000000, color: fallbackCol, map: texStone(Math.max(1, Math.round(w / 2)), Math.max(1, Math.round(l / 2))) });
+}
+/* Persistent dungeon perimeter wall (brick). Lives in its own scene-level group so clearGroup(dungeonGroup)
+   never disposes its shared material; recoloured per biome instead of rebuilt per descent. */
+function loadDungeonWall(th) {
+  dungeonWallMat.color.setHex((th && th.pillar != null) ? th.pillar : 0x3a3340);
+  if (!groundTexOn()) { dungeonWallMat.map = texStone(16, 2); dungeonWallMat.normalMap = _flatNormal(); dungeonWallMat.roughnessMap = _whitePx(); dungeonWallMat.aoMap = _whitePx(); dungeonWallMat.needsUpdate = true; return; }
+  loadGroundSet(DUNGEON_WALL_SET, 18, 3).then(t => { if (zone !== 'dungeon') return; dungeonWallMat.map = t.map; dungeonWallMat.normalMap = t.normalMap; dungeonWallMat.roughnessMap = t.roughnessMap || _whitePx(); dungeonWallMat.aoMap = t.aoMap || _whitePx(); dungeonWallMat.needsUpdate = true; }).catch(e => console.warn('dungeon wall tex:', e && e.message));
+}
+/* Re-apply the current zone's ground when the groundTex knob flips at runtime (quality change). */
+function refreshGroundTex() {
+  if (typeof zone === 'undefined') return;
+  if (zone === 'wild') { groundMat.vertexColors = !groundTexOn(); groundMat.needsUpdate = true; loadRegionGround(curRegion); }
+  else if (zone === 'town') { groundMat.color.setHex(groundTexOn() ? 0xffffff : ((curTownArea && curTownArea.townTheme && curTownArea.townTheme.ground) || 0x3a2f22)); loadTownGround(); }
+  else if (zone === 'dungeon') { const th = curTheme || dungeonTheme(depth); loadDungeonGround(th); loadDungeonWall(th); }
+}
+
 /* ================= Phase 5: GPU-compute ambient particles (WebGPU-only, High preset) =================
    A bounded additive ambient field (drifting embers/dust) simulated in a TSL compute pass on the GPU.
    Gated through the quality system (the `particles` knob is High-only; Auto maps WebGL2->Medium) AND a hard
@@ -467,6 +554,13 @@ const moon = new THREE.DirectionalLight(0x9fb6ff, 0.7 * Math.PI); moon.position.
 moon.shadow.camera.left = -70; moon.shadow.camera.right = 70; moon.shadow.camera.top = 70; moon.shadow.camera.bottom = -70; moon.shadow.camera.far = 180; scene.add(moon);
 moon.shadow.autoUpdate = false; /* Phase 1b: relocated here from the renderer construction (WebGPURenderer.shadowMap has no autoUpdate; referencing moon at the renderer line would be a TDZ ReferenceError). LightShadow.autoUpdate defaults true, so this is mandatory or the 1024x1024 map recomputes every frame. needsUpdate is driven one-shot from applyGraphics/loop/menuLoop/bootstrap. */
 const torch = new THREE.PointLight(0xffb070, 1.6 * Math.PI, 66, 2); torch.position.set(0, 8, 0); scene.add(torch);
+/* Diablo-style player aura: a wide, gentle (low-decay) pool of light around the hero so dark zones read clearly
+   near the player and fade to black further out. PERMANENT in the scene (intensity modulated per zone, never
+   add/removed) so the light count stays constant -> no shader recompile on zone change ([[perf-fixes-v38]]).
+   Not registered in PL_REG, so it's exempt from the cull budget (like torch). Decay 1.3 (vs torch's physical 2)
+   = a flatter, more even radius. Tune PLAYER_GLOW (per-zone intensity), .distance (radius) and .color by eye. */
+const PLAYER_GLOW = { dungeon: 9 * Math.PI, wild: 0, town: 0 }; /* per-zone aura intensity; set wild>0 to light the night wilds too */
+const playerGlow = new THREE.PointLight(0xffe2b4, 0, 56, 1.0); playerGlow.position.set(0, 14, 0); scene.add(playerGlow);
 
 /* ---- point-light budget: only the N nearest emitters stay lit (perf) ---- */
 const PL_REG = []; let PL_MAX = 9; const _plWP = new THREE.Vector3(); let _lightBucket = 'static';
@@ -593,6 +687,12 @@ function texSpots(rx, ry) {
 const groundGeo = new THREE.PlaneGeometry(MAP * 2, MAP * 2, 120, 120); const gpos = groundGeo.attributes.position;
 for (let i = 0; i < gpos.count; i++) { const x = gpos.getX(i), y = gpos.getY(i); gpos.setZ(i, (Math.sin(x * 0.06) + Math.cos(y * 0.05)) * 0.8 + Math.sin(x * 0.2 + y * 0.13) * 0.3); }
 groundGeo.computeVertexNormals();
+/* Towns are authored FLAT (player + all scenery sit at y=0), but the shared ground keeps the wild heightfield -> flat
+   roads/props bury or float on the bumps. Flatten the ground in town, restore the heightfield for wild/dungeon. */
+const _groundZ0 = new Float32Array(gpos.count); for (let i = 0; i < gpos.count; i++) _groundZ0[i] = gpos.getZ(i);
+let _groundFlat = null;
+function setGroundFlat(flat) { if (_groundFlat === flat) return; _groundFlat = flat; for (let i = 0; i < gpos.count; i++) gpos.setZ(i, flat ? 0 : _groundZ0[i]); gpos.needsUpdate = true; groundGeo.computeVertexNormals(); }
+groundGeo.setAttribute('uv1', groundGeo.attributes.uv); /* MeshStandardMaterial.aoMap samples a 2nd UV set (uv1); reuse the plane's uv */
 /* bake per-region biome tint into vertex colors (seamless ground biomes; multiplied by texGround when vertexColors on) */
 (() => {
   const col = new Float32Array(gpos.count * 3), c = new THREE.Color(), tmp = new THREE.Color();
@@ -603,7 +703,11 @@ groundGeo.computeVertexNormals();
   }
   groundGeo.setAttribute('color', new THREE.BufferAttribute(col, 3));
 })();
-const groundMat = new THREE.MeshPhongMaterial({ specular: 0x0a0a0a, shininess: 2, color: 0x3a2f22, vertexColors: false, map: texGround(30), normalMap: texGroundNormal(30) }); groundMat.normalScale.set(0.7, 0.7);
+/* Phase: PBR ground. MeshStandard so roughnessMap works AND the per-region HDRI lights the floor via IBL.
+   All four map slots are populated from the start (white/flat placeholders for roughness/ao) so per-zone
+   set swaps never change the node graph -> no pipeline recompile hitch at region boundaries (see the
+   ground-texture block above). Procedural map/normal are the initial look + Low-tier fallback. */
+const groundMat = new THREE.MeshStandardMaterial({ color: 0x3a2f22, roughness: 1.0, metalness: 0.0, vertexColors: false, map: texGround(30), normalMap: texGroundNormal(30), roughnessMap: _whitePx(), aoMap: _whitePx() }); groundMat.normalScale.set(0.7, 0.7);
 const ground = new THREE.Mesh(groundGeo, groundMat); ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
 
 function makePortal(x, z, col) {
@@ -647,9 +751,15 @@ function updateAmbient(dt) {
 
 /* ---- WILD scenery ---- */
 const wildGroup = new THREE.Group(); scene.add(wildGroup); const wildFires = [];
-/* ---- WILD scenery (open world, region-flavored; ~9000 instances across ~26 instanced draws) ---- */
-(() => {
+/* ---- WILD scenery (open world, region-flavored). Built ONCE, lazily on first enterWild (so KayKit prop kits
+   are loaded by then); procedural fallback if kits failed. Roads/portals/fires below run at module load. ---- */
+let _wildBuilt = false;
+function buildWildScenery() {
   const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), E = new THREE.Euler(), V = new THREE.Vector3(), S = new THREE.Vector3();
+  const kit = PROPS_READY && PROP_PROTO['Tree_1_A_Color1'] && PROP_PROTO['Rock_1_A_Color1'] && PROP_PROTO['Bush_1_A_Color1'];
+  /* gentle near-white multipliers over the natural KayKit atlas: greenwilds stays natural, frostfen cools, ashlands warms */
+  const WILD_TINT = { greenwilds: null, frostfen: 0xc2d2e0, ashlands: 0xcea284 };
+  const natMat = (v, rid) => WILD_TINT[rid] ? tintPropMat(PROP_PROTO[v].mat, WILD_TINT[rid]) : PROP_PROTO[v].mat;
   const build = (geo, mat, tf, opts) => {
     const im = new THREE.InstancedMesh(geo, mat, tf.length); im.castShadow = !!(opts && opts.cast); im.receiveShadow = !!(opts && opts.recv);
     for (let i = 0; i < tf.length; i++) { const t = tf[i]; E.set(t.rx || 0, t.ry || 0, t.rz || 0); Q.setFromEuler(E); V.set(t.x, t.y, t.z); S.set(t.sx || 1, t.sy || 1, t.sz || 1); M.compose(V, Q, S); im.setMatrixAt(i, M); }
@@ -658,36 +768,59 @@ const wildGroup = new THREE.Group(); scene.add(wildGroup); const wildFires = [];
   const RID = ['greenwilds', 'frostfen', 'ashlands'];
   // scatter n random points across the world, bucketed by biome region
   const scatter = (n) => { const g = { greenwilds: [], frostfen: [], ashlands: [] }; for (let i = 0; i < n; i++) { const x = rand(-MAP, MAP), z = rand(-MAP, MAP); g[regionAt(x, z).id].push({ x, z }); } return g; };
-  // rocks (~200, collider) — region-tinted
+  // rocks (~200, collider) — KayKit Rock variants (procedural fallback), region-tinted
   {
-    const pts = scatter(200); for (const rid of RID) {
-      const T = []; for (const p of pts[rid]) { const s = rand(0.8, 2.6); T.push({ x: p.x, y: s * 0.5, z: p.z, rx: rand(0, 6), ry: rand(0, 6), rz: rand(0, 6), sx: s, sy: s, sz: s }); wildColliders.push({ x: p.x, z: p.z, r: s * 0.9 }); }
-      if (T.length) build(new THREE.DodecahedronGeometry(1, 0), new THREE.MeshPhongMaterial({ specular: 0x000000, color: REGION_DECO[rid].rock, flatShading: true, map: texStone(2, 2) }), T, { recv: true });
-    }
-  }
-  // trees (~340, collider) — trunk+branch+foliage tinted per region
-  {
-    const pts = scatter(340); for (const rid of RID) {
-      const dc = REGION_DECO[rid]; const TR = [], BR = [], FO = [];
-      for (const p of pts[rid]) {
-        const x = p.x, z = p.z, h = rand(7, 12); TR.push({ x, y: h / 2, z, sy: h });
-        for (let b = 0; b < 3; b++) { const bh = rand(2, 4); BR.push({ x, y: h * rand(.5, .9), z, rz: rand(-1, 1), ry: rand(0, 6), sy: bh }); }
-        for (let f = 0; f < 3; f++) { const s = rand(1.8, 3.2); FO.push({ x: x + rand(-1.2, 1.2), y: h * rand(0.78, 1.02), z: z + rand(-1.2, 1.2), ry: rand(0, 6), sx: s, sy: s * rand(0.8, 1.1), sz: s }); }
-        wildColliders.push({ x, z, r: 1.3 });
-      }
-      if (TR.length) {
-        build(new THREE.CylinderGeometry(0.4, 0.7, 1, 5), new THREE.MeshPhongMaterial({ specular: 0x000000, color: dc.trunk, flatShading: true, map: texWood(1, 3) }), TR, { cast: true });
-        build(new THREE.CylinderGeometry(0.12, 0.3, 1, 4), new THREE.MeshPhongMaterial({ specular: 0x000000, color: dc.trunk, flatShading: true, map: texWood(1, 3) }), BR, {});
-        build(new THREE.IcosahedronGeometry(1, 0), new THREE.MeshPhongMaterial({ specular: 0x000000, color: dc.foliage, flatShading: true, map: texSpots(1, 1) }), FO, { cast: true });
+    const pts = scatter(200), rockV = ['Rock_1_A_Color1', 'Rock_2_A_Color1', 'Rock_3_A_Color1'];
+    for (const rid of RID) {
+      if (kit) {
+        const bk = { Rock_1_A_Color1: [], Rock_2_A_Color1: [], Rock_3_A_Color1: [] };
+        for (let i = 0; i < pts[rid].length; i++) { const p = pts[rid][i], v = rockV[i % 3], ts = rand(0.9, 2.8), s = ts / PROP_PROTO[v].base; bk[v].push({ x: p.x, y: 0, z: p.z, ry: rand(0, 6), rx: rand(-0.25, 0.25), rz: rand(-0.25, 0.25), sx: s, sy: s, sz: s }); wildColliders.push({ x: p.x, z: p.z, r: Math.max(PROP_PROTO[v].size.x, PROP_PROTO[v].size.z) * s * 0.5 }); }
+        for (const v of rockV) if (bk[v].length) build(PROP_PROTO[v].geo, natMat(v, rid), bk[v], { recv: true });
+      } else {
+        const T = []; for (const p of pts[rid]) { const s = rand(0.8, 2.6); T.push({ x: p.x, y: s * 0.5, z: p.z, rx: rand(0, 6), ry: rand(0, 6), rz: rand(0, 6), sx: s, sy: s, sz: s }); wildColliders.push({ x: p.x, z: p.z, r: s * 0.9 }); }
+        if (T.length) build(new THREE.DodecahedronGeometry(1, 0), new THREE.MeshPhongMaterial({ specular: 0x000000, color: REGION_DECO[rid].rock, flatShading: true, map: texStone(2, 2) }), T, { recv: true });
       }
     }
   }
-  // bushes (~450, NO collider) — stacked foliage clumps
+  // trees (~340, collider) — KayKit Tree variants (procedural fallback)
   {
-    const pts = scatter(450); for (const rid of RID) {
-      const dc = REGION_DECO[rid]; const B = [];
-      for (const p of pts[rid]) { const n = 2 + randi(0, 1), s0 = rand(0.5, 0.95); for (let k = 0; k < n; k++) { const s = s0 * (1 - k * 0.2); B.push({ x: p.x + rand(-0.4, 0.4), y: 0.4 + k * 0.34 * s0, z: p.z + rand(-0.4, 0.4), ry: rand(0, 6), sx: s, sy: s, sz: s }); } }
-      if (B.length) build(new THREE.IcosahedronGeometry(1, 0), new THREE.MeshPhongMaterial({ specular: 0x000000, color: dc.foliage, flatShading: true, map: texSpots(1, 1) }), B, { cast: true });
+    const pts = scatter(340), treeV = ['Tree_1_A_Color1', 'Tree_2_A_Color1', 'Tree_3_A_Color1'];
+    for (const rid of RID) {
+      const dc = REGION_DECO[rid];
+      if (kit) {
+        const bk = { Tree_1_A_Color1: [], Tree_2_A_Color1: [], Tree_3_A_Color1: [] };
+        for (let i = 0; i < pts[rid].length; i++) { const p = pts[rid][i], v = treeV[i % 3], h = rand(7, 12), s = h / PROP_PROTO[v].base; bk[v].push({ x: p.x, y: 0, z: p.z, ry: rand(0, 6), sx: s, sy: s, sz: s }); wildColliders.push({ x: p.x, z: p.z, r: 1.3 }); }
+        for (const v of treeV) if (bk[v].length) build(PROP_PROTO[v].geo, natMat(v, rid), bk[v], { cast: true });
+      } else {
+        const TR = [], BR = [], FO = [];
+        for (const p of pts[rid]) {
+          const x = p.x, z = p.z, h = rand(7, 12); TR.push({ x, y: h / 2, z, sy: h });
+          for (let b = 0; b < 3; b++) { const bh = rand(2, 4); BR.push({ x, y: h * rand(.5, .9), z, rz: rand(-1, 1), ry: rand(0, 6), sy: bh }); }
+          for (let f = 0; f < 3; f++) { const s = rand(1.8, 3.2); FO.push({ x: x + rand(-1.2, 1.2), y: h * rand(0.78, 1.02), z: z + rand(-1.2, 1.2), ry: rand(0, 6), sx: s, sy: s * rand(0.8, 1.1), sz: s }); }
+          wildColliders.push({ x, z, r: 1.3 });
+        }
+        if (TR.length) {
+          build(new THREE.CylinderGeometry(0.4, 0.7, 1, 5), new THREE.MeshPhongMaterial({ specular: 0x000000, color: dc.trunk, flatShading: true, map: texWood(1, 3) }), TR, { cast: true });
+          build(new THREE.CylinderGeometry(0.12, 0.3, 1, 4), new THREE.MeshPhongMaterial({ specular: 0x000000, color: dc.trunk, flatShading: true, map: texWood(1, 3) }), BR, {});
+          build(new THREE.IcosahedronGeometry(1, 0), new THREE.MeshPhongMaterial({ specular: 0x000000, color: dc.foliage, flatShading: true, map: texSpots(1, 1) }), FO, { cast: true });
+        }
+      }
+    }
+  }
+  // bushes (~450, NO collider) — KayKit Bush variants (procedural fallback)
+  {
+    const pts = scatter(450), bushV = ['Bush_1_A_Color1', 'Bush_2_A_Color1', 'Bush_4_A_Color1'];
+    for (const rid of RID) {
+      const dc = REGION_DECO[rid];
+      if (kit) {
+        const bk = { Bush_1_A_Color1: [], Bush_2_A_Color1: [], Bush_4_A_Color1: [] };
+        for (let i = 0; i < pts[rid].length; i++) { const p = pts[rid][i], v = bushV[i % 3], hgt = rand(0.8, 1.7), s = hgt / PROP_PROTO[v].base; bk[v].push({ x: p.x, y: 0, z: p.z, ry: rand(0, 6), sx: s, sy: s, sz: s }); }
+        for (const v of bushV) if (bk[v].length) build(PROP_PROTO[v].geo, natMat(v, rid), bk[v], { cast: true });
+      } else {
+        const B = [];
+        for (const p of pts[rid]) { const n = 2 + randi(0, 1), s0 = rand(0.5, 0.95); for (let k = 0; k < n; k++) { const s = s0 * (1 - k * 0.2); B.push({ x: p.x + rand(-0.4, 0.4), y: 0.4 + k * 0.34 * s0, z: p.z + rand(-0.4, 0.4), ry: rand(0, 6), sx: s, sy: s, sz: s }); } }
+        if (B.length) build(new THREE.IcosahedronGeometry(1, 0), new THREE.MeshPhongMaterial({ specular: 0x000000, color: dc.foliage, flatShading: true, map: texSpots(1, 1) }), B, { cast: true });
+      }
     }
   }
   // ferns (~800, NO collider) — clusters of leaning blades
@@ -720,7 +853,7 @@ const wildGroup = new THREE.Group(); scene.add(wildGroup); const wildFires = [];
     build(new THREE.CylinderGeometry(0.08, 0.13, 0.6, 5), new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0xcfc2a0 }), ST, {});
     build(new THREE.SphereGeometry(0.3, 8, 6, 0, 6.28, 0, 1.5), new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0x6ad8ff, emissive: 0x2a7a9a, emissiveIntensity: .9, flatShading: true, map: texSpots(1, 1) }), CT, {});
   }
-})();
+}
 for (let i = 0; i < 16; i++) makeFire(rand(-MAP + 20, MAP - 20), rand(-MAP + 20, MAP - 20), wildGroup, wildFires, wildColliders);
 /* ---- open-world roads, signs, and discoverable town portals ---- */
 // world-space ground height (matches the heightfield baked at ground build: local y = -worldZ)
@@ -767,6 +900,8 @@ const townGroup = new THREE.Group(); townGroup.visible = false; scene.add(townGr
 // Per-town scenery lives here and is rebuilt on every town entry by buildTown() (see below); persistent
 // objects (NPCs, portal, waypoint, cauldron) stay on townGroup and are only repositioned per town.
 const townSceneryGroup = new THREE.Group(); townGroup.add(townSceneryGroup);
+/* skinned/animated town actors (decorative idling villagers) live OUTSIDE townSceneryGroup so they're never merged; rebuilt per buildTown */
+const townActorsGroup = new THREE.Group(); townGroup.add(townActorsGroup); const townVillagers = [];
 function makeNPC(kind, x, z, col, iconColor, noCol) {
   const g = new THREE.Group(); const procBody = new THREE.Group(); g.add(procBody); g.userData.procBody = procBody; const body = new THREE.Mesh(new THREE.ConeGeometry(1.1, 3, 8), new THREE.MeshPhongMaterial({ specular: 0x000000, color: col, flatShading: true, map: texCloth(2, 2) })); body.position.y = 1.5; body.castShadow = true; procBody.add(body);
   const armGeo = new THREE.CylinderGeometry(0.13, 0.16, 1.2, 5), armMat = new THREE.MeshPhongMaterial({ specular: 0x000000, color: col, flatShading: true, map: texCloth(1, 2) }); const aL = new THREE.Mesh(armGeo, armMat); aL.position.set(-0.55, 1.7, 0.12); aL.rotation.z = 0.22; procBody.add(aL); const aR = new THREE.Mesh(armGeo, armMat); aR.position.set(0.55, 1.7, 0.12); aR.rotation.z = -0.22; procBody.add(aR);
@@ -800,8 +935,27 @@ const t_cauldron = makeCauldron(-12, -8);
 const t_waypoint = makeWaypoint(-9, 6, townGroup, townColliders);
 
 /* ---- TOWN building/prop kit — every helper draws into townSceneryGroup and pushes townColliders ---- */
+/* place a KayKit building: clone the proto node (bake its world transform), wrap in a group scaled to a target
+   footprint with base re-based to y=0. Multi-material; merges into townSceneryGroup by color. */
+function placeBuilding(name, x, z, rotY, footprint) {
+  const p = BUILDING_PROTO[name]; if (!p) return null;
+  const s = footprint / Math.max(p.size.x, p.size.z, 0.01);
+  const inner = p.node.clone(true);
+  p.node.updateWorldMatrix(true, false); inner.matrix.copy(p.node.matrixWorld); inner.matrix.decompose(inner.position, inner.quaternion, inner.scale);
+  inner.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  const g = new THREE.Group(); g.add(inner); g.scale.setScalar(s); g.position.set(x, -p.minY * s, z); g.rotation.y = rotY || 0;
+  townSceneryGroup.add(g); townColliders.push({ x, z, r: Math.max(p.size.x, p.size.z) * s * 0.42 });
+  return g;
+}
 function tHouse(x, z, w, h, wallCol, roofCol, o) {
-  o = o || {}; const dep = w * (o.dep || 1); const g = new THREE.Group();
+  o = o || {};
+  if (BUILDINGS_READY) {
+    const pool = o.stone ? ['barracks', 'mine', 'market', 'mill', 'watchtower'] : ['house', 'lumbermill', 'market', 'mill', 'archeryrange'];
+    const name = pool[Math.abs(Math.round(x * 13) + Math.round(z * 7)) % pool.length];
+    const rot = (o.rot != null) ? o.rot : Math.atan2(-x, -z);
+    if (placeBuilding(name, x, z, rot, Math.max(6, Math.min(12, w)))) return;
+  }
+  const dep = w * (o.dep || 1); const g = new THREE.Group();
   const wallTex = o.stone ? texStone(2, 2) : texWood(2, 2);
   const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, dep), new THREE.MeshPhongMaterial({ specular: 0x000000, color: wallCol, flatShading: true, map: wallTex })); body.position.y = h / 2; body.castShadow = body.receiveShadow = true; g.add(body);
   if (o.stories === 2) { const band = new THREE.Mesh(new THREE.BoxGeometry(w + 0.1, 0.25, dep + 0.1), new THREE.MeshPhongMaterial({ specular: 0x000000, color: roofCol, flatShading: true, map: texWood(2, 1) })); band.position.y = h * 0.52; g.add(band); }
@@ -814,58 +968,124 @@ function tHouse(x, z, w, h, wallCol, roofCol, o) {
   g.position.set(x, 0, z); if (o.rot) g.rotation.y = o.rot; townSceneryGroup.add(g); townColliders.push({ x, z, r: Math.max(w, dep) * 0.62 });
 }
 function tTower(x, z, r, h, col, o) {
-  o = o || {}; const g = new THREE.Group();
+  o = o || {};
+  if (BUILDINGS_READY) {
+    const name = (r >= 3 || h >= 13) ? 'castle' : 'watchtower';
+    if (placeBuilding(name, x, z, Math.atan2(-x, -z), Math.max(4, r * 2.2))) return;
+  }
+  const g = new THREE.Group();
   const body = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 1.1, h, 10), new THREE.MeshPhongMaterial({ specular: 0x000000, color: col, flatShading: true, map: texStone(2, 3) })); body.position.y = h / 2; body.castShadow = true; g.add(body);
   if (o.crenel) { const cm = new THREE.MeshPhongMaterial({ specular: 0x000000, color: col, flatShading: true, map: texStone(1, 1) }); for (let i = 0; i < 8; i++) { const a = i / 8 * 6.283; const b = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.8, 0.55), cm); b.position.set(Math.cos(a) * r, h + 0.4, Math.sin(a) * r); g.add(b); } }
   else { const roof = new THREE.Mesh(new THREE.ConeGeometry(r * 1.3, h * 0.5, 8), new THREE.MeshPhongMaterial({ specular: 0x000000, color: o.roof || 0x5a2a3a, flatShading: true, map: texWood(2, 2) })); roof.position.y = h + h * 0.25; roof.castShadow = true; g.add(roof); }
   for (const wy of [h * 0.4, h * 0.66, h * 0.86]) { const wd = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.7, 0.12), new THREE.MeshBasicMaterial({ color: o.win || 0xffd27a })); wd.position.set(0, wy, r + 0.02); g.add(wd); }
   g.position.set(x, 0, z); townSceneryGroup.add(g); townColliders.push({ x, z, r: r + 0.4 });
 }
-function tWell(x, z) { const g = new THREE.Group(); const ring = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.25, 1.0, 12), new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0x6a6258, flatShading: true, map: texStone(2, 1) })); ring.position.y = 0.5; ring.castShadow = true; g.add(ring); const wtr = new THREE.Mesh(new THREE.CircleGeometry(0.92, 14), new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0x2a6a9a, emissive: 0x0a2a3a, map: texWater(1, 1) })); wtr.rotation.x = -Math.PI / 2; wtr.position.y = 0.86; g.add(wtr); const pm = new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0x4a3a26, map: texWood(1, 2) }); for (const px of [-1, 1]) { const p = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 2.4, 5), pm); p.position.set(px, 1.7, 0); g.add(p); } const roof = new THREE.Mesh(new THREE.ConeGeometry(1.6, 1.0, 4), new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0x5a2418, flatShading: true, map: texWood(2, 1) })); roof.position.y = 3.1; roof.rotation.y = Math.PI / 4; g.add(roof); g.position.set(x, 0, z); townSceneryGroup.add(g); townColliders.push({ x, z, r: 1.3 }); }
+function tWell(x, z) { if (BUILDINGS_READY && placeBuilding('well', x, z, rand(0, 6), 3.4)) return; const g = new THREE.Group(); const ring = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.25, 1.0, 12), new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0x6a6258, flatShading: true, map: texStone(2, 1) })); ring.position.y = 0.5; ring.castShadow = true; g.add(ring); const wtr = new THREE.Mesh(new THREE.CircleGeometry(0.92, 14), new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0x2a6a9a, emissive: 0x0a2a3a, map: texWater(1, 1) })); wtr.rotation.x = -Math.PI / 2; wtr.position.y = 0.86; g.add(wtr); const pm = new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0x4a3a26, map: texWood(1, 2) }); for (const px of [-1, 1]) { const p = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 2.4, 5), pm); p.position.set(px, 1.7, 0); g.add(p); } const roof = new THREE.Mesh(new THREE.ConeGeometry(1.6, 1.0, 4), new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0x5a2418, flatShading: true, map: texWood(2, 1) })); roof.position.y = 3.1; roof.rotation.y = Math.PI / 4; g.add(roof); g.position.set(x, 0, z); townSceneryGroup.add(g); townColliders.push({ x, z, r: 1.3 }); }
 function tFountain(x, z) { const g = new THREE.Group(); const basin = new THREE.Mesh(new THREE.CylinderGeometry(2.8, 3.1, 1, 16), new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0x6a6258, flatShading: true, map: texStone(2, 1) })); basin.position.y = 0.5; basin.receiveShadow = true; g.add(basin); const water = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.4, 0.3, 16), new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0x2a6a9a, emissive: 0x0a2a3a, map: texWater(2, 2) })); water.position.y = 0.95; g.add(water); const spout = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.3, 2.2, 8), new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0x6a6258, map: texStone(1, 1) })); spout.position.y = 1.9; g.add(spout); g.position.set(x, 0, z); townSceneryGroup.add(g); townColliders.push({ x, z, r: 3.2 }); }
 function tTree(x, z, s, leaf) { s = s || 1; const g = new THREE.Group(); const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.22 * s, 0.32 * s, 2.4 * s, 6), new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0x4a3420, flatShading: true, map: texWood(1, 2) })); trunk.position.y = 1.2 * s; trunk.castShadow = true; g.add(trunk); const lm = new THREE.MeshPhongMaterial({ specular: 0x000000, color: leaf || 0x2f5a2a, flatShading: true }); for (let i = 0; i < 3; i++) { const c = new THREE.Mesh(new THREE.ConeGeometry((1.4 - i * 0.3) * s, 1.6 * s, 7), lm); c.position.y = (2.5 + i * 0.9) * s; c.castShadow = true; g.add(c); } g.position.set(x, 0, z); townSceneryGroup.add(g); townColliders.push({ x, z, r: 0.6 * s }); }
-function tBarrel(x, z) { const b = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.5, 1.0, 9), new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0x6a4a28, flatShading: true, map: texWood(1, 1) })); b.position.set(x, 0.5, z); b.castShadow = true; townSceneryGroup.add(b); townColliders.push({ x, z, r: 0.5 }); }
-function tCrate(x, z) { const b = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 0.9), new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0x5a4226, flatShading: true, map: texWood(1, 1) })); b.rotation.y = rand(0, 1.5); b.position.set(x, 0.45, z); b.castShadow = true; townSceneryGroup.add(b); townColliders.push({ x, z, r: 0.6 }); }
+function tBarrel(x, z) { const p = PROPS_READY && PROP_PROTO['barrel_large']; if (p) { const s = 1.5 / p.base, m = new THREE.Mesh(p.geo, p.mat); m.position.set(x, 0, z); m.rotation.y = rand(0, 6); m.scale.setScalar(s); m.castShadow = true; townSceneryGroup.add(m); townColliders.push({ x, z, r: Math.max(p.size.x, p.size.z) * s * 0.5 }); return; } const b = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.5, 1.0, 9), new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0x6a4a28, flatShading: true, map: texWood(1, 1) })); b.position.set(x, 0.5, z); b.castShadow = true; townSceneryGroup.add(b); townColliders.push({ x, z, r: 0.5 }); }
+function tCrate(x, z) { const p = PROPS_READY && (PROP_PROTO['box_large'] || PROP_PROTO['crates_stacked']); if (p) { const s = 1.4 / p.base, m = new THREE.Mesh(p.geo, p.mat); m.position.set(x, 0, z); m.rotation.y = rand(0, 6); m.scale.setScalar(s); m.castShadow = true; townSceneryGroup.add(m); townColliders.push({ x, z, r: Math.max(p.size.x, p.size.z) * s * 0.5 }); return; } const b = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 0.9), new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0x5a4226, flatShading: true, map: texWood(1, 1) })); b.rotation.y = rand(0, 1.5); b.position.set(x, 0.45, z); b.castShadow = true; townSceneryGroup.add(b); townColliders.push({ x, z, r: 0.6 }); }
 function tStall(x, z, col) { const g = new THREE.Group(); const pm = new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0x4a3a26, map: texWood(1, 2) }); for (const px of [-1, 1]) for (const pz of [-1, 1]) { const p = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 2.2, 5), pm); p.position.set(px, 1.1, pz * 0.7); g.add(p); } const awn = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.14, 1.9), new THREE.MeshPhongMaterial({ specular: 0x000000, color: col || 0xc0402a, flatShading: true, map: texCloth(2, 1) })); awn.position.y = 2.3; awn.rotation.x = 0.1; g.add(awn); const tbl = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.16, 1.4), pm); tbl.position.y = 1.0; g.add(tbl); g.position.set(x, 0, z); townSceneryGroup.add(g); townColliders.push({ x, z, r: 1.3 }); }
 function tFence(x1, z1, x2, z2) { const dx = x2 - x1, dz = z2 - z1, len = Math.hypot(dx, dz), n = Math.max(1, Math.round(len / 1.7)), pm = new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0x4a3826, flatShading: true, map: texWood(1, 2) }); for (let i = 0; i <= n; i++) { const t = i / n, p = new THREE.Mesh(new THREE.BoxGeometry(0.16, 1.1, 0.16), pm); p.position.set(x1 + dx * t, 0.55, z1 + dz * t); townSceneryGroup.add(p); } const rail = new THREE.Mesh(new THREE.BoxGeometry(len, 0.12, 0.1), pm); rail.position.set((x1 + x2) / 2, 0.82, (z1 + z2) / 2); rail.rotation.y = Math.atan2(dz, dx); townSceneryGroup.add(rail); }
-function tBanner(x, z, col) { const g = new THREE.Group(); const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 4.2, 6), new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0x2a2218, map: texWood(1, 3) })); pole.position.y = 2.1; g.add(pole); const cloth = new THREE.Mesh(new THREE.BoxGeometry(0.05, 1.7, 1.0), new THREE.MeshPhongMaterial({ specular: 0x000000, color: col || 0x8a2030, flatShading: true, map: texCloth(1, 1), side: THREE.DoubleSide })); cloth.position.set(0, 3.0, 0.55); g.add(cloth); g.position.set(x, 0, z); townSceneryGroup.add(g); townColliders.push({ x, z, r: 0.3 }); }
+function tBanner(x, z, col) { const c = col || 0x8a2030; if (PROPS_READY) { const cr = (c >> 16) & 255, cg = (c >> 8) & 255, cb = c & 255; const name = (cr >= cg && cr >= cb) ? 'banner_red' : (cb >= cr && cb >= cg) ? 'banner_blue' : 'banner_green'; const p = PROP_PROTO[name]; if (p) { const s = 4.0 / p.base, m = new THREE.Mesh(p.geo, p.mat); m.position.set(x, 0, z); m.rotation.y = rand(0, 6); m.scale.setScalar(s); m.castShadow = true; townSceneryGroup.add(m); townColliders.push({ x, z, r: 0.3 }); return; } } const g = new THREE.Group(); const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 4.2, 6), new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0x2a2218, map: texWood(1, 3) })); pole.position.y = 2.1; g.add(pole); const cloth = new THREE.Mesh(new THREE.BoxGeometry(0.05, 1.7, 1.0), new THREE.MeshPhongMaterial({ specular: 0x000000, color: col || 0x8a2030, flatShading: true, map: texCloth(1, 1), side: THREE.DoubleSide })); cloth.position.set(0, 3.0, 0.55); g.add(cloth); g.position.set(x, 0, z); townSceneryGroup.add(g); townColliders.push({ x, z, r: 0.3 }); }
 function tLamp(x, z, col) { const g = new THREE.Group(); const post = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.18, 3.6, 6), new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0x2a2218, map: texWood(1, 3) })); post.position.y = 1.8; g.add(post); const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.34, 8, 8), new THREE.MeshBasicMaterial({ color: col || 0xffd27a })); bulb.position.y = 3.7; g.add(bulb); const lt = regLight(new THREE.PointLight(col || 0xffc060, 0.9 * Math.PI, 20, 2)); lt.position.y = 3.9; g.add(lt); g.position.set(x, 0, z); townSceneryGroup.add(g); townColliders.push({ x, z, r: 0.3 }); }
 function tBrazier(x, z, col) { const g = new THREE.Group(); const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.42, 1.7, 7), new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0x2a2026, flatShading: true, map: texMetal(1, 1) })); stand.position.y = 0.85; g.add(stand); const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.72, 0.4, 0.5, 9), new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0x2a2026, flatShading: true, map: texMetal(1, 1) })); bowl.position.y = 1.8; g.add(bowl); const fire = new THREE.Mesh(new THREE.ConeGeometry(0.5, 1.2, 6), new THREE.MeshBasicMaterial({ color: col || 0xff7a2a, map: texFlame(1, 1) })); fire.position.y = 2.4; g.add(fire); const lt = regLight(new THREE.PointLight(col || 0xff6a20, 1.4 * Math.PI, 24, 2)); lt.position.y = 2.5; g.add(lt); g.position.set(x, 0, z); townSceneryGroup.add(g); townColliders.push({ x, z, r: 0.5 }); townFires.push({ light: lt, flame: fire, base: lt.intensity, x, z }); }
 function tLavaPool(x, z, r) { const p = new THREE.Mesh(new THREE.CircleGeometry(r || 2, 16), new THREE.MeshBasicMaterial({ color: 0xff4a18, map: texLava(2, 2) })); p.rotation.x = -Math.PI / 2; p.position.set(x, 0.06, z); townSceneryGroup.add(p); const lt = regLight(new THREE.PointLight(0xff5020, 0.7 * Math.PI, 16, 2)); lt.position.set(x, 1.2, z); townSceneryGroup.add(lt); }
-function tPath(x, z, w, l, rot, col) { const p = new THREE.Mesh(new THREE.PlaneGeometry(w, l), new THREE.MeshPhongMaterial({ specular: 0x000000, color: col || 0x4a3c2a, map: texStone(Math.max(1, Math.round(w)), Math.max(1, Math.round(l))) })); p.rotation.x = -Math.PI / 2; if (rot) p.rotation.z = rot; p.position.set(x, 0.04, z); p.receiveShadow = true; townSceneryGroup.add(p); }
+function tPath(x, z, w, l, rot, col) { const p = new THREE.Mesh(new THREE.PlaneGeometry(w, l), _pavedMat(w, l, col || 0x9c8b6e)); p.rotation.x = -Math.PI / 2; if (rot) p.rotation.z = rot; p.position.set(x, 0.04, z); p.receiveShadow = true; townSceneryGroup.add(p); }
 function tWall(x, z, len, horiz, col) { const w = new THREE.Mesh(new THREE.BoxGeometry(horiz ? len : 1.0, 2.6, horiz ? 1.0 : len), new THREE.MeshPhongMaterial({ specular: 0x000000, color: col || 0x55606e, flatShading: true, map: texStone(horiz ? Math.round(len / 2) : 2, 2) })); w.position.set(x, 1.3, z); w.castShadow = true; townSceneryGroup.add(w); }
-/* ---- three distinct themed towns; each returns its anchor + NPC layout ---- */
-function buildAldermere() { // warm woodland village
-  tWell(0, 0); makeFire(0, 15, townSceneryGroup, townFires, townColliders, 0xff9a3a);
-  tPath(0, 4, 5, 26, 0, 0x4a3c2a); tPath(0, 0, 30, 5, 0, 0x4a3c2a);
-  const houses = [[-26, -12, 7, 5, 0x6a5236, 0x5a2418, { chimney: 1 }], [26, -12, 8, 6, 0x5e4a32, 0x5a2418, { chimney: 1 }], [-29, 8, 6, 5, 0x70583a, 0x4a2014, {}], [29, 10, 7, 6, 0x64502f, 0x4a2014, { chimney: 1 }], [-16, 24, 6, 5, 0x6a5236, 0x5a2418, {}], [16, 24, 7, 6, 0x5e4a32, 0x5a2418, { chimney: 1 }], [0, 30, 8, 6, 0x70583a, 0x4a2014, { chimney: 1 }], [-33, -3, 6, 5, 0x64502f, 0x5a2418, {}], [33, -3, 6, 5, 0x6a5236, 0x4a2014, {}]];
-  for (const h of houses) tHouse(h[0], h[1], h[2], h[3], h[4], h[5], h[6]);
-  tStall(-6, -9, 0xc0402a); tStall(6, -9, 0x2a6ac0); tBarrel(9, -8); tCrate(-9, -8); tBarrel(12, 7); tCrate(-12, 7);
-  for (const t of [[-22, 18, 1.2], [22, 18, 1.0], [-24, -20, 1.1], [24, -20, 1.2], [-36, 12, 1.0], [36, 12, 1.1], [0, 38, 1.3]]) tTree(t[0], t[1], t[2]);
-  tFence(-36, -20, -22, -20); tFence(22, -20, 36, -20);
-  for (const l of [[-15, -12, 0xffd27a], [15, -12, 0xffd27a], [-15, 15, 0xffd27a], [15, 15, 0xffd27a]]) tLamp(l[0], l[1], l[2]);
-  return { anchors: { portal: [0, -18], waypoint: [-18, -2], cauldron: [18, -2] }, npcs: { vendor: [-10, -4], stash: [10, -4], smith: [14, 4], alchemist: [-14, 4], enchanter: [0, -10] } };
+/* a paved plaza slab (cobble look via grey-tinted stone tex); sits just under tPath so road crossings read on top */
+function tPlaza(x, z, w, l, col) { const p = new THREE.Mesh(new THREE.PlaneGeometry(w, l), _pavedMat(w, l, col || 0x6b6b64)); p.rotation.x = -Math.PI / 2; p.position.set(x, 0.02, z); p.receiveShadow = true; townSceneryGroup.add(p); }
+/* shared-proto prop mesh at a target HEIGHT (mirrors tBarrel); merges into townSceneryGroup. returns false if kit not ready */
+function _goodsMesh(name, x, y, z, targetH, rotY) { const p = PROPS_READY && PROP_PROTO[name]; if (!p) return false; const s = (targetH || 1) / p.base, m = new THREE.Mesh(p.geo, p.mat); m.position.set(x, y || 0, z); m.rotation.y = (rotY != null) ? rotY : rand(0, 6); m.scale.setScalar(s); m.castShadow = true; townSceneryGroup.add(m); return true; }
+/* a market stall dressed with goods: ground barrel+crates flanking it, a few bottles on the table (~y1.08) */
+function tStallGoods(x, z) { _goodsMesh('barrel_small', x + 1.7, 0, z + 0.2, 1.0) && townColliders.push({ x: x + 1.7, z: z + 0.2, r: 0.45 }); _goodsMesh('crates_stacked', x - 1.7, 0, z + 0.2, 1.3) && townColliders.push({ x: x - 1.7, z: z + 0.2, r: 0.55 }); _goodsMesh('bottle_A_labeled_green', x - 0.5, 1.08, z, 0.36); _goodsMesh('bottle_A_labeled_green', x + 0.2, 1.08, z - 0.15, 0.36); _goodsMesh('bottle_A_labeled_green', x + 0.6, 1.08, z + 0.12, 0.36); }
+/* a KayKit nature bush (forest atlas) at ~1.1 height; procedural clump fallback; decorative, no collider */
+function tBush(x, z, s) { s = s || 1; const names = ['Bush_1_A_Color1', 'Bush_2_A_Color1', 'Bush_4_A_Color1']; const nm = names[Math.abs(Math.round(x * 7) + Math.round(z * 11)) % names.length]; if (_goodsMesh(nm, x, 0, z, 1.1 * s)) return; const g = new THREE.Group(), lm = new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0x356a30, flatShading: true }); for (let i = 0; i < 3; i++) { const c = new THREE.Mesh(new THREE.SphereGeometry(0.5 * s, 7, 6), lm); c.position.set((i - 1) * 0.42 * s, 0.42 * s, 0); c.castShadow = true; g.add(c); } g.position.set(x, 0, z); townSceneryGroup.add(g); }
+/* a small flower bed — colored blooms on short stems, merged, no collider */
+function tFlowerbed(x, z) { const cols = [0xff5a7a, 0xffd24d, 0x6a9aff, 0xff8a3a, 0xc06aff], stemMat = new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0x2f6a2a, flatShading: true }); for (let i = 0; i < 7; i++) { const a = rand(0, 6.283), r = rand(0, 1.2), fx = x + Math.cos(a) * r, fz = z + Math.sin(a) * r; const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.05, 0.5, 4), stemMat); stem.position.set(fx, 0.25, fz); townSceneryGroup.add(stem); const bloom = new THREE.Mesh(new THREE.SphereGeometry(0.13, 6, 5), new THREE.MeshBasicMaterial({ color: cols[i % cols.length] })); bloom.position.set(fx, 0.52, fz); townSceneryGroup.add(bloom); } }
+/* KayKit perimeter wall: tile wall_straight along each edge (footprint = segment length so pieces abut edge-to-edge),
+   a wall_gate at the south centre, watchtowers at the corners. Pieces are multi-material building clones that merge by
+   color like the rest of the town. Only draws when BUILDINGS_READY (no procedural fallback — a box wall would clash). */
+function tWallEdge(fixed, isZ, half, foot, gate) {
+  let N = Math.max(3, Math.round(2 * half / foot)); if (gate && N % 2 === 0) N++;
+  const step = 2 * half / N;
+  for (let i = 0; i < N; i++) { const t = -half + step * (i + 0.5), name = (gate && i === (N - 1) / 2) ? 'wall_gate' : 'wall_straight'; if (isZ) placeBuilding(name, fixed, t, Math.PI / 2, step); else placeBuilding(name, t, fixed, 0, step); }
 }
-function buildHighreach() { // grey stone hill-town with a keep
-  tTower(0, 0, 3.2, 13, 0x5a626e, { crenel: 1 }); tFountain(0, 20); tPath(0, 6, 5, 28, 0, 0x55606e); tPath(0, 2, 32, 5, 0, 0x55606e);
-  const houses = [[-26, -12, 8, 8, 0x6a7280, 0x424a56, { stone: 1, stories: 2 }], [26, -12, 8, 9, 0x626a78, 0x3a424e, { stone: 1, stories: 2 }], [-29, 9, 7, 7, 0x6a7280, 0x424a56, { stone: 1 }], [29, 9, 8, 8, 0x626a78, 0x3a424e, { stone: 1, stories: 2 }], [-16, 26, 7, 7, 0x6a7280, 0x424a56, { stone: 1 }], [16, 26, 8, 8, 0x626a78, 0x3a424e, { stone: 1, stories: 2 }], [-34, -2, 7, 8, 0x626a78, 0x3a424e, { stone: 1, stories: 2 }], [34, -2, 7, 8, 0x6a7280, 0x424a56, { stone: 1 }]];
-  for (const h of houses) tHouse(h[0], h[1], h[2], h[3], h[4], h[5], h[6]);
-  tTower(-32, -20, 2.2, 9, 0x55606e, { crenel: 1 }); tTower(32, -20, 2.2, 9, 0x55606e, { crenel: 1 });
-  tWall(0, -32, 46, true); tWall(-34, 6, 40, false); tWall(34, 6, 40, false);
-  tBanner(-5, -6, 0x2a4a8a); tBanner(5, -6, 0x8a2030); tBanner(-5, 6, 0x8a2030); tBanner(5, 6, 0x2a4a8a);
-  for (const l of [[-15, -12, 0xbcd0ff], [15, -12, 0xbcd0ff], [-15, 14, 0xbcd0ff], [15, 14, 0xbcd0ff]]) tLamp(l[0], l[1], l[2]);
-  tCrate(11, -9); tBarrel(-11, -9); tCrate(-13, 12);
-  return { anchors: { portal: [0, -18], waypoint: [18, 4], cauldron: [-18, 4] }, npcs: { vendor: [-10, -4], stash: [10, -4], smith: [14, -2], alchemist: [-14, -2], enchanter: [-8, 11], gambler: [8, 11] } };
+function tWallRing(hx, hz, foot) {
+  tWallEdge(-hz, false, hx, foot, true); tWallEdge(hz, false, hx, foot, false); tWallEdge(-hx, true, hz, foot, false); tWallEdge(hx, true, hz, foot, false);
+  for (const c of [[-hx, -hz], [hx, -hz], [-hx, hz], [hx, hz]]) placeBuilding('watchtower', c[0], c[1], 0, Math.max(6, foot * 0.9));
 }
-function buildEmberhold() { // volcanic forge-town
-  tTower(0, 0, 2.8, 14, 0x3a2026, { roof: 0x6a1a14, win: 0xffb060 }); tPath(0, 6, 5, 28, 0, 0x2a1410); tPath(0, 2, 34, 5, 0, 0x2a1410);
-  const houses = [[-26, -12, 8, 7, 0x4a2a26, 0x2a1014, { stone: 1 }], [26, -12, 8, 8, 0x42221e, 0x2a1014, { stone: 1, stories: 2 }], [-29, 9, 7, 7, 0x4a2a26, 0x2a1014, { stone: 1 }], [29, 9, 8, 8, 0x42221e, 0x2a1014, { stone: 1, stories: 2 }], [0, 28, 8, 7, 0x4a2a26, 0x2a1014, { stone: 1, chimney: 1 }], [-34, -3, 7, 7, 0x42221e, 0x2a1014, { stone: 1 }], [34, -3, 7, 7, 0x4a2a26, 0x2a1014, { stone: 1, stories: 2 }]];
+/* ---- three distinct themed towns; each returns its anchor + NPC layout (+ optional villager spots) ---- */
+function buildAldermere() { // warm woodland village around a cobbled market plaza
+  tPlaza(0, 2, 26, 24, 0x877d68); tWell(0, 2); makeFire(-12, 14, townSceneryGroup, townFires, townColliders, 0xff9a3a);
+  // stone perimeter wall with a south gatehouse + corner watchtowers -> reads as a fortified town
+  tWallRing(40, 40, 9);
+  // cobbled road network, lighter tan so it reads against grass: long N-S avenue (plaza->south gate), E-W cross street, north spur
+  tPath(0, -11, 6, 62, 0, 0x9c8b6e); tPath(0, 2, 70, 6, 0, 0x9c8b6e); tPath(0, 22, 6, 22, 0, 0x9c8b6e);
+  // buildings ring the plaza facing inward (deterministic pool by x,z); anchors (market/mill) are larger
+  const houses = [[-24, 18, 8, 6, 0x6a5236, 0x5a2418, { chimney: 1 }], [24, 18, 8, 6, 0x5e4a32, 0x5a2418, { chimney: 1 }], [-31, 2, 9, 7, 0x70583a, 0x4a2014, {}], [31, 2, 11, 8, 0x64502f, 0x4a2014, {}], [0, 31, 11, 8, 0x70583a, 0x4a2014, { chimney: 1 }], [-26, -13, 8, 6, 0x6a5236, 0x5a2418, {}], [26, -13, 8, 6, 0x5e4a32, 0x5a2418, { chimney: 1 }], [-35, -23, 7, 6, 0x64502f, 0x5a2418, { chimney: 1 }], [35, -23, 7, 6, 0x6a5236, 0x4a2014, { chimney: 1 }]];
   for (const h of houses) tHouse(h[0], h[1], h[2], h[3], h[4], h[5], h[6]);
-  tTower(-32, -20, 2, 10, 0x3a2026, { roof: 0x6a1a14 }); tTower(32, -20, 2, 10, 0x3a2026, { roof: 0x6a1a14 });
-  for (const b of [[-11, -10], [11, -10], [-11, 13], [11, 13], [0, -14], [11, 4]]) tBrazier(b[0], b[1], 0xff7a2a);
-  for (const lv of [[-22, 20, 3], [22, 20, 2.5], [-18, -22, 2.2], [18, -22, 2.4]]) tLavaPool(lv[0], lv[1], lv[2]);
-  tBanner(-6, -6, 0x8a2030); tBanner(6, -6, 0xff6a20); tCrate(13, -9); tBarrel(-13, -9);
-  return { anchors: { portal: [0, -18], waypoint: [-20, 6], cauldron: [20, 6] }, npcs: { vendor: [-10, -4], stash: [10, -4], smith: [14, 2], alchemist: [-14, 2], enchanter: [-9, 12], gambler: [9, 12], jeweler: [-18, -11], premiumVendor: [18, -11] } };
+  // market: two stalls flanking the south avenue, each dressed with goods
+  tStall(-8, -6, 0xc0402a); tStallGoods(-8, -6); tStall(8, -6, 0x2a6ac0); tStallGoods(8, -6);
+  // greenery framing the plaza + avenue
+  for (const t of [[-30, 30, 1.3], [30, 30, 1.2], [-38, 12, 1.1], [38, 12, 1.1], [-36, -30, 1.2], [36, -30, 1.3]]) tTree(t[0], t[1], t[2]);
+  for (const b of [[-16, 8, 1], [16, 8, 1], [-16, -4, 1], [16, -4, 1.1], [-12, 24, 1], [12, 24, 1]]) tBush(b[0], b[1], b[2]);
+  tFlowerbed(-7, 12); tFlowerbed(7, 12); tFlowerbed(0, -22);
+  tFence(-36, -16, -24, -16); tFence(24, -16, 36, -16);
+  // warm lighting down the avenue and around the plaza
+  for (const l of [[-12, -12, 0xffd27a], [12, -12, 0xffd27a], [-13, 13, 0xffd27a], [13, 13, 0xffd27a], [0, -22, 0xffd27a]]) tLamp(l[0], l[1], l[2]);
+  return {
+    anchors: { portal: [0, -20], waypoint: [-18, -2], cauldron: [18, -2] },
+    npcs: { vendor: [-9, -4], stash: [9, -4], smith: [16, 7], alchemist: [-16, 7], enchanter: [0, 15] },
+    villagers: [[-6, 0], [6, 1], [-11, 9], [11, 8], [0, -9]]
+  };
+}
+function buildHighreach() { // grey-stone fortress keep: cobbled plaza + fountain, a crenellated keep overlooking it
+  tPlaza(0, 2, 24, 22, 0x7a838f); tFountain(0, 2); makeFire(-11, 13, townSceneryGroup, townFires, townColliders, 0xffb060);
+  tWallRing(38, 38, 9); // fortified perimeter: wall + corner watchtowers + south gate
+  // central keep at the north end, overlooking the plaza
+  tTower(0, 24, 3.2, 14, 0x5a626e, { crenel: 1 });
+  // cool-grey cobbled roads: avenue plaza->south gate, E-W cross, short spur to the keep face
+  tPath(0, -11, 6, 56, 0, 0x8a93a0); tPath(0, 2, 64, 6, 0, 0x8a93a0); tPath(0, 15, 6, 10, 0, 0x8a93a0);
+  // stone houses ring the plaza facing inward; north-centre left clear for the keep
+  const houses = [[-23, 17, 8, 8, 0x6a7280, 0x424a56, { stone: 1, stories: 2 }], [23, 17, 8, 8, 0x626a78, 0x3a424e, { stone: 1, stories: 2 }], [-30, 2, 9, 8, 0x6a7280, 0x424a56, { stone: 1 }], [30, 2, 11, 9, 0x626a78, 0x3a424e, { stone: 1, stories: 2 }], [-26, -13, 8, 7, 0x6a7280, 0x424a56, { stone: 1 }], [26, -13, 8, 7, 0x626a78, 0x3a424e, { stone: 1, stories: 2 }], [-34, -23, 7, 7, 0x626a78, 0x3a424e, { stone: 1 }], [34, -23, 7, 7, 0x6a7280, 0x424a56, { stone: 1, stories: 2 }]];
+  for (const h of houses) tHouse(h[0], h[1], h[2], h[3], h[4], h[5], h[6]);
+  // market: two stalls flanking the south avenue, each dressed
+  tStall(-8, -6, 0x3a6ab0); tStallGoods(-8, -6); tStall(8, -6, 0x4a5a8a); tStallGoods(8, -6);
+  // sparse hardy pines at the corners (grey-green), no flowerbeds in a cold keep
+  for (const t of [[-31, 30, 1.2], [31, 30, 1.2], [-37, -30, 1.1], [37, -30, 1.1]]) tTree(t[0], t[1], t[2], 0x5a6e5a);
+  tBanner(-7, 12, 0x2a4a8a); tBanner(7, 12, 0x3a4250); tBanner(-7, -4, 0x3a4250); tBanner(7, -4, 0x2a4a8a);
+  for (const l of [[-12, -12, 0xbcd0ff], [12, -12, 0xbcd0ff], [-13, 13, 0xbcd0ff], [13, 13, 0xbcd0ff], [0, -22, 0xbcd0ff]]) tLamp(l[0], l[1], l[2]);
+  tCrate(11, -8); tBarrel(-11, -8);
+  return {
+    anchors: { portal: [0, -18], waypoint: [-18, -2], cauldron: [18, -2] },
+    npcs: { vendor: [-9, -4], stash: [9, -4], smith: [16, 7], alchemist: [-16, 7], enchanter: [-13, 13], gambler: [13, 13] },
+    villagers: [[-6, 0], [6, 1], [-12, 9], [12, 8], [0, -9]]
+  };
+}
+function buildEmberhold() { // volcanic forge-town: dark cobble plaza, a glowing forge-keep, lava + braziers (no greenery)
+  tPlaza(0, 2, 26, 22, 0x5a4036); makeFire(0, 2, townSceneryGroup, townFires, townColliders, 0xff7a2a); // forge hearth at the plaza heart
+  tWallRing(40, 38, 9); // imposing endgame perimeter
+  // central glowing forge-tower at the north end (ember windows)
+  tTower(0, 24, 2.8, 15, 0x3a2026, { roof: 0x6a1a14, win: 0xffb060 });
+  // dark volcanic cobbled roads: avenue plaza->south gate, E-W cross, short spur to the forge face
+  tPath(0, -11, 6, 56, 0, 0x4a342a); tPath(0, 2, 66, 6, 0, 0x4a342a); tPath(0, 15, 6, 10, 0, 0x4a342a);
+  // dark-red stone houses ring the plaza; north-centre left clear for the forge-tower
+  const houses = [[-23, 17, 8, 8, 0x4a2a26, 0x2a1014, { stone: 1, stories: 2 }], [23, 17, 8, 8, 0x42221e, 0x2a1014, { stone: 1, stories: 2, chimney: 1 }], [-30, 2, 9, 8, 0x4a2a26, 0x2a1014, { stone: 1 }], [30, 2, 11, 9, 0x42221e, 0x2a1014, { stone: 1, stories: 2 }], [-26, -13, 8, 7, 0x4a2a26, 0x2a1014, { stone: 1, chimney: 1 }], [26, -13, 8, 7, 0x42221e, 0x2a1014, { stone: 1 }], [-34, -23, 7, 7, 0x4a2a26, 0x2a1014, { stone: 1 }], [34, -23, 7, 7, 0x42221e, 0x2a1014, { stone: 1, chimney: 1 }]];
+  for (const h of houses) tHouse(h[0], h[1], h[2], h[3], h[4], h[5], h[6]);
+  // market: two stalls flanking the south avenue, ember awnings
+  tStall(-8, -6, 0x8a2a20); tStallGoods(-8, -6); tStall(8, -6, 0xff6a20); tStallGoods(8, -6);
+  // lava pools in the open diagonal courtyard gaps (off the road axes + building ring)
+  for (const lv of [[-18, -14, 2.2], [18, -14, 2.2], [-18, 16, 2.0], [18, 16, 2.0]]) tLavaPool(lv[0], lv[1], lv[2]);
+  // braziers are the light source down the avenue + plaza
+  for (const b of [[-11, -10], [11, -10], [-11, 13], [11, 13], [-13, 4], [13, 4]]) tBrazier(b[0], b[1], 0xff7a2a);
+  tBanner(-7, 12, 0x8a2030); tBanner(7, 12, 0xff6a20); tBanner(-7, -4, 0xff6a20); tBanner(7, -4, 0x8a2030);
+  tCrate(11, -8); tBarrel(-11, -8);
+  return {
+    anchors: { portal: [0, -18], waypoint: [-20, -2], cauldron: [20, -2] },
+    npcs: { vendor: [-9, -4], stash: [9, -4], smith: [16, 6], alchemist: [-16, 6], enchanter: [-13, 13], gambler: [13, 13], jeweler: [-18, -11], premiumVendor: [18, -11] },
+    villagers: [[-6, 0], [6, 1], [-12, 9], [12, 8], [0, -9]]
+  };
 }
 const TOWN_BUILDERS = { town: buildAldermere, highreach: buildHighreach, emberhold: buildEmberhold };
 /* ---- Phase 4: static-scenery draw-call collapse ----
@@ -926,12 +1146,36 @@ function buildTown(area) {
   for (const n of npcs) { const inTown = (n.towns || []).includes(id); n.group.visible = inTown; const p = cfg.npcs[n.kind]; if (p && inTown) { n.x = p[0]; n.z = p[1]; n.group.position.set(p[0], 0, p[1]); n.group.rotation.y = (p[2] != null) ? p[2] : Math.atan2(-p[0], -p[1]); townColliders.push({ x: p[0], z: p[1], r: 1.2 }); } }
   _lightBucket = 'static';
   try { mergeStaticScenery(townSceneryGroup, new Set(townFires.map(f => f.flame))); } catch (e) { console.warn('town scenery merge failed; using unmerged:', e && e.message); } /* Phase 4: collapse static draws; skip animated fire flames */
+  buildTownVillagers(cfg.villagers);
+}
+/* Decorative idling townsfolk. Reuse already-loaded NPC protos (Rogue_Hooded/Ranger/Barbarian/Rogue), weapon-stripped, no
+   interaction. Detach (don't dispose) on rebuild: their geo/mat are SHARED with the proto via SkeletonUtils.clone, so
+   disposeObj would free the shared buffers and break every other clone. They sit in townActorsGroup, never merged. */
+function clearTownActors() { for (let i = townActorsGroup.children.length - 1; i >= 0; i--) townActorsGroup.remove(townActorsGroup.children[i]); townVillagers.length = 0; }
+function buildTownVillagers(spots) {
+  clearTownActors(); if (!spots || !spots.length || !GLB_READY) return;
+  const roles = ['alchemist', 'gambler', 'jeweler', 'stash']; /* Rogue_Hooded / Ranger / Barbarian / Rogue meshes */
+  for (let i = 0; i < spots.length; i++) {
+    const sp = spots[i], role = roles[i % roles.length]; if (!GLB_PROTO[role]) continue;
+    const ent = buildGLBEntity(role, 0.92 + (i % 3) * 0.05); if (!ent) continue;
+    stripNPCWeapons(ent.userData.model);
+    ent.position.set(sp[0], 0, sp[1]); ent.rotation.y = (sp[2] != null) ? sp[2] : rand(0, 6.283);
+    townActorsGroup.add(ent); townVillagers.push(ent); glbPlay(ent, 'idle');
+    townColliders.push({ x: sp[0], z: sp[1], r: 0.9 });
+  }
 }
 
 /* ---- DUNGEON scenery (rebuilt per level) ---- */
 const dungeonGroup = new THREE.Group(); dungeonGroup.visible = false; scene.add(dungeonGroup);
+/* Persistent dungeon perimeter wall (brick PBR). Separate scene-level group so clearGroup(dungeonGroup) can't
+   dispose its shared material; geometry is fixed (DUNG_WALL_R), so it's built once and recoloured per biome
+   in loadDungeonWall instead of rebuilt each descent (avoids per-dive material/pipeline churn). */
+const dungeonExtraGroup = new THREE.Group(); dungeonExtraGroup.visible = false; scene.add(dungeonExtraGroup);
+const dungeonWallMat = new THREE.MeshStandardMaterial({ color: 0x3a3340, roughness: 1.0, metalness: 0.0, map: texStone(16, 2), normalMap: _flatNormal(), roughnessMap: _whitePx(), aoMap: _whitePx(), side: THREE.DoubleSide }); dungeonWallMat.normalScale.set(0.7, 0.7);
+const dungeonWallGeo = new THREE.CylinderGeometry(DUNG_WALL_R, DUNG_WALL_R, 2.4, 64, 1, true); dungeonWallGeo.setAttribute('uv1', dungeonWallGeo.attributes.uv);
+const dungeonWall = new THREE.Mesh(dungeonWallGeo, dungeonWallMat); dungeonWall.position.y = 1.2; dungeonWall.userData.noDispose = true; dungeonExtraGroup.add(dungeonWall);
 let dungeonFires = []; let d_deeperPortal = null; let curTheme = null;
-function disposeObj(o) { if (!o) return; o.traverse(c => { if (c.isInstancedMesh) c.dispose(); if (c.geometry) c.geometry.dispose(); if (c.material) { if (Array.isArray(c.material)) c.material.forEach(m => m && m.dispose()); else c.material.dispose(); } }); }
+function disposeObj(o) { if (!o) return; o.traverse(c => { if (c.isInstancedMesh) c.dispose(); /* frees instanceMatrix only, not geo/mat */ const g = c.geometry; if (g && !(g.userData && g.userData.sharedProto)) g.dispose(); if (c.material) { const ms = Array.isArray(c.material) ? c.material : [c.material]; for (const mm of ms) if (mm && !(mm.userData && mm.userData.sharedProto)) mm.dispose(); } }); } /* shared prop prototypes (userData.sharedProto) survive zone rebuilds */
 function removeMesh(o) { if (!o) return; if (o.userData && o.userData.eliteLight) { unregLight(o.userData.eliteLight); o.userData.eliteLight = null; } scene.remove(o); if (o.userData && o.userData.noDispose) return; disposeObj(o); }
 function clearGroup(g) { while (g.children.length) { const c = g.children[0]; g.remove(c); disposeObj(c); } }
 /* Biomes are no longer locked to a depth tier — buildDungeon picks one at random each entry (pickBiome),
@@ -949,10 +1193,29 @@ const BIOMES = [
 const HELL_BIOME = { name: 'The Inferno', pillar: 0x5a1810, rock: 0x3a100a, fire: 0xff3010, fog: 0x1a0402, ground: 0x300a06, amb: 'ember', ambCol: 0xff4a1a, deco: 'lava', grade: { t: [1.25, 0.82, 0.74], v: 0.5 }, pool: ['imp', 'hellhound', 'imp', 'hellhound', 'brute', 'fallen'] };
 function dungeonTheme(depth) { if (depth === 666) return HELL_BIOME; const i = depth >= 19 ? 6 : depth >= 16 ? 5 : depth >= 13 ? 4 : depth >= 10 ? 3 : depth >= 7 ? 2 : depth >= 4 ? 1 : 0; return BIOMES[i]; }
 function pickBiome(depth) { if (depth === 666) return HELL_BIOME; return BIOMES[Math.floor(Math.random() * BIOMES.length)]; }
+/* shared prop instancing + per-tint material cache (one clone per atlas+hex, persists across rebuilds) */
+const _propMatCache = {};
+function tintPropMat(base, hex) { const key = base.uuid + ':' + hex; let m = _propMatCache[key]; if (!m) { m = base.clone(); if (m.color) m.color.setHex(hex); m.userData = Object.assign(m.userData || {}, { sharedProto: true }); _propMatCache[key] = m; } return m; }
+function makePropInst(geo, mat, tf, group, opts) { /* tf items: {x,z,ry?,rx?,rz?,s?|sx,sy,sz} ; geo base sits at y=0 */
+  const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), E = new THREE.Euler(), V = new THREE.Vector3(), Sc = new THREE.Vector3();
+  const im = new THREE.InstancedMesh(geo, mat, tf.length); im.castShadow = !!(opts && opts.cast); im.receiveShadow = !!(opts && opts.recv); im.frustumCulled = false;
+  for (let i = 0; i < tf.length; i++) { const t = tf[i], s = t.s || 1; E.set(t.rx || 0, t.ry || 0, t.rz || 0); Q.setFromEuler(E); V.set(t.x, t.y || 0, t.z); Sc.set(t.sx || s, t.sy || s, t.sz || s); M.compose(V, Q, Sc); im.setMatrixAt(i, M); }
+  im.instanceMatrix.needsUpdate = true; if (group) group.add(im); return im;
+}
 function buildDungeon(depth) {
   clearGroup(dungeonGroup); clearLightBucket('dungeon'); _lightBucket = 'dungeon'; dungeonFires = []; dungeonColliders.length = 0; const th = curTheme = pickBiome(depth);
   const R = 90;
-  {
+  const useProps = PROPS_READY && PROP_PROTO['pillar'] && PROP_PROTO['rubble_large'];
+  if (useProps) {
+    // pillars: KayKit pillar + pillar_decorated (full-height pieces), height-targeted, tinted to biome stone
+    const pK = ['pillar', 'pillar_decorated'], pB = { pillar: [], pillar_decorated: [] };
+    for (let i = 0; i < 60; i++) { const ang = rand(0, 6.28), d = rand(10, R), x = Math.cos(ang) * d, z = Math.sin(ang) * d, h = rand(7, 13), k = pK[i % 2]; pB[k].push({ x, z, ry: rand(0, 6), s: h / PROP_PROTO[k].base }); dungeonColliders.push({ x, z, r: 1.7 }); }
+    for (const k of pK) if (pB[k].length) makePropInst(PROP_PROTO[k].geo, tintPropMat(PROP_PROTO[k].mat, th.pillar), pB[k], dungeonGroup, { cast: true, recv: true });
+    // loose rocks -> KayKit rubble (low debris), biome-tinted
+    const ruK = ['rubble_large', 'rubble_half'], ruB = { rubble_large: [], rubble_half: [] };
+    for (let i = 0; i < 25; i++) { const x = rand(-R, R), z = rand(-R, R), k = ruK[i % 2], s = rand(0.7, 1.5) / PROP_PROTO[k].base; ruB[k].push({ x, z, ry: rand(0, 6), s }); dungeonColliders.push({ x, z, r: Math.max(PROP_PROTO[k].size.x, PROP_PROTO[k].size.z) * s * 0.45 }); }
+    for (const k of ruK) if (ruB[k].length) makePropInst(PROP_PROTO[k].geo, tintPropMat(PROP_PROTO[k].mat, th.rock), ruB[k], dungeonGroup, { recv: true });
+  } else {
     const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), E = new THREE.Euler(), V = new THREE.Vector3(), Sc = new THREE.Vector3();
     const pim = new THREE.InstancedMesh(new THREE.CylinderGeometry(1.2, 1.5, 1, 6), new THREE.MeshPhongMaterial({ specular: 0x000000, color: th.pillar, flatShading: true, map: texStone(2, 4) }), 60); pim.receiveShadow = true; pim.frustumCulled = false;
     for (let i = 0; i < 60; i++) { const ang = rand(0, 6.28), d = rand(10, R), x = Math.cos(ang) * d, z = Math.sin(ang) * d, h = rand(6, 12), rs = rand(0.7, 1.2); E.set(0, rand(0, 6), 0); Q.setFromEuler(E); V.set(x, h / 2, z); Sc.set(rs, h, rs); M.compose(V, Q, Sc); pim.setMatrixAt(i, M); dungeonColliders.push({ x, z, r: 1.7 }); }
@@ -973,14 +1236,21 @@ function buildDungeon(depth) {
     else if (th.deco === 'bonepile') { const pile = new THREE.Group(); for (let k = 0; k < rand(3, 6); k++) { const bn = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.12, rand(0.8, 2), 5), new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0xcfc4ac, flatShading: true, map: texStone(1, 2) })); bn.position.set(rand(-0.9, 0.9), rand(.2, .7), rand(-0.9, 0.9)); bn.rotation.set(rand(0, 6), rand(0, 6), rand(0, 6)); pile.add(bn); } const skull = new THREE.Mesh(new THREE.SphereGeometry(0.34, 8, 7), new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0xe8e0cc, flatShading: true, map: texSkin(1, 1) })); skull.position.set(0, 0.42, 0); pile.add(skull); pile.position.set(x, 0, z); dungeonGroup.add(pile); if (lit) { const lt = regLight(new THREE.PointLight(0xffcf8a, 0.7 * Math.PI, 15, 2)); lt.position.set(x, 2, z); dungeonGroup.add(lt); } }
     else { const b = new THREE.Mesh(new THREE.SphereGeometry(rand(0.3, 0.6), 6, 5), new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0xcfc4ac, flatShading: true })); b.position.set(x, 0.3, z); dungeonGroup.add(b); }
   }
+  if (useProps) { // KayKit furniture scatter (untinted atlas reads as wood/metal); InstancedMesh -> bypasses merge, keeps PBR
+    const FURN_H = { barrel_large: 1.6, barrel_small: 1.1, box_large: 1.4, box_small: 0.95, crates_stacked: 2.2, table_medium: 1.3 };
+    const furn = Object.keys(FURN_H), fB = {};
+    for (const k of furn) fB[k] = [];
+    for (let i = 0; i < 24; i++) { const k = furn[i % furn.length]; if (!PROP_PROTO[k]) continue; const ang = rand(0, 6.28), d = rand(8, R - 8), x = Math.cos(ang) * d, z = Math.sin(ang) * d, s = FURN_H[k] / PROP_PROTO[k].base * rand(0.9, 1.1); fB[k].push({ x, z, ry: rand(0, 6), s }); dungeonColliders.push({ x, z, r: Math.max(PROP_PROTO[k].size.x, PROP_PROTO[k].size.z) * s * 0.5 }); }
+    for (const k of furn) if (fB[k].length) makePropInst(PROP_PROTO[k].geo, PROP_PROTO[k].mat, fB[k], dungeonGroup, { cast: true, recv: true });
+    if (PROP_PROTO['chest']) { const cB = [], cs = 1.1 / PROP_PROTO['chest'].base; for (let i = 0; i < 2; i++) { const ang = rand(0, 6.28), d = rand(12, R - 12), x = Math.cos(ang) * d, z = Math.sin(ang) * d; cB.push({ x, z, ry: rand(0, 6), s: cs }); dungeonColliders.push({ x, z, r: PROP_PROTO['chest'].size.x * cs * 0.6 }); } makePropInst(PROP_PROTO['chest'].geo, PROP_PROTO['chest'].mat, cB, dungeonGroup, { cast: true, recv: true }); }
+  }
   {
     const M2 = new THREE.Matrix4(), Q2 = new THREE.Quaternion(), E2 = new THREE.Euler(), V2 = new THREE.Vector3(), S2 = new THREE.Vector3();
     const dim = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(0.35, 0), new THREE.MeshPhongMaterial({ specular: 0x000000, color: th.rock, flatShading: true, map: texStone(1, 1) }), 36); dim.receiveShadow = true; dim.frustumCulled = false;
     for (let i = 0; i < 36; i++) { const ang = rand(0, 6.28), d = rand(6, R - 4), x = Math.cos(ang) * d, z = Math.sin(ang) * d, s = rand(0.5, 1.4); E2.set(rand(0, 6), rand(0, 6), rand(0, 6)); Q2.setFromEuler(E2); V2.set(x, s * 0.18, z); S2.set(s, s * 0.6, s); M2.compose(V2, Q2, S2); dim.setMatrixAt(i, M2); } dim.instanceMatrix.needsUpdate = true; dungeonGroup.add(dim);
   }
   {
-    const wallH = 2.4, wr = DUNG_WALL_R;
-    const lip = new THREE.Mesh(new THREE.CylinderGeometry(wr, wr, wallH, 64, 1, true), new THREE.MeshPhongMaterial({ specular: 0x000000, color: th.pillar, flatShading: true, map: texStone(16, 1), side: THREE.DoubleSide })); lip.position.y = wallH / 2; dungeonGroup.add(lip);
+    const wallH = 2.4, wr = DUNG_WALL_R; /* perimeter wall itself is now the persistent dungeonWall (brick PBR); only the animated glow ring is rebuilt per biome here */
     const glow = new THREE.Mesh(new THREE.TorusGeometry(wr, 0.18, 8, 80), new THREE.MeshBasicMaterial({ color: th.fire, map: texEnergy(16, 1) })); glow.rotation.x = -Math.PI / 2; glow.position.y = wallH; dungeonGroup.add(glow);
   }
   try { mergeStaticScenery(dungeonGroup, new Set(dungeonFires.map(f => f.flame))); } catch (e) { console.warn('dungeon scenery merge failed; using unmerged:', e && e.message); } /* Phase 4 follow-up: collapse static deco draws; skip animated fire flames. Runs BEFORE the portal so its animated ring is never merged. */
@@ -990,15 +1260,18 @@ function buildDungeon(depth) {
 
 /* ---- hero ---- */
 /* ===================== glTF animated roster: KayKit hero + Quaternius monsters, SkeletonUtils-cloned + AnimationMixer-driven; procedural fallback until models parse ===================== */
-const GLB_MANIFEST = {"hero":{"file":"hero.glb","bytes":2474424},"zombie":{"file":"zombie.glb","bytes":129956},"fallen":{"file":"fallen.glb","bytes":203148},"brute":{"file":"brute.glb","bytes":499836},"shaman":{"file":"shaman.glb","bytes":90632},"boss":{"file":"boss.glb","bytes":540700},"vendor":{"file":"vendor.glb","bytes":340752},"smith":{"file":"smith.glb","bytes":352692},"stash":{"file":"stash.glb","bytes":341684},"warrior":{"file":"heroes/Knight.glb","bytes":341688},"mage":{"file":"heroes/Mage.glb","bytes":352472},"rogue":{"file":"heroes/Rogue.glb","bytes":409188},"skeleton":{"file":"monsters/Skeleton_Minion.glb","bytes":318520},"imp":{"file":"monsters/Demon.gltf","bytes":1264925},"hellhound":{"file":"monsters/Dino.gltf","bytes":1211215},"wraith":{"file":"monsters/Ghost.gltf","bytes":643180},"boss_mushking":{"file":"bosses/MushroomKing.gltf","bytes":1219690},"boss_bluedemon":{"file":"bosses/BlueDemon.gltf","bytes":1190068},"boss_goleling":{"file":"bosses/Goleling_Evolved.gltf","bytes":494339},"boss_mushnub":{"file":"bosses/Mushnub_Evolved.gltf","bytes":246194},"boss_dragon":{"file":"bosses/Dragon.gltf","bytes":427100},"boss_dragonevo":{"file":"bosses/Dragon_Evolved.gltf","bytes":991335}}; const GLB_BASE = 'assets/models/'; /* P3: roster extracted to external GLBs; loaded async by loadRoster */
+const GLB_MANIFEST = {"hero":{"file":"hero.glb","bytes":2474424},"zombie":{"file":"zombie.glb","bytes":129956},"fallen":{"file":"fallen.glb","bytes":203148},"brute":{"file":"brute.glb","bytes":499836},"shaman":{"file":"shaman.glb","bytes":90632},"boss":{"file":"boss.glb","bytes":540700},"vendor":{"file":"vendor.glb","bytes":340752},"smith":{"file":"smith.glb","bytes":352692},"stash":{"file":"stash.glb","bytes":341684},"alchemist":{"file":"npcs/Rogue_Hooded.glb","bytes":381000},"enchanter":{"file":"heroes/Mage.glb","bytes":352472},"gambler":{"file":"npcs/Ranger.glb","bytes":485000},"jeweler":{"file":"npcs/Barbarian.glb","bytes":386000},"premiumVendor":{"file":"heroes/Knight.glb","bytes":341688},"warrior":{"file":"heroes/Knight.glb","bytes":341688},"mage":{"file":"heroes/Mage.glb","bytes":352472},"rogue":{"file":"heroes/Rogue.glb","bytes":409188},"skeleton":{"file":"monsters/Skeleton_Minion.glb","bytes":318520},"imp":{"file":"monsters/Demon.gltf","bytes":1264925},"hellhound":{"file":"monsters/Dino.gltf","bytes":1211215},"wraith":{"file":"monsters/Ghost.gltf","bytes":643180},"boss_mushking":{"file":"bosses/MushroomKing.gltf","bytes":1219690},"boss_bluedemon":{"file":"bosses/BlueDemon.gltf","bytes":1190068},"boss_goleling":{"file":"bosses/Goleling_Evolved.gltf","bytes":494339},"boss_mushnub":{"file":"bosses/Mushnub_Evolved.gltf","bytes":246194},"boss_dragon":{"file":"bosses/Dragon.gltf","bytes":427100},"boss_dragonevo":{"file":"bosses/Dragon_Evolved.gltf","bytes":991335}}; const GLB_BASE = 'assets/models/'; /* P3: roster extracted to external GLBs; loaded async by loadRoster */
 const ROLE_CLIPS = { hero: { idle: 'Idle', walk: 'Walking_A', run: 'Running_A', attack: '1H_Melee_Attack_Chop', death: 'Death_A' }, zombie: { idle: 'Idle', walk: 'Walk', attack: 'Bite_Front', death: 'Death', hit: 'HitRecieve' }, fallen: { idle: 'Idle', walk: 'Walk', attack: 'Bite_Front', death: 'Death', hit: 'HitRecieve' }, shaman: { idle: 'Idle', walk: 'Walk', attack: 'Bite_Front', death: 'Death', hit: 'HitRecieve' }, brute: { idle: 'Idle', walk: 'Walk', run: 'Run', attack: 'Punch', death: 'Death', hit: 'HitReact' }, boss: { idle: 'Idle', walk: 'Walk', run: 'Run', attack: 'Punch', death: 'Death', hit: 'HitReact' } };
 const ROLE_HEIGHT = { hero: 3.4, zombie: 3.2, fallen: 2.4, brute: 5.2, shaman: 3.0, boss: 8.5 };
 const ROLE_FACE = 0; /* model-forward offset so they face the player after lookAt; flip 0<->Math.PI if they face backwards (TUNABLE by eye) */
-const NPC_KINDS = new Set(['vendor', 'smith', 'stash']);
+const NPC_KINDS = new Set(['vendor', 'smith', 'stash', 'alchemist', 'enchanter', 'gambler', 'jeweler', 'premiumVendor']);
 Object.assign(ROLE_CLIPS, { vendor: { idle: 'Idle' }, smith: { idle: 'Idle' }, stash: { idle: 'Idle' } });
 Object.assign(ROLE_HEIGHT, { vendor: 3.2, smith: 3.4, stash: 3.2 });
+/* the 5 added shopkeepers reuse existing KayKit Adventurer/hero meshes (no clips of their own) -> RIG_ROLES below so they borrow the shared Idle_A; weapons stripped at swap by stripNPCWeapons */
+Object.assign(ROLE_CLIPS, { alchemist: { idle: 'Idle_A' }, enchanter: { idle: 'Idle_A' }, gambler: { idle: 'Idle_A' }, jeweler: { idle: 'Idle_A' }, premiumVendor: { idle: 'Idle_A' } });
+Object.assign(ROLE_HEIGHT, { alchemist: 3.2, enchanter: 3.3, gambler: 3.2, jeweler: 3.4, premiumVendor: 3.4 });
 /* Per-class hero meshes + extra monster variety. KayKit chars (warrior/mage/rogue/skeleton) ship 0 clips -> borrow the shared Rig_Medium set (verified 100% bone-name match). Quaternius monsters carry their own clips. */
-const RIG_BASE = 'assets/animations/', RIG_FILES = ['Rig_Medium_General.glb', 'Rig_Medium_MovementBasic.glb', 'Rig_Medium_CombatMelee.glb']; const KAYKIT_RIG_CLIPS = []; const RIG_ROLES = new Set(['warrior', 'mage', 'rogue', 'skeleton']); const HERO_ROLE = { warrior: 'warrior', mage: 'mage', rogue: 'rogue' };
+const RIG_BASE = 'assets/animations/', RIG_FILES = ['Rig_Medium_General.glb', 'Rig_Medium_MovementBasic.glb', 'Rig_Medium_CombatMelee.glb']; const KAYKIT_RIG_CLIPS = []; const RIG_ROLES = new Set(['warrior', 'mage', 'rogue', 'skeleton', 'alchemist', 'enchanter', 'gambler', 'jeweler', 'premiumVendor']); const HERO_ROLE = { warrior: 'warrior', mage: 'mage', rogue: 'rogue' };
 const _RIG_CLIPMAP = { idle: 'Idle_A', walk: 'Walking_A', run: 'Running_A', attack: 'Melee_1H_Attack_Chop', death: 'Death_A', hit: 'Hit_A' };
 Object.assign(ROLE_CLIPS, { warrior: _RIG_CLIPMAP, mage: _RIG_CLIPMAP, rogue: _RIG_CLIPMAP, skeleton: _RIG_CLIPMAP, imp: { idle: 'Idle', walk: 'Walk', run: 'Run', attack: 'Punch', death: 'Death', hit: 'HitReact' }, hellhound: { idle: 'Idle', walk: 'Walk', run: 'Run', attack: 'Punch', death: 'Death', hit: 'HitReact' }, wraith: { idle: 'Flying_Idle', walk: 'Fast_Flying', attack: 'Punch', death: 'Death', hit: 'HitReact' } });
 Object.assign(ROLE_HEIGHT, { warrior: 3.4, mage: 3.4, rogue: 3.4, skeleton: 3.0, imp: 2.4, hellhound: 2.0, wraith: 3.4 });
@@ -1021,7 +1294,17 @@ function buildGLBEntity(role, mul) {
 }
 function glbPlay(g, key, once) { const acts = g.userData && g.userData.actions; if (!acts) return; const a = acts[key]; if (!a || g.userData.cur === a) return; if (g.userData.cur) g.userData.cur.fadeOut(0.15); a.reset(); a.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, once ? 1 : Infinity); a.clampWhenFinished = !!once; a.fadeIn(0.15).play(); g.userData.cur = a; }
 function killMesh(m) { const g = m.mesh, ud = g && g.userData; if (ud && ud.glb && ud.actions && ud.actions.death) { glbPlay(g, 'death', true); _dying.push({ g, t: 1400 }); } else removeMob(g); }
-function swapNPCsToGLB(kind) { if (!GLB_PROTO[kind] || typeof npcs === 'undefined') return; for (const n of npcs) { if (n.kind !== kind) continue; const ent = buildGLBEntity(kind, 1); if (!ent) continue; if (n.group.userData.procBody) n.group.userData.procBody.visible = false; n.group.add(ent); n.group.userData.npcEnt = ent; glbPlay(ent, 'idle'); } }
+/* KayKit Adventurer/hero meshes bake the FULL weapon set onto handslot.r/.l (1H_Axe, 2H_Staff, Knife, Shield, Quiver…).
+   Town NPCs are shopkeepers -> hide every weapon/held-item node by name (tokens word-anchored so 'elbow' != 'Bow'),
+   plus hide any leftover children of the handslot bones. Spellbook/Mug kept as merchant flavor (e.g. mage-vendor's book). */
+const NPC_WEAPON_RE = /(^|_)(1H|2H|Sword|Blade|Scimitar|Glaive|Axe|Cleaver|Mace|Hammer|Flail|Dagger|Knife|Spear|Bow|Crossbow|Longbow|Shortbow|Recurve|Quiver|Staff|Wand|Scepter|Rod|Shield|Throwable|Arrow)(_|$)/i;
+const NPC_WEAPON_KEEP = /Spellbook|Mug/i;
+function stripNPCWeapons(model) {
+  if (!model) return;
+  model.traverse(o => { const nm = o.name; if (!nm || NPC_WEAPON_KEEP.test(nm)) return; if (NPC_WEAPON_RE.test(nm)) o.visible = false; });
+  for (const bn of ['handslotr', 'handslotl', 'handslot_r', 'handslot_l']) { const b = model.getObjectByName(bn); if (b) for (const c of b.children) { if (!NPC_WEAPON_KEEP.test(c.name || '')) c.visible = false; } }
+}
+function swapNPCsToGLB(kind) { if (!GLB_PROTO[kind] || typeof npcs === 'undefined') return; for (const n of npcs) { if (n.kind !== kind || n.group.userData.npcEnt) continue; const ent = buildGLBEntity(kind, 1); if (!ent) continue; stripNPCWeapons(ent.userData.model); if (n.group.userData.procBody) n.group.userData.procBody.visible = false; n.group.add(ent); n.group.userData.npcEnt = ent; glbPlay(ent, 'idle'); } }
 /* ===================== hero weapon: static KayKit weapon GLB parented to the rig's handslot.r bone =====================
    Loot-driven model (item.base -> WEAPON_MODEL), class default for uniques/unarmed. Loaded at NATIVE scale via a dedicated
    cache (NOT GLB_MANIFEST, which height-normalizes). The attack animation swings the arm, so the bone-parented weapon follows. */
@@ -1059,16 +1342,57 @@ function attachHeroWeapon() {
   });
 }
 function swapHeroToGLB() { if (typeof hero === 'undefined' || !hero) return; let role = curHeroRole(); if (!GLB_PROTO[role]) role = 'hero'; if (!GLB_PROTO[role]) return; const ent = buildGLBEntity(role, 1); if (!ent) return; hero.children.forEach(c => c.visible = false); hero.add(ent); hero.userData.mixer = ent.userData.mixer; hero.userData.actions = ent.userData.actions; hero.userData.model = ent.userData.model; hero.userData.glb = true; hero.userData.glbRole = role; hero.userData.sword = null; glbPlay(hero, 'idle'); attachHeroWeapon(); }
+/* ===================== KayKit prop kits (dungeon + nature) — each kit is ONE opaque atlas material; we extract
+   the prop names we use into reusable {geo,mat,size,base} prototypes drawn as InstancedMesh (dungeon/wild) or
+   merged meshes (town). Shared geo/mat carry userData.sharedProto so disposeObj skips them across zone rebuilds. */
+const PROP_KIT_MANIFEST = { dungeon: { file: 'dungeon.glb', bytes: 4650000 }, nature: { file: 'nature.glb', bytes: 1290000 } };
+const PROP_PROTO = {}; let PROPS_READY = false; /* name -> { geo, mat, size:Vector3, base:number } */
+const DUNGEON_PROPS = ['pillar', 'column', 'pillar_decorated', 'rubble_large', 'rubble_half', 'barrel_large', 'barrel_small', 'box_large', 'box_small', 'crates_stacked', 'table_medium', 'chest'];
+const NATURE_PROPS = ['Tree_1_A_Color1', 'Tree_2_A_Color1', 'Tree_3_A_Color1', 'Rock_1_A_Color1', 'Rock_2_A_Color1', 'Rock_3_A_Color1', 'Bush_1_A_Color1', 'Bush_2_A_Color1', 'Bush_4_A_Color1'];
+const TOWN_PROPS = ['barrel_large', 'barrel_small', 'box_large', 'crates_stacked', 'bottle_A_labeled_green', 'banner_red', 'banner_blue', 'banner_green']; /* all live in dungeon.glb */
+function _concatPropGeos(geos) { /* like _concatGeos but position/normal/uv only (KayKit geos have no color attr) */
+  let total = 0; for (const g of geos) total += g.attributes.position.count;
+  const pos = new Float32Array(total * 3), nor = new Float32Array(total * 3), uv = new Float32Array(total * 2); let off = 0;
+  for (const g of geos) { const n = g.attributes.position.count; pos.set(g.attributes.position.array, off * 3); nor.set(g.attributes.normal.array, off * 3); uv.set(g.attributes.uv.array, off * 2); off += n; }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(pos, 3)); out.setAttribute('normal', new THREE.BufferAttribute(nor, 3)); out.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  return out;
+}
+function _extractProp(root, name) { /* named node -> prop-local geometry re-based to y=0, ready for InstancedMesh */
+  const node = root.getObjectByName(name); if (!node) { console.warn('prop miss: ' + name); return null; }
+  const c = node.clone(true); c.position.set(0, 0, 0); c.rotation.set(0, 0, 0); c.scale.set(1, 1, 1); c.updateMatrixWorld(true);
+  const geos = []; let mat = null;
+  c.traverse(o => { if (o.isMesh && o.geometry && o.geometry.attributes.position && o.geometry.attributes.uv) { const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone(); g.applyMatrix4(o.matrixWorld); if (!g.attributes.normal) g.computeVertexNormals(); geos.push(g); if (!mat) mat = o.material; } });
+  if (!geos.length || !mat) { console.warn('prop empty: ' + name); return null; }
+  const geo = geos.length === 1 ? geos[0] : _concatPropGeos(geos);
+  geo.computeBoundingBox(); const bb = geo.boundingBox, size = new THREE.Vector3(); bb.getSize(size);
+  geo.translate(0, -bb.min.y, 0); geo.computeBoundingBox(); /* keep KayKit authored normals (applyMatrix4 already transformed them); recomputing on non-indexed geo would force flat shading */
+  geo.userData.sharedProto = true; mat.userData = Object.assign(mat.userData || {}, { sharedProto: true });
+  return { geo, mat, size, base: size.y || 1 };
+}
+/* ===================== KayKit Medieval Builder buildings (buildings.glb) — multi-material vertex-color models
+   (no atlas), RTS-tiny so scaled by footprint. Few per town & multi-material → clone whole scene per placement
+   (NOT instanced) and let mergeStaticScenery collapse their color primitives. Proto geo/mat flagged sharedProto. */
+const BUILDING_MANIFEST = { file: 'buildings.glb', bytes: 941000 };
+const BUILDING_PROTO = {}; let BUILDINGS_READY = false; /* name -> { node, size:Vector3, minY } */
+const BUILDING_NAMES = ['house', 'castle', 'barracks', 'market', 'mill', 'watermill', 'lumbermill', 'mine', 'well', 'watchtower', 'archeryrange', 'farm_plot', 'wall_straight', 'wall_corner', 'wall_gate', 'wall_gate_closed', 'bridge', 'bridge_roofed'];
+function _extractBuilding(scene, name) {
+  const node = scene.getObjectByName(name); if (!node) { console.warn('building miss: ' + name); return null; }
+  const bb = new THREE.Box3().setFromObject(node), size = new THREE.Vector3(); bb.getSize(size);
+  node.traverse(o => { if (o.isMesh) { if (o.geometry) o.geometry.userData.sharedProto = true; const ms = Array.isArray(o.material) ? o.material : [o.material]; for (const m of ms) if (m) m.userData = Object.assign(m.userData || {}, { sharedProto: true }); } });
+  return { node, size, minY: bb.min.y };
+}
 function loadRoster() {
   if (!(window.THREE && THREE.GLTFLoader && THREE.SkeletonUtils)) { console.warn('glTF roster: GLTFLoader/SkeletonUtils missing -> procedural models'); return; }
   const loader = new THREE.GLTFLoader();
   function startModels() {
-    const roles = Object.keys(GLB_MANIFEST), totalBytes = roles.reduce((a, r) => a + GLB_MANIFEST[r].bytes, 0);
-    const got = {}; let pending = roles.length;
+    const roles = Object.keys(GLB_MANIFEST), propKeys = Object.keys(PROP_KIT_MANIFEST);
+    const totalBytes = roles.reduce((a, r) => a + GLB_MANIFEST[r].bytes, 0) + propKeys.reduce((a, k) => a + PROP_KIT_MANIFEST[k].bytes, 0) + BUILDING_MANIFEST.bytes;
+    const got = {}; let pending = roles.length + propKeys.length + 1, propPending = propKeys.length;
     const fill = document.getElementById('modelfill'), barBox = document.getElementById('modelload');
     if (barBox) barBox.style.display = 'block';
     function progress() { if (!fill) return; let sum = 0; for (const r in got) sum += got[r]; fill.style.width = Math.min(100, (sum / totalBytes) * 100).toFixed(1) + '%'; }
-    function done() { if (--pending <= 0) { GLB_READY = true; console.log('glTF roster loaded'); if (barBox) barBox.style.display = 'none'; } }
+    function done() { if (--pending <= 0) { GLB_READY = true; console.log('glTF roster loaded'); if (barBox) barBox.style.display = 'none'; if (typeof zone !== 'undefined' && zone === 'town') { try { buildTown(curTownArea); } catch (e) { console.warn('town roster rebuild failed:', e && e.message); } } } }
     for (const role of roles) {
       const m = GLB_MANIFEST[role];
       loader.load(GLB_BASE + m.file,
@@ -1082,6 +1406,31 @@ function loadRoster() {
         err => { console.warn('glTF load fail: ' + role, err); got[role] = m.bytes; progress(); done(); }
       );
     }
+    for (const key of propKeys) {
+      const m = PROP_KIT_MANIFEST[key];
+      loader.load(GLB_BASE + m.file,
+        gltf => {
+          const names = new Set(key === 'dungeon' ? [...DUNGEON_PROPS, ...TOWN_PROPS] : NATURE_PROPS);
+          for (const nm of names) { if (!PROP_PROTO[nm]) { const p = _extractProp(gltf.scene, nm); if (p) PROP_PROTO[nm] = p; } }
+          got[key] = m.bytes; progress();
+          if (--propPending <= 0) { PROPS_READY = true; console.log('prop kits loaded'); if (typeof zone !== 'undefined' && zone === 'town') { try { buildTown(curTownArea); } catch (e) { console.warn('town prop rebuild failed:', e && e.message); } } }
+          done();
+        },
+        e => { if (e && e.lengthComputable) { got[key] = Math.min(e.loaded, m.bytes); progress(); } },
+        err => { console.warn('prop kit load fail: ' + key, err); got[key] = m.bytes; progress(); if (--propPending <= 0) PROPS_READY = true; done(); }
+      );
+    }
+    loader.load(GLB_BASE + BUILDING_MANIFEST.file,
+      gltf => {
+        gltf.scene.updateMatrixWorld(true);
+        for (const nm of BUILDING_NAMES) { const b = _extractBuilding(gltf.scene, nm); if (b) BUILDING_PROTO[nm] = b; }
+        got.buildings = BUILDING_MANIFEST.bytes; progress(); BUILDINGS_READY = true; console.log('buildings loaded');
+        if (typeof zone !== 'undefined' && zone === 'town') { try { buildTown(curTownArea); } catch (e) { console.warn('town building rebuild failed:', e && e.message); } }
+        done();
+      },
+      e => { if (e && e.lengthComputable) { got.buildings = Math.min(e.loaded, BUILDING_MANIFEST.bytes); progress(); } },
+      err => { console.warn('buildings load fail', err); got.buildings = BUILDING_MANIFEST.bytes; progress(); BUILDINGS_READY = true; done(); }
+    );
   }
   /* KayKit character meshes ship 0 clips -> load the shared Rig_Medium set FIRST, then the models (rig-driven roles reference KAYKIT_RIG_CLIPS, populated by now). Models still load if a rig fetch fails; those roles just stay static. */
   let rigPending = RIG_FILES.length; if (!rigPending) startModels();
@@ -1635,16 +1984,17 @@ let zone = 'town', depth = 0;
 function isCombat() { return zone === 'wild' || zone === 'dungeon'; }
 function clearField() { for (const d of _dying) removeMesh(d.g); _dying.length = 0; for (const m of monsters) removeMob(m.mesh); for (const p of projectiles) removeMesh(p.mesh); for (const l of loots) removeMesh(l.mesh); for (const e of fx) removeMesh(e.mesh); monsters = []; projectiles = []; loots = []; fx = []; _spawnQueue.length = 0; _spawnCd = 0; target = null; moveTo = null; boss = null; bossActive = false; _resetHudCache(); }
 function setZoneVisuals() {
-  wildGroup.visible = zone === 'wild'; townGroup.visible = zone === 'town'; dungeonGroup.visible = zone === 'dungeon'; if (typeof markGlows === 'function') markGlows();
+  wildGroup.visible = zone === 'wild'; townGroup.visible = zone === 'town'; dungeonGroup.visible = zone === 'dungeon'; dungeonExtraGroup.visible = zone === 'dungeon'; if (typeof markGlows === 'function') markGlows();
+  playerGlow.intensity = PLAYER_GLOW[zone] || 0; /* Diablo-style player aura — on in dungeons, off in lit town/open wild */
   /* Phase 1a relight: these per-zone overrides re-set hemi/moon/torch intensity every zone transition, so they get the same x Math.PI scale as the construction sites (otherwise zones darken to ~1/pi while the menu looks fine). */
-  if (zone === 'town') { ensureColorBg(); scene.background.setHex(0x12100a); scene.fog.color.setHex(0x12100a); scene.fog.near = 70; scene.fog.far = 180; hemi.intensity = 0.6 * Math.PI; moon.intensity = 0.7 * Math.PI; if (groundMat.vertexColors) { groundMat.vertexColors = false; groundMat.needsUpdate = true; } groundMat.color.setHex(0x3a2f22); setAmbient('ember', 0xffb060); torch.intensity = 1.4 * Math.PI; torch.distance = 64; setBiomeGrade({ t: [1.06, 1.00, 0.90], v: 0.28 }); restoreProcEnv(); }
-  else if (zone === 'wild') { if (scene.background.isColor) scene.background.setHex(0x0c1108); scene.fog.color.setHex(0x0c1108); scene.fog.near = 58; scene.fog.far = 168; hemi.intensity = 0.52 * Math.PI; moon.intensity = 0.75 * Math.PI; if (!groundMat.vertexColors) { groundMat.vertexColors = true; groundMat.needsUpdate = true; } groundMat.color.setHex(0xffffff); setAmbient('ember', 0x9ad86a); torch.intensity = 1.5 * Math.PI; torch.distance = 66; setBiomeGrade({ t: [0.96, 1.05, 0.95], v: 0.30 }); loadRegionEnv(curRegion); }
-  else { const th = curTheme || dungeonTheme(depth); const dk = clamp(0.52 - depth * 0.018, 0.34, 0.52) * Math.PI; ensureColorBg(); scene.background.setHex(th.fog); scene.fog.color.setHex(th.fog); scene.fog.near = 42; scene.fog.far = clamp(150 - depth * 5, 100, 150); hemi.intensity = dk; moon.intensity = 0.34 * Math.PI; if (groundMat.vertexColors) { groundMat.vertexColors = false; groundMat.needsUpdate = true; } groundMat.color.setHex(th.ground); setAmbient(th.amb, th.ambCol); torch.intensity = clamp(2.2 + depth * 0.09, 2.2, 4.4) * Math.PI; torch.distance = clamp(76 + depth * 1.6, 76, 114); setBiomeGrade(th.grade); restoreProcEnv(); }
+  if (zone === 'town') { setGroundFlat(true); ensureColorBg(); scene.background.setHex(0x0a0805); scene.fog.color.setHex(0x0a0805); scene.fog.near = 70; scene.fog.far = 180; hemi.intensity = 0.6 * Math.PI; moon.intensity = 0.7 * Math.PI; if (groundMat.vertexColors) { groundMat.vertexColors = false; groundMat.needsUpdate = true; } groundMat.color.setHex(0x3a2f22); setAmbient('ember', 0xffb060); torch.intensity = 1.4 * Math.PI; torch.distance = 64; setBiomeGrade({ t: [1.06, 1.00, 0.90], v: 0.28 }); restoreProcEnv(); loadTownGround(); }
+  else if (zone === 'wild') { setGroundFlat(false); if (scene.background.isColor) scene.background.setHex(0x0c1108); scene.fog.color.setHex(0x0c1108); scene.fog.near = 58; scene.fog.far = 168; hemi.intensity = 0.52 * Math.PI; moon.intensity = 0.75 * Math.PI; const vc = !groundTexOn(); if (groundMat.vertexColors !== vc) { groundMat.vertexColors = vc; groundMat.needsUpdate = true; } groundMat.color.setHex(0xffffff); setAmbient('ember', 0x9ad86a); torch.intensity = 1.5 * Math.PI; torch.distance = 66; setBiomeGrade({ t: [0.96, 1.05, 0.95], v: 0.30 }); loadRegionEnv(curRegion); loadRegionGround(curRegion); }
+  else { setGroundFlat(false); const th = curTheme || dungeonTheme(depth); const dk = clamp(0.52 - depth * 0.018, 0.34, 0.52) * Math.PI; ensureColorBg(); scene.background.setHex(th.fog); scene.fog.color.setHex(th.fog); scene.fog.near = 42; scene.fog.far = clamp(150 - depth * 5, 100, 150); hemi.intensity = dk; moon.intensity = 0.34 * Math.PI; if (groundMat.vertexColors) { groundMat.vertexColors = false; groundMat.needsUpdate = true; } groundMat.color.setHex(th.ground); setAmbient(th.amb, th.ambCol); torch.intensity = clamp(2.2 + depth * 0.09, 2.2, 4.4) * Math.PI; torch.distance = clamp(76 + depth * 1.6, 76, 114); setBiomeGrade(th.grade); restoreProcEnv(); loadDungeonGround(th); loadDungeonWall(th); }
 }
 const AREAS = [
-  { id: 'town', name: 'Aldermere', kind: 'town', tier: 0, townTheme: { ground: 0x3a2f22, fog: 0x12100a } },
-  { id: 'highreach', name: 'Highreach', kind: 'town', tier: 1, townTheme: { ground: 0x55606e, fog: 0x10161e } },
-  { id: 'emberhold', name: 'Emberhold', kind: 'town', tier: 2, townTheme: { ground: 0x4a2622, fog: 0x1a0c06 } },
+  { id: 'town', name: 'Aldermere', kind: 'town', tier: 0, townTheme: { ground: 0x3a2f22, fog: 0x0a0805 } },
+  { id: 'highreach', name: 'Highreach', kind: 'town', tier: 1, townTheme: { ground: 0x55606e, fog: 0x090c13 } },
+  { id: 'emberhold', name: 'Emberhold', kind: 'town', tier: 2, townTheme: { ground: 0x4a2622, fog: 0x100704 } },
   { id: 'wilds', name: 'The Wilds', kind: 'wild', lvl: 1 },
   { id: 'descent', name: 'The Descent', kind: 'dungeon' },
 ];
@@ -1653,9 +2003,9 @@ let curArea = AREAS.find(a => a.id === 'wilds'), curTownArea = AREAS[0];
 let curRegion = REGIONS[0];
 const _fogFrom = new THREE.Color(), _fogTo = new THREE.Color(); let _fogT = 1;
 buildTown(curTownArea); // build the default town once so the title screen has scenery before any enterTown()
-function themeTown(a) { if (a && a.townTheme) { groundMat.color.setHex(a.townTheme.ground); scene.background.setHex(a.townTheme.fog); scene.fog.color.setHex(a.townTheme.fog); } }
-function themeWild() { const r = regionAt(player.x, player.z); curRegion = r; if (scene.background.isColor) scene.background.setHex(r.fog); scene.fog.color.setHex(r.fog); setAmbient('ember', r.amb); for (const f of wildFires) { f.light.color.setHex(r.fire); f.flame.material.color.setHex(r.fire); } loadRegionEnv(r); }
-function onRegionChange(r) { _fogFrom.copy(scene.fog.color); _fogTo.setHex(r.fog); _fogT = 0; setAmbient('ember', r.amb); for (const f of wildFires) { f.light.color.setHex(r.fire); f.flame.material.color.setHex(r.fire); } setScale(); zoneTxt.textContent = r.name + ' · Lv ' + r.lvl; showMsg(r.name); loadRegionEnv(r); }
+function themeTown(a) { if (a && a.townTheme) { groundMat.color.setHex(groundTexOn() ? 0xffffff : a.townTheme.ground); scene.background.setHex(a.townTheme.fog); scene.fog.color.setHex(a.townTheme.fog); } }
+function themeWild() { const r = regionAt(player.x, player.z); curRegion = r; if (scene.background.isColor) scene.background.setHex(r.fog); scene.fog.color.setHex(r.fog); setAmbient('ember', r.amb); for (const f of wildFires) { f.light.color.setHex(r.fire); f.flame.material.color.setHex(r.fire); } loadRegionEnv(r); loadRegionGround(r); }
+function onRegionChange(r) { _fogFrom.copy(scene.fog.color); _fogTo.setHex(r.fog); _fogT = 0; setAmbient('ember', r.amb); for (const f of wildFires) { f.light.color.setHex(r.fire); f.flame.material.color.setHex(r.fire); } setScale(); zoneTxt.textContent = r.name + ' · Lv ' + r.lvl; showMsg(r.name); loadRegionEnv(r); loadRegionGround(r); }
 function setScale() {
   const dm = DIFF[difficulty] || DIFF.Normal; if (zone === 'dungeon') {
     const D = DSCALE;
@@ -1702,7 +2052,7 @@ function enterTown(area) {
   for (const n of npcs) { n.group.visible = (!n.towns || n.towns.includes(curTownArea.id)); } player.x = 0; player.z = 8; player.hp = player.hpMax; refreshVendor(); zoneTxt.textContent = curTownArea.name + ' · Town'; townBtn.style.display = 'none'; placeCamera(player); saveProgress(false);
   warmScene(curTownArea.name + ' · Town');
 }
-function enterWild(spawn) { curArea = AREAS.find(a => a.id === 'wilds'); zone = 'wild'; depth = 0; clearField(); player.x = (spawn && spawn.x != null) ? spawn.x : 0; player.z = (spawn && spawn.z != null) ? spawn.z : 0; curRegion = regionAt(player.x, player.z); setZoneVisuals(); themeWild(); setScale(); _fogT = 1; waveTimer = 0; zoneTxt.textContent = curRegion.name + ' · Lv ' + curRegion.lvl; townBtn.style.display = 'inline-block'; placeCamera(player); showMsg('The Wilds'); warmScene('The Wilds'); }
+function enterWild(spawn) { curArea = AREAS.find(a => a.id === 'wilds'); zone = 'wild'; depth = 0; clearField(); if (!_wildBuilt) { buildWildScenery(); _wildBuilt = true; } player.x = (spawn && spawn.x != null) ? spawn.x : 0; player.z = (spawn && spawn.z != null) ? spawn.z : 0; curRegion = regionAt(player.x, player.z); setZoneVisuals(); themeWild(); setScale(); _fogT = 1; waveTimer = 0; zoneTxt.textContent = curRegion.name + ' · Lv ' + curRegion.lvl; townBtn.style.display = 'inline-block'; placeCamera(player); showMsg('The Wilds'); warmScene('The Wilds'); }
 function enterDungeon(d) {
   zone = 'dungeon'; depth = d; if (d > character.maxDepth) { character.maxDepth = d; } buildDungeon(d); clearField(); setZoneVisuals(); setScale(); player.x = 0; player.z = 0; waveTimer = 0; zoneTxt.textContent = (curTheme ? curTheme.name : 'Dungeon') + ' — Depth ' + d; townBtn.style.display = 'inline-block'; placeCamera(player); showMsg((curTheme ? curTheme.name + ' · ' : '') + 'Depth ' + d);
   if (depth === 666) { if (d_deeperPortal) d_deeperPortal.group.visible = false; spawnDevil(depth); bossActive = true; setTimeout(() => showMsg('The Devil of the Inferno bars the way…'), 900); }
@@ -1812,9 +2162,9 @@ function update(dt) {
   for (const f of activeFires) { f.light.intensity = f.base + Math.sin(now() * 0.02 + f.x) * 1.26; f.flame.scale.y = 1 + Math.sin(now() * 0.03 + f.z) * 0.15; f.flame.rotation.y += 0.03; } /* Phase 1a: flicker amplitude scaled by ~Math.PI (0.4->1.26); f.base already scales with the x-pi construction intensity. */
   for (const c of waypointMarks) { c.rotation.y += 0.03; c.position.y = 5.4 + Math.sin(now() * 0.003) * 0.18; }
   if (zone === 'wild') { for (const G of TOWN_GATES) G.portal.ring.rotation.z += 0.02; w_cavePortal.ring.rotation.z += 0.02; }
-  else if (zone === 'town') { t_wildPortal.ring.rotation.z += 0.02; for (const n of npcs) { n.group.userData.marker.rotation.y += 0.04; n.group.userData.marker.position.y = 4.6 + Math.sin(now() * 0.004) * 0.2; if (n.group.userData.npcEnt) n.group.userData.npcEnt.userData.mixer.update(dt * 0.001); } if (t_cauldron) { t_cauldron.marker.rotation.y += 0.05; t_cauldron.marker.position.y = 3.4 + Math.sin(now() * 0.004) * 0.22; t_cauldron.brew.position.y = 2.02 + Math.sin(now() * 0.008) * 0.05; } }
+  else if (zone === 'town') { t_wildPortal.ring.rotation.z += 0.02; for (const n of npcs) { n.group.userData.marker.rotation.y += 0.04; n.group.userData.marker.position.y = 4.6 + Math.sin(now() * 0.004) * 0.2; if (n.group.userData.npcEnt) n.group.userData.npcEnt.userData.mixer.update(dt * 0.001); } for (const v of townVillagers) { if (v.userData.mixer) v.userData.mixer.update(dt * 0.001); } if (t_cauldron) { t_cauldron.marker.rotation.y += 0.05; t_cauldron.marker.position.y = 3.4 + Math.sin(now() * 0.004) * 0.22; t_cauldron.brew.position.y = 2.02 + Math.sin(now() * 0.008) * 0.05; } }
   else if (d_deeperPortal) { d_deeperPortal.ring.rotation.z += 0.02; }
-  torch.position.set(player.x, 9, player.z); updateAmbient(dt); if (typeof NET !== 'undefined') NET.tick(dt);
+  torch.position.set(player.x, 9, player.z); playerGlow.position.set(player.x, 14, player.z); updateAmbient(dt); if (typeof NET !== 'undefined') NET.tick(dt);
 
   if (isCombat() && !bossActive) { waveTimer -= dt; if (_spawnQueue.length === 0 && (waveTimer <= 0 || monsters.length < 3)) { spawnWave(); waveTimer = 4200; } drainSpawns(dt); }
   saveTimer -= dt; if (saveTimer <= 0) { saveTimer = 8000; saveProgress(false); }
@@ -2280,14 +2630,14 @@ function menuLoop() { if (!menuActive) return; menuT += 0.0032; const r = 44; ca
    and Custom (manual). Big low-end levers: resolution, shadows, AO, reflections, light budget, shadow-map
    size. postfx/colorgrade/vfx stay on across tiers (cheap and core to the art style). */
 const QUALITY_PRESETS = {
-  low: { resScale: 70, shadows: false, ssao: false, reflections: false, bloom: 0.6, postfx: true, colorgrade: true, vfx: true, plMax: 4, shadowSize: 512, particles: false },
-  medium: { resScale: 90, shadows: true, ssao: false, reflections: true, bloom: 0.9, postfx: true, colorgrade: true, vfx: true, plMax: 7, shadowSize: 1024, particles: false },
-  high: { resScale: 100, shadows: true, ssao: true, reflections: true, bloom: 0.9, postfx: true, colorgrade: true, vfx: true, plMax: 9, shadowSize: 1024, particles: true },
+  low: { resScale: 70, shadows: false, ssao: false, reflections: false, bloom: 0.6, postfx: true, colorgrade: true, vfx: true, plMax: 4, shadowSize: 512, particles: false, groundTex: false },
+  medium: { resScale: 90, shadows: true, ssao: false, reflections: true, bloom: 0.9, postfx: true, colorgrade: true, vfx: true, plMax: 7, shadowSize: 1024, particles: false, groundTex: true },
+  high: { resScale: 100, shadows: true, ssao: true, reflections: true, bloom: 0.9, postfx: true, colorgrade: true, vfx: true, plMax: 9, shadowSize: 1024, particles: true, groundTex: true },
 };
 function autoTier() { return isWebGPUBackend ? 'high' : 'medium'; } /* WebGL2 fallback => Medium (conservative); WebGPU => High. (A GPU-time probe could refine later — deferred; no low-end device to calibrate against.) */
 function applyLights() { const s = SAVE._data.settings; PL_MAX = (s.plMax != null ? s.plMax : 9); if (typeof cullLights === 'function') cullLights(); }
 function applyShadowSize() { const s = SAVE._data.settings; const sz = (s.shadowSize === 512 || s.shadowSize === 2048) ? s.shadowSize : 1024; if (moon.shadow.mapSize.width !== sz) { moon.shadow.mapSize.set(sz, sz); if (moon.shadow.map) { moon.shadow.map.dispose(); moon.shadow.map = null; } moon.shadow.needsUpdate = true; } } /* resize requires disposing the existing depth target so it regenerates */
-function applyAllGfx() { applyGraphics(); applyShadowSize(); applyLights(); if (typeof buildPipeline === 'function') buildPipeline(); applyPostFX(); applyReflections(); applyGrade(); if (typeof applyParticles === 'function') applyParticles(); }
+function applyAllGfx() { applyGraphics(); applyShadowSize(); applyLights(); if (typeof buildPipeline === 'function') buildPipeline(); applyPostFX(); applyReflections(); applyGrade(); if (typeof applyParticles === 'function') applyParticles(); if (typeof refreshGroundTex === 'function') refreshGroundTex(); }
 /* Resolve s.quality into concrete settings. 'auto' re-resolves by backend each boot; 'custom' leaves the
    individual settings untouched. Returns the bundle applied (or null for custom). */
 function resolveQuality() { const s = SAVE._data.settings; if (!s.quality) s.quality = 'auto'; if (s.quality === 'custom') return null; const tier = (s.quality === 'auto') ? autoTier() : s.quality; const p = QUALITY_PRESETS[tier]; if (p) Object.assign(s, p); return p || null; }

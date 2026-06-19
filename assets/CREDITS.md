@@ -64,8 +64,15 @@ in `assets/_incoming/` but **git-ignored / not published** (`assets/_incoming/.g
 | KayKit Character Animations 1.1      | https://kaylousberg.itch.io/kaykit-character-animations | CC0 |
 | KayKit Dungeon Remastered 1.1 (FREE) | https://kaylousberg.itch.io/kaykit-dungeon-remastered   | CC0 |
 | KayKit Forest Nature Pack 1.0 (FREE) | https://kaylousberg.com/game-assets                     | CC0 |
+| KayKit Medieval Builder Pack 1.0     | https://kaylousberg.itch.io/kaykit-medieval-builder-pack | CC0 |
+| Kenney Castle Kit (downloaded, unused) | https://kenney.nl/assets/castle-kit                   | CC0 |
 | Quaternius Ultimate Monsters         | https://quaternius.com/packs/ultimatemonsters.html      | CC0 |
 | Quaternius Medieval Weapons          | https://quaternius.com                                  | CC0 |
+
+**Buildings** (`models/buildings.glb`) — 18 KayKit Medieval Builder objects (house/castle/barracks/
+market/mill/watermill/lumbermill/mine/well/watchtower/archeryrange/farm_plot/wall_*/bridge*) packed into
+one `.glb` (`gltf-transform merge --merge-scenes → dedup → prune`, ~920 KB). Multi-material vertex-colour
+(no atlas). Loaded once; addressed by node name (`getObjectByName('castle')`), cloned per town placement.
 
 ### In-game entity → source file mapping (as sorted)
 **Heroes** (`models/heroes/`, self-contained `.glb`)
