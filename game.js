@@ -407,7 +407,7 @@ function applyReflections() { const on = SAVE._data.settings.reflections !== fal
 const REGION_HDRI = { greenwilds: 'greenwilds_alps_field_2k.hdr', frostfen: 'frostfen_frozen_lake_2k.hdr', ashlands: 'ashlands_the_sky_is_on_fire_2k.hdr' };
 const HDRI_BASE = 'assets/hdri/'; let _hdrLoader = null; const _envCache = {};
 function ensureColorBg() { if (!(scene.background && scene.background.isColor)) scene.background = new THREE.Color(0x000000); }
-function applyHDRI(tex) { scene.background = tex; scene.backgroundIntensity = 0.5; scene.environmentIntensity = 0.7; applyReflections(); }
+function applyHDRI(tex) { scene.background = tex; scene.backgroundIntensity = 0.42; scene.environmentIntensity = 0.45; applyReflections(); }
 function restoreProcEnv() { scene.backgroundIntensity = 1; scene.environmentIntensity = 1; applyReflections(); }
 function loadRegionEnv(region) {
   if (!region) return; const file = REGION_HDRI[region.id]; if (!file) { restoreProcEnv(); return; }
@@ -502,7 +502,7 @@ function loadDungeonWall(th) {
 /* Re-apply the current zone's ground when the groundTex knob flips at runtime (quality change). */
 function refreshGroundTex() {
   if (typeof zone === 'undefined') return;
-  if (zone === 'wild') { groundMat.vertexColors = !groundTexOn(); groundMat.needsUpdate = true; loadRegionGround(curRegion); }
+  if (zone === 'wild') { if (groundMat.vertexColors) { groundMat.vertexColors = false; } groundMat.color.setHex(groundTexOn() ? ((curRegion && curRegion.groundTint) || 0xffffff) : ((curRegion && curRegion.groundCol) || 0x35402a)); groundMat.needsUpdate = true; loadRegionGround(curRegion); }
   else if (zone === 'town') { groundMat.color.setHex(groundTexOn() ? 0xffffff : ((curTownArea && curTownArea.townTheme && curTownArea.townTheme.ground) || 0x3a2f22)); loadTownGround(); }
   else if (zone === 'dungeon') { const th = curTheme || dungeonTheme(depth); loadDungeonGround(th); loadDungeonWall(th); }
 }
@@ -579,14 +579,35 @@ function cullLights() {
   cands.sort((a, b) => a._d - b._d); for (let i = 0; i < cands.length; i++) cands[i].light.visible = (i < PL_MAX);
 }
 
-const MAP = 480, DUNG_PLAY_R = 88, DUNG_WALL_R = 90, TOWN_R = 48;
-/* ---- open-world biome regions (concentric rings by distance from origin) ---- */
+const MAP = 480, DUNG_PLAY_R = 88, DUNG_WALL_R = 90, TOWN_R = 48, WILD_R = 150;
+const EMBER_UNLOCK = 10; /* maxDepth required to breach Frostfen → Ashlands (declared early: referenced in REGIONS) */
+/* ---- biome regions. Each is now its OWN bounded map (origin-centered, radius WILD_R), reached through a portal —
+   NOT concentric rings of one open world. `town` = the settlement this wilderness adjoins; `next`/`prev` chain the
+   biomes; `nextGate` is a maxDepth requirement to breach onward. `trees/bushes/grasses/rocks` are the KayKit nature
+   atlas variants this biome instances (all share nature.glb's single atlas → free InstancedMesh). r2 kept only for
+   the (now-dead) ground vertex bake & legacy regionAt. ---- */
 const REGIONS = [
-  { id: 'greenwilds', name: 'Greenwilds', lvl: 1, r2: 260 * 260, groundCol: 0x35402a, fog: 0x0c1108, fire: 0xff7a2a, amb: 0x9ad86a },
-  { id: 'frostfen', name: 'Frostfen', lvl: 7, r2: 380 * 380, groundCol: 0x415a68, fog: 0x0a1620, fire: 0x6ad8ff, amb: 0xbfe8ff },
-  { id: 'ashlands', name: 'Ashlands', lvl: 14, r2: Infinity, groundCol: 0x4a2a22, fog: 0x1a0e08, fire: 0xff5020, amb: 0xff7a4a },
+  {
+    id: 'greenwilds', name: 'Greenwilds', lvl: 1, r2: 260 * 260, groundCol: 0x35402a, groundTint: 0x8f9a82, fog: 0x0c1108, fire: 0xff7a2a, amb: 0x9ad86a,
+    town: 'town', next: 'frostfen', prev: null,
+    trees: ['Tree_1_A_Color1', 'Tree_2_A_Color1', 'Tree_3_A_Color1', 'Tree_4_A_Color1'], bushes: ['Bush_1_A_Color1', 'Bush_2_A_Color1', 'Bush_3_A_Color1', 'Bush_4_A_Color1'], grasses: ['Grass_1_A_Color1', 'Grass_2_A_Color1', 'Grass_1_C_Color1', 'Grass_2_C_Color1'], rocks: ['Rock_1_A_Color1', 'Rock_2_A_Color1', 'Rock_3_A_Color1'],
+    dens: { tree: 70, rock: 55, bush: 130, grass: 240, flower: 130, mush: 40 },
+  },
+  {
+    id: 'frostfen', name: 'Frostfen', lvl: 7, r2: 380 * 380, groundCol: 0x415a68, groundTint: 0xc8d2da, fog: 0x0a1620, fire: 0x6ad8ff, amb: 0xbfe8ff,
+    town: 'highreach', next: 'ashlands', prev: 'greenwilds', nextGate: EMBER_UNLOCK,
+    trees: ['Tree_Bare_1_A_Color1', 'Tree_Bare_2_A_Color1', 'Tree_3_A_Color1'], bushes: ['Bush_4_A_Color1', 'Bush_2_A_Color1'], grasses: ['Grass_1_A_Color1', 'Grass_2_A_Color1'], rocks: ['Rock_1_A_Color1', 'Rock_2_A_Color1', 'Rock_3_A_Color1', 'Rock_1_E_Color1', 'Rock_2_C_Color1'],
+    dens: { tree: 45, rock: 95, bush: 55, grass: 110, flower: 50, mush: 30 },
+  },
+  {
+    id: 'ashlands', name: 'Ashlands', lvl: 14, r2: Infinity, groundCol: 0x4a2a22, groundTint: 0xb1968a, fog: 0x1a0e08, fire: 0xff5020, amb: 0xff7a4a,
+    town: 'emberhold', next: null, prev: 'frostfen',
+    trees: ['Tree_Bare_1_A_Color1', 'Tree_Bare_2_A_Color1'], bushes: ['Bush_4_A_Color1'], grasses: ['Grass_2_A_Color1'], rocks: ['Rock_1_A_Color1', 'Rock_2_A_Color1', 'Rock_3_A_Color1', 'Rock_1_E_Color1', 'Rock_2_C_Color1', 'Rock_3_C_Color1'],
+    dens: { tree: 30, rock: 120, bush: 25, grass: 40, flower: 30, mush: 50 },
+  },
 ];
 function regionAt(x, z) { const d2 = x * x + z * z; for (const r of REGIONS) if (d2 <= r.r2) return r; return REGIONS[REGIONS.length - 1]; }
+function wildById(id) { return REGIONS.find(r => r.id === id) || null; }
 const REGION_DECO = {
   greenwilds: { foliage: 0x3a5a26, grass: 0x3a4a26, trunk: 0x2a1f14, rock: 0x4a443a, flower: 0xffe27a },
   frostfen: { foliage: 0x6a86a0, grass: 0x4a5a60, trunk: 0x3a3a3e, rock: 0x3a4450, flower: 0xbfe8ff },
@@ -749,151 +770,135 @@ function updateAmbient(dt) {
   ambGeo.attributes.position.needsUpdate = true;
 }
 
-/* ---- WILD scenery ---- */
-const wildGroup = new THREE.Group(); scene.add(wildGroup); const wildFires = [];
-/* ---- WILD scenery (open world, region-flavored). Built ONCE, lazily on first enterWild (so KayKit prop kits
-   are loaded by then); procedural fallback if kits failed. Roads/portals/fires below run at module load. ---- */
-let _wildBuilt = false;
-function buildWildScenery() {
+/* ---- WILD scenery. Each biome is its OWN bounded map (origin-centered, radius WILD_R), entered via a portal and
+   rebuilt on every entry like a dungeon — so only ONE region's scenery is ever resident (lower draw-calls/memory,
+   load-gated transitions). Persistent fixtures (portals + a fixed campfire pool, all 'static' lights created once)
+   live directly on wildGroup and are only recolored/toggled per biome → zero light-budget churn. Only the
+   light-less nature props are disposed & rebuilt into wildSceneryGroup by buildWild(). ---- */
+const wildGroup = new THREE.Group(); wildGroup.visible = false; scene.add(wildGroup);
+const wildSceneryGroup = new THREE.Group(); wildGroup.add(wildSceneryGroup);
+const wildFires = [];
+function buildWildScenery(region) {
+  region = region || curRegion || REGIONS[0];
   const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), E = new THREE.Euler(), V = new THREE.Vector3(), S = new THREE.Vector3();
-  const kit = PROPS_READY && PROP_PROTO['Tree_1_A_Color1'] && PROP_PROTO['Rock_1_A_Color1'] && PROP_PROTO['Bush_1_A_Color1'];
-  /* gentle near-white multipliers over the natural KayKit atlas: greenwilds stays natural, frostfen cools, ashlands warms */
-  const WILD_TINT = { greenwilds: null, frostfen: 0xc2d2e0, ashlands: 0xcea284 };
-  const natMat = (v, rid) => WILD_TINT[rid] ? tintPropMat(PROP_PROTO[v].mat, WILD_TINT[rid]) : PROP_PROTO[v].mat;
+  const rid = region.id, tint = WILD_TINT[rid];
+  const has = n => PROPS_READY && PROP_PROTO[n];
+  const kitTrees = (region.trees || []).filter(has), kitBushes = (region.bushes || []).filter(has), kitGrass = (region.grasses || []).filter(has), kitRocks = (region.rocks || []).filter(has);
+  const natMat = v => tint ? tintPropMat(PROP_PROTO[v].mat, tint) : PROP_PROTO[v].mat;
   const build = (geo, mat, tf, opts) => {
+    if (!tf.length) return;
     const im = new THREE.InstancedMesh(geo, mat, tf.length); im.castShadow = !!(opts && opts.cast); im.receiveShadow = !!(opts && opts.recv);
-    for (let i = 0; i < tf.length; i++) { const t = tf[i]; E.set(t.rx || 0, t.ry || 0, t.rz || 0); Q.setFromEuler(E); V.set(t.x, t.y, t.z); S.set(t.sx || 1, t.sy || 1, t.sz || 1); M.compose(V, Q, S); im.setMatrixAt(i, M); }
-    im.instanceMatrix.needsUpdate = true; im.frustumCulled = false; wildGroup.add(im); return im;
+    for (let i = 0; i < tf.length; i++) { const t = tf[i]; E.set(t.rx || 0, t.ry || 0, t.rz || 0); Q.setFromEuler(E); V.set(t.x, t.y || 0, t.z); S.set(t.sx || 1, t.sy || 1, t.sz || 1); M.compose(V, Q, S); im.setMatrixAt(i, M); }
+    im.instanceMatrix.needsUpdate = true; im.frustumCulled = false; wildSceneryGroup.add(im);
   };
-  const RID = ['greenwilds', 'frostfen', 'ashlands'];
-  // scatter n random points across the world, bucketed by biome region
-  const scatter = (n) => { const g = { greenwilds: [], frostfen: [], ashlands: [] }; for (let i = 0; i < n; i++) { const x = rand(-MAP, MAP), z = rand(-MAP, MAP); g[regionAt(x, z).id].push({ x, z }); } return g; };
-  // rocks (~200, collider) — KayKit Rock variants (procedural fallback), region-tinted
+  // scatter n points across the playable disc, kept clear of the spawn apron
+  const scatter = n => { const a = []; let tries = 0; const cap = n * 4; while (a.length < n && tries < cap) { tries++; const ang = rand(0, 6.283), d = Math.sqrt(rand(12 * 12, (WILD_R - 8) * (WILD_R - 8))), x = Math.cos(ang) * d, z = Math.sin(ang) * d; if ((x - WILD_SPAWN.x) ** 2 + (z - WILD_SPAWN.z) ** 2 < 16 * 16) continue; a.push({ x, z }); } return a; };
+  const dn = region.dens || {}, dc = REGION_DECO[rid] || REGION_DECO.greenwilds;
+  // rocks (collider) — KayKit Rock variants, procedural fallback
   {
-    const pts = scatter(200), rockV = ['Rock_1_A_Color1', 'Rock_2_A_Color1', 'Rock_3_A_Color1'];
-    for (const rid of RID) {
-      if (kit) {
-        const bk = { Rock_1_A_Color1: [], Rock_2_A_Color1: [], Rock_3_A_Color1: [] };
-        for (let i = 0; i < pts[rid].length; i++) { const p = pts[rid][i], v = rockV[i % 3], ts = rand(0.9, 2.8), s = ts / PROP_PROTO[v].base; bk[v].push({ x: p.x, y: 0, z: p.z, ry: rand(0, 6), rx: rand(-0.25, 0.25), rz: rand(-0.25, 0.25), sx: s, sy: s, sz: s }); wildColliders.push({ x: p.x, z: p.z, r: Math.max(PROP_PROTO[v].size.x, PROP_PROTO[v].size.z) * s * 0.5 }); }
-        for (const v of rockV) if (bk[v].length) build(PROP_PROTO[v].geo, natMat(v, rid), bk[v], { recv: true });
-      } else {
-        const T = []; for (const p of pts[rid]) { const s = rand(0.8, 2.6); T.push({ x: p.x, y: s * 0.5, z: p.z, rx: rand(0, 6), ry: rand(0, 6), rz: rand(0, 6), sx: s, sy: s, sz: s }); wildColliders.push({ x: p.x, z: p.z, r: s * 0.9 }); }
-        if (T.length) build(new THREE.DodecahedronGeometry(1, 0), new THREE.MeshPhongMaterial({ specular: 0x000000, color: REGION_DECO[rid].rock, flatShading: true, map: texStone(2, 2) }), T, { recv: true });
+    const pts = scatter(dn.rock || 50);
+    if (kitRocks.length) {
+      const bk = {}; for (const v of kitRocks) bk[v] = [];
+      for (let i = 0; i < pts.length; i++) { const p = pts[i], v = kitRocks[i % kitRocks.length], ts = rand(0.9, 2.8), s = ts / PROP_PROTO[v].base; bk[v].push({ x: p.x, y: 0, z: p.z, ry: rand(0, 6), rx: rand(-0.22, 0.22), rz: rand(-0.22, 0.22), sx: s, sy: s, sz: s }); wildColliders.push({ x: p.x, z: p.z, r: Math.max(PROP_PROTO[v].size.x, PROP_PROTO[v].size.z) * s * 0.5 }); }
+      for (const v of kitRocks) build(PROP_PROTO[v].geo, natMat(v), bk[v], { recv: true });
+    } else {
+      const T = []; for (const p of pts) { const s = rand(0.8, 2.6); T.push({ x: p.x, y: s * 0.5, z: p.z, rx: rand(0, 6), ry: rand(0, 6), rz: rand(0, 6), sx: s, sy: s, sz: s }); wildColliders.push({ x: p.x, z: p.z, r: s * 0.9 }); }
+      build(new THREE.DodecahedronGeometry(1, 0), new THREE.MeshPhongMaterial({ specular: 0x000000, color: dc.rock, flatShading: true, map: texStone(2, 2) }), T, { recv: true });
+    }
+  }
+  // trees (collider) — KayKit Tree / Tree_Bare variants, procedural fallback
+  {
+    const pts = scatter(dn.tree || 50);
+    if (kitTrees.length) {
+      const bk = {}; for (const v of kitTrees) bk[v] = [];
+      for (let i = 0; i < pts.length; i++) { const p = pts[i], v = kitTrees[i % kitTrees.length], h = rand(7, 12), s = h / PROP_PROTO[v].base; bk[v].push({ x: p.x, y: 0, z: p.z, ry: rand(0, 6), sx: s, sy: s, sz: s }); wildColliders.push({ x: p.x, z: p.z, r: 1.3 }); }
+      for (const v of kitTrees) build(PROP_PROTO[v].geo, natMat(v), bk[v], { cast: true });
+    } else {
+      const TR = [], BR = [], FO = [];
+      for (const p of pts) {
+        const x = p.x, z = p.z, h = rand(7, 12); TR.push({ x, y: h / 2, z, sy: h });
+        for (let b = 0; b < 3; b++) { const bh = rand(2, 4); BR.push({ x, y: h * rand(.5, .9), z, rz: rand(-1, 1), ry: rand(0, 6), sy: bh }); }
+        for (let f = 0; f < 3; f++) { const s = rand(1.8, 3.2); FO.push({ x: x + rand(-1.2, 1.2), y: h * rand(0.78, 1.02), z: z + rand(-1.2, 1.2), ry: rand(0, 6), sx: s, sy: s * rand(0.8, 1.1), sz: s }); }
+        wildColliders.push({ x, z, r: 1.3 });
       }
+      build(new THREE.CylinderGeometry(0.4, 0.7, 1, 5), new THREE.MeshPhongMaterial({ specular: 0x000000, color: dc.trunk, flatShading: true, map: texWood(1, 3) }), TR, { cast: true });
+      build(new THREE.CylinderGeometry(0.12, 0.3, 1, 4), new THREE.MeshPhongMaterial({ specular: 0x000000, color: dc.trunk, flatShading: true, map: texWood(1, 3) }), BR, {});
+      build(new THREE.IcosahedronGeometry(1, 0), new THREE.MeshPhongMaterial({ specular: 0x000000, color: dc.foliage, flatShading: true, map: texSpots(1, 1) }), FO, { cast: true });
     }
   }
-  // trees (~340, collider) — KayKit Tree variants (procedural fallback)
+  // bushes (no collider)
   {
-    const pts = scatter(340), treeV = ['Tree_1_A_Color1', 'Tree_2_A_Color1', 'Tree_3_A_Color1'];
-    for (const rid of RID) {
-      const dc = REGION_DECO[rid];
-      if (kit) {
-        const bk = { Tree_1_A_Color1: [], Tree_2_A_Color1: [], Tree_3_A_Color1: [] };
-        for (let i = 0; i < pts[rid].length; i++) { const p = pts[rid][i], v = treeV[i % 3], h = rand(7, 12), s = h / PROP_PROTO[v].base; bk[v].push({ x: p.x, y: 0, z: p.z, ry: rand(0, 6), sx: s, sy: s, sz: s }); wildColliders.push({ x: p.x, z: p.z, r: 1.3 }); }
-        for (const v of treeV) if (bk[v].length) build(PROP_PROTO[v].geo, natMat(v, rid), bk[v], { cast: true });
-      } else {
-        const TR = [], BR = [], FO = [];
-        for (const p of pts[rid]) {
-          const x = p.x, z = p.z, h = rand(7, 12); TR.push({ x, y: h / 2, z, sy: h });
-          for (let b = 0; b < 3; b++) { const bh = rand(2, 4); BR.push({ x, y: h * rand(.5, .9), z, rz: rand(-1, 1), ry: rand(0, 6), sy: bh }); }
-          for (let f = 0; f < 3; f++) { const s = rand(1.8, 3.2); FO.push({ x: x + rand(-1.2, 1.2), y: h * rand(0.78, 1.02), z: z + rand(-1.2, 1.2), ry: rand(0, 6), sx: s, sy: s * rand(0.8, 1.1), sz: s }); }
-          wildColliders.push({ x, z, r: 1.3 });
-        }
-        if (TR.length) {
-          build(new THREE.CylinderGeometry(0.4, 0.7, 1, 5), new THREE.MeshPhongMaterial({ specular: 0x000000, color: dc.trunk, flatShading: true, map: texWood(1, 3) }), TR, { cast: true });
-          build(new THREE.CylinderGeometry(0.12, 0.3, 1, 4), new THREE.MeshPhongMaterial({ specular: 0x000000, color: dc.trunk, flatShading: true, map: texWood(1, 3) }), BR, {});
-          build(new THREE.IcosahedronGeometry(1, 0), new THREE.MeshPhongMaterial({ specular: 0x000000, color: dc.foliage, flatShading: true, map: texSpots(1, 1) }), FO, { cast: true });
-        }
-      }
+    const pts = scatter(dn.bush || 80);
+    if (kitBushes.length) {
+      const bk = {}; for (const v of kitBushes) bk[v] = [];
+      for (let i = 0; i < pts.length; i++) { const p = pts[i], v = kitBushes[i % kitBushes.length], hgt = rand(0.8, 1.7), s = hgt / PROP_PROTO[v].base; bk[v].push({ x: p.x, y: 0, z: p.z, ry: rand(0, 6), sx: s, sy: s, sz: s }); }
+      for (const v of kitBushes) build(PROP_PROTO[v].geo, natMat(v), bk[v], { cast: true });
+    } else {
+      const B = [];
+      for (const p of pts) { const n = 2 + randi(0, 1), s0 = rand(0.5, 0.95); for (let k = 0; k < n; k++) { const s = s0 * (1 - k * 0.2); B.push({ x: p.x + rand(-0.4, 0.4), y: 0.4 + k * 0.34 * s0, z: p.z + rand(-0.4, 0.4), ry: rand(0, 6), sx: s, sy: s, sz: s }); } }
+      build(new THREE.IcosahedronGeometry(1, 0), new THREE.MeshPhongMaterial({ specular: 0x000000, color: dc.foliage, flatShading: true, map: texSpots(1, 1) }), B, { cast: true });
     }
   }
-  // bushes (~450, NO collider) — KayKit Bush variants (procedural fallback)
+  // grass tufts (no collider) — KayKit Grass variants, procedural blade fallback
   {
-    const pts = scatter(450), bushV = ['Bush_1_A_Color1', 'Bush_2_A_Color1', 'Bush_4_A_Color1'];
-    for (const rid of RID) {
-      const dc = REGION_DECO[rid];
-      if (kit) {
-        const bk = { Bush_1_A_Color1: [], Bush_2_A_Color1: [], Bush_4_A_Color1: [] };
-        for (let i = 0; i < pts[rid].length; i++) { const p = pts[rid][i], v = bushV[i % 3], hgt = rand(0.8, 1.7), s = hgt / PROP_PROTO[v].base; bk[v].push({ x: p.x, y: 0, z: p.z, ry: rand(0, 6), sx: s, sy: s, sz: s }); }
-        for (const v of bushV) if (bk[v].length) build(PROP_PROTO[v].geo, natMat(v, rid), bk[v], { cast: true });
-      } else {
-        const B = [];
-        for (const p of pts[rid]) { const n = 2 + randi(0, 1), s0 = rand(0.5, 0.95); for (let k = 0; k < n; k++) { const s = s0 * (1 - k * 0.2); B.push({ x: p.x + rand(-0.4, 0.4), y: 0.4 + k * 0.34 * s0, z: p.z + rand(-0.4, 0.4), ry: rand(0, 6), sx: s, sy: s, sz: s }); } }
-        if (B.length) build(new THREE.IcosahedronGeometry(1, 0), new THREE.MeshPhongMaterial({ specular: 0x000000, color: dc.foliage, flatShading: true, map: texSpots(1, 1) }), B, { cast: true });
-      }
+    const pts = scatter(dn.grass || 150);
+    if (kitGrass.length) {
+      const bk = {}; for (const v of kitGrass) bk[v] = [];
+      for (let i = 0; i < pts.length; i++) { const p = pts[i], v = kitGrass[i % kitGrass.length], hgt = rand(0.5, 1.1), s = hgt / PROP_PROTO[v].base; bk[v].push({ x: p.x, y: 0, z: p.z, ry: rand(0, 6), sx: s, sy: s, sz: s }); }
+      for (const v of kitGrass) build(PROP_PROTO[v].geo, natMat(v), bk[v], {});
+    } else {
+      const T = []; for (const p of pts) T.push({ x: p.x, y: 0.5, z: p.z, ry: rand(0, 6) });
+      build(new THREE.ConeGeometry(0.32, 1.1, 4), new THREE.MeshPhongMaterial({ specular: 0x000000, color: dc.grass, flatShading: true }), T, {});
     }
   }
-  // ferns (~800, NO collider) — clusters of leaning blades
+  // flowers (no collider) — tiny emissive dots that read as 'alive'
   {
-    const pts = scatter(800); for (const rid of RID) {
-      const dc = REGION_DECO[rid]; const F = [];
-      for (const p of pts[rid]) { const n = 3 + randi(0, 1); for (let k = 0; k < n; k++) { const a = rand(0, 6.28); F.push({ x: p.x + Math.cos(a) * 0.3, y: 0.45, z: p.z + Math.sin(a) * 0.3, rz: rand(-0.5, 0.5), ry: a, sx: rand(0.7, 1.1), sy: rand(0.9, 1.4), sz: rand(0.7, 1.1) }); } }
-      if (F.length) build(new THREE.ConeGeometry(0.18, 0.9, 4), new THREE.MeshPhongMaterial({ specular: 0x000000, color: dc.foliage, flatShading: true }), F, {});
-    }
+    const pts = scatter(dn.flower || 80), fc = dc.flower, T = [];
+    for (const p of pts) T.push({ x: p.x + rand(-0.3, 0.3), y: 0.5, z: p.z + rand(-0.3, 0.3) });
+    build(new THREE.SphereGeometry(0.12, 6, 5), new THREE.MeshBasicMaterial({ color: fc }), T, {});
   }
-  // grass tufts (~1400, NO collider) — region grass color
+  // mushrooms (no collider) — glowing caps
   {
-    const pts = scatter(1400); for (const rid of RID) {
-      const dc = REGION_DECO[rid]; const T = [];
-      for (const p of pts[rid]) T.push({ x: p.x, y: 0.5, z: p.z, ry: rand(0, 6) });
-      if (T.length) build(new THREE.ConeGeometry(0.32, 1.1, 4), new THREE.MeshPhongMaterial({ specular: 0x000000, color: dc.grass, flatShading: true }), T, {});
-    }
-  }
-  // flowers (~600, NO collider) — tiny emissive dots that read as 'alive'
-  {
-    const pts = scatter(600); for (const rid of RID) {
-      const fc = REGION_DECO[rid].flower; const T = [];
-      for (const p of pts[rid]) T.push({ x: p.x + rand(-0.3, 0.3), y: 0.5, z: p.z + rand(-0.3, 0.3) });
-      if (T.length) build(new THREE.SphereGeometry(0.12, 6, 5), new THREE.MeshBasicMaterial({ color: fc }), T, {});
-    }
-  }
-  // mushrooms (~250, NO collider) — glowing caps (kept)
-  {
-    const ST = [], CT = []; for (let i = 0; i < 250; i++) { const x = rand(-MAP, MAP), z = rand(-MAP, MAP); ST.push({ x, y: 0.3, z }); CT.push({ x, y: 0.62, z }); }
+    const pts = scatter(dn.mush || 40), ST = [], CT = [];
+    for (const p of pts) { ST.push({ x: p.x, y: 0.3, z: p.z }); CT.push({ x: p.x, y: 0.62, z: p.z }); }
     build(new THREE.CylinderGeometry(0.08, 0.13, 0.6, 5), new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0xcfc2a0 }), ST, {});
     build(new THREE.SphereGeometry(0.3, 8, 6, 0, 6.28, 0, 1.5), new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0x6ad8ff, emissive: 0x2a7a9a, emissiveIntensity: .9, flatShading: true, map: texSpots(1, 1) }), CT, {});
   }
 }
-for (let i = 0; i < 16; i++) makeFire(rand(-MAP + 20, MAP - 20), rand(-MAP + 20, MAP - 20), wildGroup, wildFires, wildColliders);
-/* ---- open-world roads, signs, and discoverable town portals ---- */
-// world-space ground height (matches the heightfield baked at ground build: local y = -worldZ)
+const WILD_TINT = { greenwilds: null, frostfen: 0xc2d2e0, ashlands: 0xcea284 };  /* near-white multipliers over the natural KayKit nature atlas */
+const WILD_SPAWN = { x: 0, z: 30 };  /* player drop point on every wild entry (just inside the town-return portal) */
+// world-space ground height (matches the gentle heightfield the shared ground plane is built with)
 function groundH(x, z) { return (Math.sin(x * 0.06) + Math.cos(z * 0.05)) * 0.8 + Math.sin(x * 0.2 - z * 0.13) * 0.3; }
-// a road that CONFORMS to the terrain: tessellate, orient flat, then lift every vertex to ground height
-function wPath(x, z, w, l, rot, col) {
-  const lenSeg = Math.max(2, Math.round(l / 5));
-  const geo = new THREE.PlaneGeometry(w, l, 3, lenSeg); geo.rotateX(-Math.PI / 2); if (rot) geo.rotateY(rot); geo.translate(x, 0, z);
-  const pos = geo.attributes.position; for (let i = 0; i < pos.count; i++) pos.setY(i, groundH(pos.getX(i), pos.getZ(i)) + 0.22);
-  pos.needsUpdate = true; geo.computeVertexNormals();
-  const p = new THREE.Mesh(geo, new THREE.MeshPhongMaterial({ specular: 0x000000, color: col || 0x3a2f1f, map: texStone(Math.max(1, Math.round(w / 2)), Math.max(1, Math.round(l / 6))) }));
-  p.receiveShadow = true; wildGroup.add(p);
+/* persistent campfire pool: a fixed ring reused by every biome (recolored per region in themeWild). Its lights are
+   created ONCE under the 'static' bucket, so re-entering a biome never churns the PL_MAX light budget. Colliders are
+   re-pushed each buildWild (which resets wildColliders). */
+const WILD_FIRE_SPOTS = [];
+for (let i = 0; i < 8; i++) { const a = (i / 8) * 6.283 + 0.4, d = 42 + (i % 3) * 30; WILD_FIRE_SPOTS.push({ x: Math.cos(a) * d, z: Math.sin(a) * d }); }
+for (const s of WILD_FIRE_SPOTS) makeFire(s.x, s.z, wildGroup, wildFires, null);
+/* persistent portals: fixed anchors whose DESTINATIONS are read from curRegion at interaction time. Town + cave are
+   always present; next/prev just toggle visibility per biome (see buildWild). */
+function _placePortal(p) { p.group.position.y = groundH(p.x, p.z); wildGroup.add(p.group); return p; }
+const wpTown = _placePortal(makePortal(0, 64, 0x9f6aff));    // back to the adjoining town
+const wpCave = _placePortal(makePortal(52, -14, 0xff8a3a));  // down into the dungeon (depth 1)
+const wpNext = _placePortal(makePortal(0, -126, 0xbcd0ff));  // onward to the next biome
+const wpPrev = _placePortal(makePortal(-124, 6, 0x9ad86a));  // back to the previous biome
+const w_waypoint = makeWaypoint(-24, 18, wildGroup, null); w_waypoint.group.position.y = groundH(w_waypoint.x, w_waypoint.z);  // fast-travel hub; collider re-added per entry
+function buildWild(region) {
+  region = region || curRegion || REGIONS[0];
+  clearGroup(wildSceneryGroup); wildColliders.length = 0;
+  wildColliders.push({ x: w_waypoint.x, z: w_waypoint.z, r: 1.6 });
+  for (const s of WILD_FIRE_SPOTS) wildColliders.push({ x: s.x, z: s.z, r: 0.9 });
+  wpNext.group.visible = !!region.next; wpPrev.group.visible = !!region.prev;
+  buildWildScenery(region);
 }
-function wRoad(x2, z2, w) { const len = Math.hypot(x2, z2); wPath(x2 / 2, z2 / 2, w || 9, len, Math.atan2(x2, z2)); }
-function _signTex(label) {
-  const cv = document.createElement('canvas'); cv.width = 256; cv.height = 128; const c = cv.getContext('2d');
-  c.fillStyle = '#241808'; c.fillRect(0, 0, 256, 128); c.fillStyle = '#c8a468'; c.fillRect(7, 7, 242, 114);
-  c.fillStyle = '#1a1208'; c.font = 'bold 30px Georgia,serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(label, 128, 50);
-  c.strokeStyle = '#1a1208'; c.lineWidth = 8; c.beginPath(); c.moveTo(64, 92); c.lineTo(184, 92); c.stroke();
-  c.beginPath(); c.moveTo(192, 92); c.lineTo(168, 77); c.lineTo(168, 107); c.closePath(); c.fillStyle = '#1a1208'; c.fill();
-  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; /* Phase 2: sign label is a color map. */ return t;
+
+/* rebuild whichever populated zone we're standing in when async assets (roster / prop kits / buildings) finish
+   loading — so e.g. nature.glb arriving while you're in the wild swaps the procedural fallback for real models. */
+function rebuildZoneScenery() {
+  if (typeof zone === 'undefined') return;
+  try { if (zone === 'town') buildTown(curTownArea); else if (zone === 'wild') buildWild(curRegion); }
+  catch (e) { console.warn('zone scenery rebuild failed:', e && e.message); }
 }
-function wSign(x, z, label, angle) {
-  const g = new THREE.Group();
-  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, 2.6, 6), new THREE.MeshPhongMaterial({ specular: 0x000000, color: 0x3a2a18, map: texWood(1, 3) })); post.position.y = 1.3; post.castShadow = true; g.add(post);
-  const plank = new THREE.Mesh(new THREE.BoxGeometry(2.3, 1.15, 0.12), new THREE.MeshBasicMaterial({ map: _signTex(label) })); plank.position.y = 2.15; g.add(plank);
-  g.position.set(x, groundH(x, z), z); g.rotation.y = angle || 0; wildGroup.add(g); wildColliders.push({ x, z, r: 0.4 });
-}
-const TOWN_GATES = [
-  { area: 'town', x: 0, z: 40, col: 0x9f6aff },   // Aldermere — home, central greenwilds hub
-  { area: 'highreach', x: 270, z: 230, col: 0xbcd0ff },   // Highreach — frostfen (mid ring, seek it out)
-  { area: 'emberhold', x: -240, z: -370, col: 0xff8a3a },   // Emberhold — ashlands (outer ring, seek it out)
-];
-for (const G of TOWN_GATES) { const p = makePortal(G.x, G.z, G.col); p.group.position.y = groundH(G.x, G.z); wildGroup.add(p.group); G.portal = p; }
-function gateFor(areaId) { return TOWN_GATES.find(g => g.area === areaId); }
-function gateSpawn(G) { if (!G) return null; const d = Math.hypot(G.x, G.z) || 1; const k = Math.max(0, d - 12) / d; return { x: G.x * k, z: G.z * k }; } // drop the player ~12u off the portal, not on it
-for (const G of TOWN_GATES) wRoad(G.x, G.z, 9);                    // roads radiate from spawn to each gate
-wSign(3, 22, 'Aldermere', 0); wSign(18, 16, 'Highreach', 0); wSign(-13, -20, 'Emberhold', 0);
-const w_cavePortal = makePortal(22, -16, 0xff8a3a); w_cavePortal.group.position.y = groundH(22, -16); wildGroup.add(w_cavePortal.group);  // wild -> dungeon 1
-const w_waypoint = makeWaypoint(-8, 8, wildGroup, wildColliders); w_waypoint.group.position.y = groundH(-8, 8);                            // in-world fast-travel hub near spawn
 
 /* ---- TOWN scenery ---- */
 const townGroup = new THREE.Group(); townGroup.visible = false; scene.add(townGroup); const townFires = []; const npcs = [];
@@ -1348,7 +1353,14 @@ function swapHeroToGLB() { if (typeof hero === 'undefined' || !hero) return; let
 const PROP_KIT_MANIFEST = { dungeon: { file: 'dungeon.glb', bytes: 4650000 }, nature: { file: 'nature.glb', bytes: 1290000 } };
 const PROP_PROTO = {}; let PROPS_READY = false; /* name -> { geo, mat, size:Vector3, base:number } */
 const DUNGEON_PROPS = ['pillar', 'column', 'pillar_decorated', 'rubble_large', 'rubble_half', 'barrel_large', 'barrel_small', 'box_large', 'box_small', 'crates_stacked', 'table_medium', 'chest'];
-const NATURE_PROPS = ['Tree_1_A_Color1', 'Tree_2_A_Color1', 'Tree_3_A_Color1', 'Rock_1_A_Color1', 'Rock_2_A_Color1', 'Rock_3_A_Color1', 'Bush_1_A_Color1', 'Bush_2_A_Color1', 'Bush_4_A_Color1'];
+/* all share nature.glb's single atlas (1 material / 1 image) → every variant instances for free. Must cover the
+   union of every REGIONS biome's trees/bushes/grasses/rocks lists. */
+const NATURE_PROPS = [
+  'Tree_1_A_Color1', 'Tree_2_A_Color1', 'Tree_3_A_Color1', 'Tree_4_A_Color1', 'Tree_Bare_1_A_Color1', 'Tree_Bare_2_A_Color1',
+  'Rock_1_A_Color1', 'Rock_2_A_Color1', 'Rock_3_A_Color1', 'Rock_1_E_Color1', 'Rock_2_C_Color1', 'Rock_3_C_Color1',
+  'Bush_1_A_Color1', 'Bush_2_A_Color1', 'Bush_3_A_Color1', 'Bush_4_A_Color1',
+  'Grass_1_A_Color1', 'Grass_2_A_Color1', 'Grass_1_C_Color1', 'Grass_2_C_Color1',
+];
 const TOWN_PROPS = ['barrel_large', 'barrel_small', 'box_large', 'crates_stacked', 'bottle_A_labeled_green', 'banner_red', 'banner_blue', 'banner_green']; /* all live in dungeon.glb */
 function _concatPropGeos(geos) { /* like _concatGeos but position/normal/uv only (KayKit geos have no color attr) */
   let total = 0; for (const g of geos) total += g.attributes.position.count;
@@ -1392,7 +1404,7 @@ function loadRoster() {
     const fill = document.getElementById('modelfill'), barBox = document.getElementById('modelload');
     if (barBox) barBox.style.display = 'block';
     function progress() { if (!fill) return; let sum = 0; for (const r in got) sum += got[r]; fill.style.width = Math.min(100, (sum / totalBytes) * 100).toFixed(1) + '%'; }
-    function done() { if (--pending <= 0) { GLB_READY = true; console.log('glTF roster loaded'); if (barBox) barBox.style.display = 'none'; if (typeof zone !== 'undefined' && zone === 'town') { try { buildTown(curTownArea); } catch (e) { console.warn('town roster rebuild failed:', e && e.message); } } } }
+    function done() { if (--pending <= 0) { GLB_READY = true; console.log('glTF roster loaded'); if (barBox) barBox.style.display = 'none'; rebuildZoneScenery(); } }
     for (const role of roles) {
       const m = GLB_MANIFEST[role];
       loader.load(GLB_BASE + m.file,
@@ -1413,7 +1425,7 @@ function loadRoster() {
           const names = new Set(key === 'dungeon' ? [...DUNGEON_PROPS, ...TOWN_PROPS] : NATURE_PROPS);
           for (const nm of names) { if (!PROP_PROTO[nm]) { const p = _extractProp(gltf.scene, nm); if (p) PROP_PROTO[nm] = p; } }
           got[key] = m.bytes; progress();
-          if (--propPending <= 0) { PROPS_READY = true; console.log('prop kits loaded'); if (typeof zone !== 'undefined' && zone === 'town') { try { buildTown(curTownArea); } catch (e) { console.warn('town prop rebuild failed:', e && e.message); } } }
+          if (--propPending <= 0) { PROPS_READY = true; console.log('prop kits loaded'); rebuildZoneScenery(); }
           done();
         },
         e => { if (e && e.lengthComputable) { got[key] = Math.min(e.loaded, m.bytes); progress(); } },
@@ -1425,7 +1437,7 @@ function loadRoster() {
         gltf.scene.updateMatrixWorld(true);
         for (const nm of BUILDING_NAMES) { const b = _extractBuilding(gltf.scene, nm); if (b) BUILDING_PROTO[nm] = b; }
         got.buildings = BUILDING_MANIFEST.bytes; progress(); BUILDINGS_READY = true; console.log('buildings loaded');
-        if (typeof zone !== 'undefined' && zone === 'town') { try { buildTown(curTownArea); } catch (e) { console.warn('town building rebuild failed:', e && e.message); } }
+        rebuildZoneScenery();
         done();
       },
       e => { if (e && e.lengthComputable) { got.buildings = Math.min(e.loaded, BUILDING_MANIFEST.bytes); progress(); } },
@@ -1988,7 +2000,7 @@ function setZoneVisuals() {
   playerGlow.intensity = PLAYER_GLOW[zone] || 0; /* Diablo-style player aura — on in dungeons, off in lit town/open wild */
   /* Phase 1a relight: these per-zone overrides re-set hemi/moon/torch intensity every zone transition, so they get the same x Math.PI scale as the construction sites (otherwise zones darken to ~1/pi while the menu looks fine). */
   if (zone === 'town') { setGroundFlat(true); ensureColorBg(); scene.background.setHex(0x0a0805); scene.fog.color.setHex(0x0a0805); scene.fog.near = 70; scene.fog.far = 180; hemi.intensity = 0.6 * Math.PI; moon.intensity = 0.7 * Math.PI; if (groundMat.vertexColors) { groundMat.vertexColors = false; groundMat.needsUpdate = true; } groundMat.color.setHex(0x3a2f22); setAmbient('ember', 0xffb060); torch.intensity = 1.4 * Math.PI; torch.distance = 64; setBiomeGrade({ t: [1.06, 1.00, 0.90], v: 0.28 }); restoreProcEnv(); loadTownGround(); }
-  else if (zone === 'wild') { setGroundFlat(false); if (scene.background.isColor) scene.background.setHex(0x0c1108); scene.fog.color.setHex(0x0c1108); scene.fog.near = 58; scene.fog.far = 168; hemi.intensity = 0.52 * Math.PI; moon.intensity = 0.75 * Math.PI; const vc = !groundTexOn(); if (groundMat.vertexColors !== vc) { groundMat.vertexColors = vc; groundMat.needsUpdate = true; } groundMat.color.setHex(0xffffff); setAmbient('ember', 0x9ad86a); torch.intensity = 1.5 * Math.PI; torch.distance = 66; setBiomeGrade({ t: [0.96, 1.05, 0.95], v: 0.30 }); loadRegionEnv(curRegion); loadRegionGround(curRegion); }
+  else if (zone === 'wild') { setGroundFlat(false); const rg = curRegion || REGIONS[0]; if (scene.background.isColor) scene.background.setHex(rg.fog); scene.fog.color.setHex(rg.fog); scene.fog.near = 58; scene.fog.far = 168; hemi.intensity = 0.42 * Math.PI; moon.intensity = 0.55 * Math.PI; if (groundMat.vertexColors) { groundMat.vertexColors = false; groundMat.needsUpdate = true; } groundMat.color.setHex(groundTexOn() ? (rg.groundTint || 0xffffff) : rg.groundCol); setAmbient('ember', rg.amb); torch.intensity = 1.5 * Math.PI; torch.distance = 66; setBiomeGrade({ t: [0.96, 1.05, 0.95], v: 0.30 }); loadRegionEnv(rg); loadRegionGround(rg); }
   else { setGroundFlat(false); const th = curTheme || dungeonTheme(depth); const dk = clamp(0.52 - depth * 0.018, 0.34, 0.52) * Math.PI; ensureColorBg(); scene.background.setHex(th.fog); scene.fog.color.setHex(th.fog); scene.fog.near = 42; scene.fog.far = clamp(150 - depth * 5, 100, 150); hemi.intensity = dk; moon.intensity = 0.34 * Math.PI; if (groundMat.vertexColors) { groundMat.vertexColors = false; groundMat.needsUpdate = true; } groundMat.color.setHex(th.ground); setAmbient(th.amb, th.ambCol); torch.intensity = clamp(2.2 + depth * 0.09, 2.2, 4.4) * Math.PI; torch.distance = clamp(76 + depth * 1.6, 76, 114); setBiomeGrade(th.grade); restoreProcEnv(); loadDungeonGround(th); loadDungeonWall(th); }
 }
 const AREAS = [
@@ -1998,13 +2010,12 @@ const AREAS = [
   { id: 'wilds', name: 'The Wilds', kind: 'wild', lvl: 1 },
   { id: 'descent', name: 'The Descent', kind: 'dungeon' },
 ];
-const EMBER_UNLOCK = 10;
 let curArea = AREAS.find(a => a.id === 'wilds'), curTownArea = AREAS[0];
 let curRegion = REGIONS[0];
 const _fogFrom = new THREE.Color(), _fogTo = new THREE.Color(); let _fogT = 1;
 buildTown(curTownArea); // build the default town once so the title screen has scenery before any enterTown()
 function themeTown(a) { if (a && a.townTheme) { groundMat.color.setHex(groundTexOn() ? 0xffffff : a.townTheme.ground); scene.background.setHex(a.townTheme.fog); scene.fog.color.setHex(a.townTheme.fog); } }
-function themeWild() { const r = regionAt(player.x, player.z); curRegion = r; if (scene.background.isColor) scene.background.setHex(r.fog); scene.fog.color.setHex(r.fog); setAmbient('ember', r.amb); for (const f of wildFires) { f.light.color.setHex(r.fire); f.flame.material.color.setHex(r.fire); } loadRegionEnv(r); loadRegionGround(r); }
+function themeWild() { const r = curRegion || REGIONS[0]; if (scene.background.isColor) scene.background.setHex(r.fog); scene.fog.color.setHex(r.fog); setAmbient('ember', r.amb); for (const f of wildFires) { f.light.color.setHex(r.fire); f.flame.material.color.setHex(r.fire); } loadRegionEnv(r); loadRegionGround(r); }
 function onRegionChange(r) { _fogFrom.copy(scene.fog.color); _fogTo.setHex(r.fog); _fogT = 0; setAmbient('ember', r.amb); for (const f of wildFires) { f.light.color.setHex(r.fire); f.flame.material.color.setHex(r.fire); } setScale(); zoneTxt.textContent = r.name + ' · Lv ' + r.lvl; showMsg(r.name); loadRegionEnv(r); loadRegionGround(r); }
 function setScale() {
   const dm = DIFF[difficulty] || DIFF.Normal; if (zone === 'dungeon') {
@@ -2012,7 +2023,7 @@ function setScale() {
     curScale = { hp: (1 + depth * D.hpLin + Math.pow(depth * D.hpQuad, 2)) * dm.hp, dmg: (1 + depth * D.dmgLin + Math.pow(depth * D.dmgQuad, 2)) * dm.dmg, xp: (1 + depth * D.xpLin + Math.pow(depth * D.xpQuad, 2)) * dm.xp, ilvl: player.level + depth * D.ilvlPerDepth };
     lootLuck = Math.min(0.5, depth * 0.02);
   }
-  else if (zone === 'wild') { const lv = regionAt(player.x, player.z).lvl || 1; curScale = { hp: (1 + lv * 0.12) * dm.hp, dmg: (1 + lv * 0.09) * dm.dmg, xp: (1 + lv * 0.15) * dm.xp, ilvl: Math.max(player.level, lv) + 2 }; lootLuck = 0; }
+  else if (zone === 'wild') { const lv = (curRegion && curRegion.lvl) || 1; curScale = { hp: (1 + lv * 0.12) * dm.hp, dmg: (1 + lv * 0.09) * dm.dmg, xp: (1 + lv * 0.15) * dm.xp, ilvl: Math.max(player.level, lv) + 2 }; lootLuck = 0; }
   else { curScale = { hp: dm.hp, dmg: dm.dmg, xp: dm.xp, ilvl: player.level }; lootLuck = 0; }
 }
 /* Phase 1b perf: pre-warm the freshly-built scene's GPU pipelines behind the loading gate so the first live
@@ -2052,7 +2063,15 @@ function enterTown(area) {
   for (const n of npcs) { n.group.visible = (!n.towns || n.towns.includes(curTownArea.id)); } player.x = 0; player.z = 8; player.hp = player.hpMax; refreshVendor(); zoneTxt.textContent = curTownArea.name + ' · Town'; townBtn.style.display = 'none'; placeCamera(player); saveProgress(false);
   warmScene(curTownArea.name + ' · Town');
 }
-function enterWild(spawn) { curArea = AREAS.find(a => a.id === 'wilds'); zone = 'wild'; depth = 0; clearField(); if (!_wildBuilt) { buildWildScenery(); _wildBuilt = true; } player.x = (spawn && spawn.x != null) ? spawn.x : 0; player.z = (spawn && spawn.z != null) ? spawn.z : 0; curRegion = regionAt(player.x, player.z); setZoneVisuals(); themeWild(); setScale(); _fogT = 1; waveTimer = 0; zoneTxt.textContent = curRegion.name + ' · Lv ' + curRegion.lvl; townBtn.style.display = 'inline-block'; placeCamera(player); showMsg('The Wilds'); warmScene('The Wilds'); }
+function enterWild(regionId, spawn) {
+  curArea = AREAS.find(a => a.id === 'wilds'); const r = (regionId && wildById(regionId)) || curRegion || REGIONS[0];
+  curRegion = r; zone = 'wild'; depth = 0; clearField(); buildWild(r);
+  player.x = (spawn && spawn.x != null) ? spawn.x : WILD_SPAWN.x; player.z = (spawn && spawn.z != null) ? spawn.z : WILD_SPAWN.z;
+  setZoneVisuals(); themeWild(); setScale(); _fogT = 1; waveTimer = 0;
+  if (r.town) markDiscovered(r.town);   // reaching a biome reveals its adjoining town on the map
+  zoneTxt.textContent = r.name + ' · Lv ' + r.lvl; townBtn.style.display = 'inline-block'; placeCamera(player); showMsg(r.name); saveProgress(false);
+  warmScene(r.name + ' · Lv ' + r.lvl);
+}
 function enterDungeon(d) {
   zone = 'dungeon'; depth = d; if (d > character.maxDepth) { character.maxDepth = d; } buildDungeon(d); clearField(); setZoneVisuals(); setScale(); player.x = 0; player.z = 0; waveTimer = 0; zoneTxt.textContent = (curTheme ? curTheme.name : 'Dungeon') + ' — Depth ' + d; townBtn.style.display = 'inline-block'; placeCamera(player); showMsg((curTheme ? curTheme.name + ' · ' : '') + 'Depth ' + d);
   if (depth === 666) { if (d_deeperPortal) d_deeperPortal.group.visible = false; spawnDevil(depth); bossActive = true; setTimeout(() => showMsg('The Devil of the Inferno bars the way…'), 900); }
@@ -2065,23 +2084,34 @@ function enterDungeon(d) {
 /* ---------- interaction ---------- */
 function interactables() {
   if (zone === 'town') return [...npcs.filter(n => !n.towns || (curTownArea && n.towns.includes(curTownArea.id))).map(n => ({ kind: n.kind, x: n.x, z: n.z })), { kind: 'wild', x: t_wildPortal.x, z: t_wildPortal.z }, { kind: 'waypoint', x: t_waypoint.x, z: t_waypoint.z }, { kind: 'cauldron', x: t_cauldron.x, z: t_cauldron.z }];
-  if (zone === 'wild') { const arr = [{ kind: 'cave', x: w_cavePortal.x, z: w_cavePortal.z }, { kind: 'waypoint', x: w_waypoint.x, z: w_waypoint.z }]; for (const G of TOWN_GATES) arr.push({ kind: 'towngate', x: G.x, z: G.z, area: G.area }); return arr; }
+  if (zone === 'wild') {
+    const r = curRegion || REGIONS[0];
+    const arr = [{ kind: 'towngate', x: wpTown.x, z: wpTown.z, area: r.town }, { kind: 'cave', x: wpCave.x, z: wpCave.z }, { kind: 'waypoint', x: w_waypoint.x, z: w_waypoint.z }];
+    if (r.next) arr.push({ kind: 'wildnext', x: wpNext.x, z: wpNext.z, to: r.next });
+    if (r.prev) arr.push({ kind: 'wildprev', x: wpPrev.x, z: wpPrev.z, to: r.prev });
+    return arr;
+  }
   return bossActive ? [] : [{ kind: 'deeper', x: d_deeperPortal.x, z: d_deeperPortal.z }];
 }
 function markDiscovered(id) { if (character && character.discovered && !character.discovered[id]) { character.discovered[id] = true; showMsg('Discovered ' + ((AREAS.find(a => a.id === id) || {}).name || id) + '!'); saveProgress(false); } }
+function wildForTown(townId) { const w = REGIONS.find(r => r.town === townId); return w ? w.id : REGIONS[0].id; }
 function nearest() { let best = null, bd = 6; for (const o of interactables()) { const d = Math.hypot(o.x - player.x, o.z - player.z); if (d < bd) { bd = d; best = o; } } return best; }
 function refillPotions() { const cap = character.potionCap || 10; if (player.hpPotions >= cap && player.mpPotions >= cap && player.hp >= player.hpMax && player.mp >= player.mpMax) { showMsg('Already fully rested'); floatText('Full', player.x, player.z, '#9affc8'); return; } player.hpPotions = cap; player.mpPotions = cap; player.hp = player.hpMax; player.mp = player.mpMax; updateGlobes(); showMsg('Rested — HP, mana & potions restored'); floatText('+Restored', player.x, player.z, '#9affc8'); sfx('potion'); saveProgress(false); }
 function interact() {
   if (anyPanel()) { closeAll(); return; } const o = nearest(); if (!o) return;
   if (o.kind === 'vendor') openVendor(); else if (o.kind === 'stash') openStash(); else if (o.kind === 'smith') openSmith(); else if (o.kind === 'alchemist') openAlchemist();
   else if (o.kind === 'enchanter') openEnchanter(); else if (o.kind === 'gambler') openGambler(); else if (o.kind === 'jeweler') openJeweler(); else if (o.kind === 'premiumVendor') openVendor(2);
-  else if (o.kind === 'wild') enterWild(gateSpawn(gateFor(curTownArea.id))); else if (o.kind === 'towngate') { markDiscovered(o.area); enterTown(AREAS.find(a => a.id === o.area)); }
+  else if (o.kind === 'wild') enterWild(wildForTown(curTownArea.id)); else if (o.kind === 'towngate') { markDiscovered(o.area); enterTown(AREAS.find(a => a.id === o.area)); }
   else if (o.kind === 'cave') enterDungeon(1); else if (o.kind === 'deeper') enterDungeon(depth + 1);
+  else if (o.kind === 'wildnext') { const w = wildById(o.to); if (curRegion && curRegion.nextGate && ((character && character.maxDepth) || 0) < curRegion.nextGate) showMsg('Reach Depth ' + curRegion.nextGate + ' in the Descent to breach ' + (w ? w.name : 'the way') + '…'); else enterWild(o.to); }
+  else if (o.kind === 'wildprev') enterWild(o.to);
   else if (o.kind === 'waypoint') openWaypoints(); else if (o.kind === 'cauldron') refillPotions();
 }
 function travelTo(id, mode, depthArg) {
-  const a = AREAS.find(x => x.id === id); if (!a) return; closeAll(); closeWaypoints();
-  if (a.kind === 'town') enterTown(a); else if (a.kind === 'wild') enterWild();
+  closeAll(); closeWaypoints();
+  if (wildById(id)) { enterWild(id); return; }                 // a specific biome (greenwilds/frostfen/ashlands)
+  const a = AREAS.find(x => x.id === id); if (!a) return;
+  if (a.kind === 'town') enterTown(a); else if (a.kind === 'wild') enterWild(REGIONS[0].id);   // legacy 'wilds' → Greenwilds
   else if (a.kind === 'dungeon') { const max = Math.max(1, (character && character.maxDepth) || 1); const d = mode === 'depth' ? clamp(Math.round(depthArg || 1), 1, max) : (mode === 'deep' && character.maxDepth > 1 ? character.maxDepth : 1); enterDungeon(d); }
 }
 
@@ -2109,10 +2139,7 @@ function update(dt) {
   player.mp = Math.min(player.mpMax, player.mp + dt * player.mpRegen);
   if (player.hpRegen > 0 && player.hp > 0 && player.hp < player.hpMax) player.hp = Math.min(player.hpMax, player.hp + dt * player.hpRegen);
   if (running) tickStatuses(player, dt, true);
-  if (zone === 'wild') {
-    const r = regionAt(player.x, player.z); if (r !== curRegion) { curRegion = r; onRegionChange(r); }
-    if (_fogT < 1) { _fogT = Math.min(1, _fogT + dt / 900); scene.fog.color.copy(_fogFrom).lerp(_fogTo, _fogT); if (scene.background.isColor) scene.background.copy(scene.fog.color); }
-  }
+  /* each wild is now a single-biome bounded map (no walk-between-biomes) — region is fixed on entry by enterWild */
 
   if (isCombat()) for (const m of monsters) {
     if (m.hp <= 0) continue; if (m.flash > 0) m.flash--; tickStatuses(m, dt, false); if (m.hp <= 0) continue; if (player.effects.chillaura && Math.hypot(m.x - player.x, m.z - player.z) < 14 && m.slow < 12) m.slow = 12; const sp = m.speed * (m.speedMult || 1) * Math.min(m.slow > 0 ? 0.45 : 1, m.chilled ? 0.5 : 1) * 60 * dt / 1000; if (m.slow > 0) m.slow--; const d = Math.hypot(m.x - player.x, m.z - player.z);
@@ -2161,7 +2188,7 @@ function update(dt) {
   const activeFires = zone === 'town' ? townFires : zone === 'wild' ? wildFires : dungeonFires;
   for (const f of activeFires) { f.light.intensity = f.base + Math.sin(now() * 0.02 + f.x) * 1.26; f.flame.scale.y = 1 + Math.sin(now() * 0.03 + f.z) * 0.15; f.flame.rotation.y += 0.03; } /* Phase 1a: flicker amplitude scaled by ~Math.PI (0.4->1.26); f.base already scales with the x-pi construction intensity. */
   for (const c of waypointMarks) { c.rotation.y += 0.03; c.position.y = 5.4 + Math.sin(now() * 0.003) * 0.18; }
-  if (zone === 'wild') { for (const G of TOWN_GATES) G.portal.ring.rotation.z += 0.02; w_cavePortal.ring.rotation.z += 0.02; }
+  if (zone === 'wild') { wpTown.ring.rotation.z += 0.02; wpCave.ring.rotation.z += 0.02; if (wpNext.group.visible) wpNext.ring.rotation.z += 0.02; if (wpPrev.group.visible) wpPrev.ring.rotation.z += 0.02; }
   else if (zone === 'town') { t_wildPortal.ring.rotation.z += 0.02; for (const n of npcs) { n.group.userData.marker.rotation.y += 0.04; n.group.userData.marker.position.y = 4.6 + Math.sin(now() * 0.004) * 0.2; if (n.group.userData.npcEnt) n.group.userData.npcEnt.userData.mixer.update(dt * 0.001); } for (const v of townVillagers) { if (v.userData.mixer) v.userData.mixer.update(dt * 0.001); } if (t_cauldron) { t_cauldron.marker.rotation.y += 0.05; t_cauldron.marker.position.y = 3.4 + Math.sin(now() * 0.004) * 0.22; t_cauldron.brew.position.y = 2.02 + Math.sin(now() * 0.008) * 0.05; } }
   else if (d_deeperPortal) { d_deeperPortal.ring.rotation.z += 0.02; }
   torch.position.set(player.x, 9, player.z); playerGlow.position.set(player.x, 14, player.z); updateAmbient(dt); if (typeof NET !== 'undefined') NET.tick(dt);
@@ -2171,7 +2198,7 @@ function update(dt) {
 
   const o = nearest(); const pr = document.getElementById('prompt');
   if (o && !anyPanel()) {
-    const lbl = (o.kind === 'deeper') ? ('descend deeper (Depth ' + (depth + 1) + ')') : (o.kind === 'towngate') ? ('enter ' + ((AREAS.find(a => a.id === o.area) || {}).name || 'the town')) : PROMPT_LABELS[o.kind];
+    const lbl = (o.kind === 'deeper') ? ('descend deeper (Depth ' + (depth + 1) + ')') : (o.kind === 'towngate') ? ('enter ' + ((AREAS.find(a => a.id === o.area) || {}).name || 'the town')) : (o.kind === 'wildnext' || o.kind === 'wildprev') ? ('travel to ' + ((wildById(o.to) || {}).name || 'the wilds')) : PROMPT_LABELS[o.kind];
     const html = `Press <b>E</b> to ${lbl}`; if (html !== _promptHtml) { _promptHtml = html; pr.innerHTML = html; pr.style.display = 'block'; }
   } else if (_promptHtml !== null) { _promptHtml = null; pr.style.display = 'none'; }
 
@@ -2206,7 +2233,7 @@ function updateDebug() {
   el.innerHTML = `FPS ${_fps.toFixed(0)}  gpu ${_tsSupported ? _gpuMs.toFixed(2) + 'ms' : (_perf ? '—' : 'off')}\nframe p50 ${ft.p50.toFixed(1)} p95 ${ft.p95.toFixed(1)} p99 ${ft.p99.toFixed(1)} max ${ft.max.toFixed(1)}ms\nzone ${zone}${zone === 'dungeon' ? ' d' + depth : ''}\ndraws ${_lastDraws}  tris ${(_lastTris / 1000).toFixed(1)}k\nmonsters ${monsters.length}  proj ${projectiles.length}\nloot ${loots.length}  fx ${fx.length}  floats ${floats.length}\nscene objs ${scene.children.length}  lights ${lights}\nremotes ${typeof NET !== 'undefined' ? NET.remotes.size : 0}` +
     (_errCount ? `\n<span class="err">errors ${_errCount}: ${escapeHtml(_lastErr).slice(0, 60)}</span>` : '');
 }
-function clampEntToZone(e) { if (zone === 'town') { const d = Math.hypot(e.x, e.z); if (d > TOWN_R) { e.x = e.x / d * TOWN_R; e.z = e.z / d * TOWN_R; } } else if (zone === 'dungeon') { const d = Math.hypot(e.x, e.z); if (d > DUNG_PLAY_R) { e.x = e.x / d * DUNG_PLAY_R; e.z = e.z / d * DUNG_PLAY_R; } } else { e.x = clamp(e.x, -MAP + 3, MAP - 3); e.z = clamp(e.z, -MAP + 3, MAP - 3); } }
+function clampEntToZone(e) { if (zone === 'town') { const d = Math.hypot(e.x, e.z); if (d > TOWN_R) { e.x = e.x / d * TOWN_R; e.z = e.z / d * TOWN_R; } } else if (zone === 'dungeon') { const d = Math.hypot(e.x, e.z); if (d > DUNG_PLAY_R) { e.x = e.x / d * DUNG_PLAY_R; e.z = e.z / d * DUNG_PLAY_R; } } else { const d = Math.hypot(e.x, e.z); if (d > WILD_R) { e.x = e.x / d * WILD_R; e.z = e.z / d * WILD_R; } } }
 function clampToZone() { clampEntToZone(player); }
 function moveToward(tx, tz, dt) {
   const a = Math.atan2(tx - player.x, tz - player.z); const fr = Math.min(dt || 16.667, 50) / 16.667; const sp = player.speed * 0.96 * fr * (now() < player.chillUntil ? 0.5 : 1); player.x += Math.sin(a) * sp; player.z += Math.cos(a) * sp; player.dir = a; player.bob += 0.3;
@@ -2230,7 +2257,7 @@ function drawMinimap() {
   mctx.clearRect(0, 0, 170, 170); mctx.save(); mctx.beginPath(); mctx.arc(MMR, MMR, MMR, 0, 7); mctx.clip();
   mctx.fillStyle = 'rgba(10,8,6,0.4)'; mctx.fillRect(0, 0, 170, 170);
   // interactables
-  const colMap = { vendor: '#9f6aff', stash: '#ffd24d', smith: '#ff8a3a', wild: '#6affa0', town: '#9f6aff', cave: '#ff8a3a', deeper: '#c04aff', cauldron: '#55ffa0', towngate: '#ffd24d', waypoint: '#6ab0ff' };
+  const colMap = { vendor: '#9f6aff', stash: '#ffd24d', smith: '#ff8a3a', wild: '#6affa0', town: '#9f6aff', cave: '#ff8a3a', deeper: '#c04aff', cauldron: '#55ffa0', towngate: '#ffd24d', waypoint: '#6ab0ff', wildnext: '#bcd0ff', wildprev: '#9ad86a' };
   for (const o of interactables()) { let col = colMap[o.kind] || '#fff'; if (o.kind === 'towngate') col = (character && character.discovered && character.discovered[o.area]) ? '#ffd24d' : '#777'; mmDot(o.x, o.z, col, o.kind === 'towngate' ? 4.5 : 3.5); }
   // loot
   for (const l of loots) mmDot(l.x, l.z, l.kind === 'item' ? '#' + RCOL[l.payload.rarity].toString(16).padStart(6, '0') : '#ffe27a', 2);
@@ -2792,7 +2819,12 @@ function addDepthRow() {
 }
 function renderWaypoints() {
   const list = document.getElementById('wpList'); list.innerHTML = '';
-  addWpRow('🌲', 'The Wilds' + (zone === 'wild' ? ' (here)' : ''), 'Open world · roam & find the town portals', () => travelTo('wilds'));
+  for (const r of REGIONS) {
+    const here = (zone === 'wild' && curRegion && curRegion.id === r.id);
+    const disc = r.town === 'town' || (character && character.discovered && character.discovered[r.town]);
+    if (!disc) { addWpRow('❓', r.name + ' — undiscovered', 'Press onward through the wilds to reach it', () => showMsg('Press deeper through the wilds to find ' + r.name)); continue; }
+    addWpRow('🌲', r.name + (here ? ' (here)' : ''), 'Wilderness · Lv ' + r.lvl, () => travelTo(r.id));
+  }
   for (const a of AREAS) {
     if (a.kind === 'wild') continue;
     if (a.kind === 'dungeon') { addWpRow('🕳️', 'The Descent — Depth 1', 'Dungeon entrance', () => travelTo('descent', 'start')); if (character && character.maxDepth > 1) { addWpRow('🔥', 'The Descent — Depth ' + character.maxDepth, 'Your deepest checkpoint', () => travelTo('descent', 'deep')); addDepthRow(); } continue; }
