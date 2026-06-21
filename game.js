@@ -1122,14 +1122,16 @@ function mergeStaticScenery(group, skip) {
     if (skip && skip.has(o)) return;
     if (o.userData && (o.userData.dynamic || o.userData.noMerge)) return;
     const m = o.material; if (Array.isArray(m) || !m || m.transparent) return;
-    const a = o.geometry.attributes; if (!a.position || !a.normal || !a.uv) return;
-    const isBasic = !!m.isMeshBasicMaterial;
-    const sig = (isBasic ? 'B' : 'P') + '|' + (m.map ? m.map.uuid : 'n') + '|' + (m.flatShading ? 1 : 0) + '|' + m.side + '|' + (m.toneMapped ? 1 : 0) + '|' + (m.emissive ? m.emissive.getHex() : 0) + '|' + (m.emissiveIntensity != null ? m.emissiveIntensity : 1) + '|' + (m.specular ? m.specular.getHex() : 0) + '|' + (m.shininess != null ? m.shininess : 30) + '|' + (o.castShadow ? 1 : 0) + (o.receiveShadow ? 1 : 0);
-    let b = buckets.get(sig); if (!b) { b = { proto: m, isBasic, cast: o.castShadow, recv: o.receiveShadow, geos: [] }; buckets.set(sig, b); }
+    const a = o.geometry.attributes; if (!a.position || !a.normal) return; /* uv optional: KayKit vertex-colored buildings carry no UVs — a synthesized zero-UV (below) lets them merge too */
+    const isBasic = !!m.isMeshBasicMaterial, isStd = !!m.isMeshStandardMaterial;
+    if (isStd && (m.normalMap || m.roughnessMap || m.aoMap || m.metalnessMap || m.emissiveMap)) return; /* can't faithfully merge PBR-mapped Standard mats (we only bake albedo color -> vertex color) */
+    const sig = (isBasic ? 'B' : isStd ? 'S' : 'P') + '|' + (m.map ? m.map.uuid : 'n') + '|' + (m.flatShading ? 1 : 0) + '|' + m.side + '|' + (m.toneMapped ? 1 : 0) + '|' + (m.emissive ? m.emissive.getHex() : 0) + '|' + (m.emissiveIntensity != null ? m.emissiveIntensity : 1) + '|' + (m.specular ? m.specular.getHex() : 0) + '|' + (m.shininess != null ? m.shininess : 30) + (isStd ? '|' + m.roughness + 'r' + m.metalness : '') + '|' + (o.castShadow ? 1 : 0) + (o.receiveShadow ? 1 : 0);
+    let b = buckets.get(sig); if (!b) { b = { proto: m, isBasic, isStd, cast: o.castShadow, recv: o.receiveShadow, geos: [] }; buckets.set(sig, b); }
     const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone(); g.applyMatrix4(o.matrixWorld);
     const n = g.attributes.position.count, c = m.color, col = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) { col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b; }
     g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    if (!g.attributes.uv) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(n * 2), 2)); /* synth zero UVs so _concatGeos can pack a uv buffer; merged building mat has map:null -> UVs unused */
     b.geos.push(g); toRemove.push(o);
   });
   const built = [];
@@ -1137,6 +1139,8 @@ function mergeStaticScenery(group, skip) {
     if (!b.geos.length) continue; const p = b.proto;
     const mat = b.isBasic
       ? new THREE.MeshBasicMaterial({ vertexColors: true, map: p.map || null, toneMapped: p.toneMapped })
+      : b.isStd
+      ? new THREE.MeshStandardMaterial({ vertexColors: true, map: p.map || null, flatShading: p.flatShading, roughness: (p.roughness != null ? p.roughness : 1), metalness: (p.metalness != null ? p.metalness : 0), side: p.side, toneMapped: p.toneMapped, emissive: (p.emissive ? p.emissive.getHex() : 0), emissiveIntensity: (p.emissiveIntensity != null ? p.emissiveIntensity : 1), envMapIntensity: (p.envMapIntensity != null ? p.envMapIntensity : 1) })
       : new THREE.MeshPhongMaterial({ vertexColors: true, map: p.map || null, flatShading: p.flatShading, specular: (p.specular ? p.specular.getHex() : 0x000000), shininess: (p.shininess != null ? p.shininess : 30), side: p.side, toneMapped: p.toneMapped, emissive: (p.emissive ? p.emissive.getHex() : 0), emissiveIntensity: (p.emissiveIntensity != null ? p.emissiveIntensity : 1) });
     const mesh = new THREE.Mesh(_concatGeos(b.geos), mat); mesh.castShadow = b.cast; mesh.receiveShadow = b.recv; mesh.frustumCulled = false; mesh.userData.merged = true;
     built.push(mesh);
