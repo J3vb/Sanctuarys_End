@@ -5,6 +5,8 @@ Docs/
 graphify-out/
 Ultimate Monsters/
 *.glb
-!assets/models/*.glb
+!assets/models/**/*.glb
+!assets/animations/*.glb
 workspace/
 node_modules/
+.claude/
