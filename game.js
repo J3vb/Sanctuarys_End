@@ -564,20 +564,32 @@ const PLAYER_GLOW = { dungeon: 9 * Math.PI, wild: 0, town: 0 }; /* per-zone aura
 const playerGlow = new THREE.PointLight(0xffe2b4, 0, 56, 1.0); playerGlow.position.set(0, 14, 0); scene.add(playerGlow);
 
 /* ---- point-light budget: only the N nearest emitters stay lit (perf) ---- */
-const PL_REG = []; let PL_MAX = 9; const _plWP = new THREE.Vector3(); let _lightBucket = 'static';
+const PL_REG = []; let PL_MAX = 9; let _plVisN = 0; const _plWP = new THREE.Vector3(); let _lightBucket = 'static';
 function regLight(light, dynamic) { PL_REG.push({ light, dynamic: !!dynamic, wp: null, bucket: _lightBucket }); return light; }
 function clearLightBucket(b) { for (let i = PL_REG.length - 1; i >= 0; i--) if (PL_REG[i].bucket === b) PL_REG.splice(i, 1); }
 function unregLight(L) { if (!L) return; for (let i = PL_REG.length - 1; i >= 0; i--) if (PL_REG[i].light === L) { PL_REG.splice(i, 1); break; } }
+/* Fixed light-slot pool — THE fix for the dungeon/combat stutter. three.js WebGPU bakes the *set* of active lights
+   into every material's pipeline cache key, so the old cullLights (which toggled which of the ~50 registered torches
+   were the nearest-PL_MAX visible) made the active set churn as the player moved — and every churn forced ALL
+   materials to recompile (~500ms NodeBuilder rebuild + ~40MB garbage), the felt "stutter while walking/fighting".
+   Now PL_MAX PointLights live permanently in the scene; cullLights only COPIES the nearest sources' world-pos +
+   color/intensity/distance/decay into these fixed slots (uniform writes — never a recompile). The registered lights
+   are pure data: their own .visible is forced false so they never render directly. Constant light set ⇒ compile once. */
+const _plSlots = [];
+function _ensureSlots() { while (_plSlots.length < PL_MAX) { const L = new THREE.PointLight(0xffffff, 0, 10, 2); L.userData.plSlot = true; scene.add(L); _plSlots.push(L); } while (_plSlots.length > PL_MAX) scene.remove(_plSlots.pop()); for (const L of _plSlots) L.visible = true; }
 function cullLights() {
+  _ensureSlots();
   const cands = [];
   for (const e of PL_REG) {
-    const L = e.light; let vis = true, o = L.parent; while (o) { if (o.visible === false) { vis = false; break; } o = o.parent; }
-    if (!vis) continue; let wx, wz;
-    if (e.dynamic) { L.getWorldPosition(_plWP); wx = _plWP.x; wz = _plWP.z; }
-    else { if (!e.wp) { L.updateWorldMatrix(true, false); e.wp = new THREE.Vector3(); L.getWorldPosition(e.wp); } wx = e.wp.x; wz = e.wp.z; }
-    e._d = (wx - player.x) ** 2 + (wz - player.z) ** 2; cands.push(e);
+    const L = e.light; L.visible = false; if (L.intensity <= 0) continue;
+    let vis = true, o = L.parent; while (o) { if (o.visible === false) { vis = false; break; } o = o.parent; }
+    if (!vis) continue;
+    let wp; if (e.dynamic) { L.getWorldPosition(_plWP); wp = _plWP; } else { if (!e.wp) { L.updateWorldMatrix(true, false); e.wp = new THREE.Vector3(); L.getWorldPosition(e.wp); } wp = e.wp; }
+    e._d = (wp.x - player.x) ** 2 + (wp.z - player.z) ** 2; e._wx = wp.x; e._wy = wp.y; e._wz = wp.z; cands.push(e);
   }
-  cands.sort((a, b) => a._d - b._d); for (let i = 0; i < cands.length; i++) cands[i].light.visible = (i < PL_MAX);
+  cands.sort((a, b) => a._d - b._d);
+  for (let i = 0; i < _plSlots.length; i++) { const slot = _plSlots[i], e = cands[i]; if (e) { const L = e.light; slot.position.set(e._wx, e._wy, e._wz); slot.color.copy(L.color); slot.intensity = L.intensity; slot.distance = L.distance; slot.decay = L.decay; } else slot.intensity = 0; }
+  _plVisN = _plSlots.length;
 }
 
 const MAP = 480, DUNG_PLAY_R = 88, DUNG_WALL_R = 90, DUNG_HALF = 80, DUNG_BACK_R = 122, TOWN_R = 48, WILD_R = 150;
@@ -1188,7 +1200,7 @@ const dungeonWallGeo = new THREE.CylinderGeometry(DUNG_BACK_R, DUNG_BACK_R, 11, 
 const dungeonWall = new THREE.Mesh(dungeonWallGeo, dungeonWallMat); dungeonWall.position.y = 5.5; dungeonWall.userData.noDispose = true; dungeonExtraGroup.add(dungeonWall);
 let dungeonFires = []; let d_deeperPortal = null; let curTheme = null;
 function disposeObj(o) { if (!o) return; o.traverse(c => { if (c.isInstancedMesh) c.dispose(); /* frees instanceMatrix only, not geo/mat */ const g = c.geometry; if (g && !(g.userData && g.userData.sharedProto)) g.dispose(); if (c.material) { const ms = Array.isArray(c.material) ? c.material : [c.material]; for (const mm of ms) if (mm && !(mm.userData && mm.userData.sharedProto)) mm.dispose(); } }); } /* shared prop prototypes (userData.sharedProto) survive zone rebuilds */
-function removeMesh(o) { if (!o) return; if (o.userData && o.userData.eliteLight) { unregLight(o.userData.eliteLight); o.userData.eliteLight = null; } scene.remove(o); if (o.userData && o.userData.noDispose) return; disposeObj(o); }
+function removeMesh(o) { if (!o) return; if (o.userData && o.userData.eliteLight) { unregLight(o.userData.eliteLight); o.userData.eliteLight = null; } scene.remove(o); if (o.userData && (o.userData.pooled || o.userData.linePooled)) { o.visible = false; const pool = o.userData.linePooled ? _linePool : _meshPool; if (pool.length < _POOL_MAX) pool.push(o); return; } if (o.userData && o.userData.noDispose) return; disposeObj(o); }
 function clearGroup(g) { while (g.children.length) { const c = g.children[0]; g.remove(c); disposeObj(c); } }
 /* Biomes are no longer locked to a depth tier — buildDungeon picks one at random each entry (pickBiome),
    so re-running the same depth varies the scenery & monster mix. Each biome carries a weighted `pool`
@@ -1204,7 +1216,7 @@ const BIOMES = [
 ];
 const HELL_BIOME = { name: 'The Inferno', pillar: 0x5a1810, rock: 0x3a100a, fire: 0xff3010, fog: 0x1a0402, ground: 0x300a06, amb: 'ember', ambCol: 0xff4a1a, deco: 'lava', grade: { t: [1.25, 0.82, 0.74], v: 0.5 }, pool: ['imp', 'hellhound', 'imp', 'hellhound', 'brute', 'fallen'] };
 function dungeonTheme(depth) { if (depth === 666) return HELL_BIOME; const i = depth >= 19 ? 6 : depth >= 16 ? 5 : depth >= 13 ? 4 : depth >= 10 ? 3 : depth >= 7 ? 2 : depth >= 4 ? 1 : 0; return BIOMES[i]; }
-function pickBiome(depth) { if (depth === 666) return HELL_BIOME; return BIOMES[Math.floor(Math.random() * BIOMES.length)]; }
+function pickBiome(depth) { if (depth === 666) return HELL_BIOME; if (typeof window !== 'undefined' && window.__forceBiome != null && BIOMES[window.__forceBiome]) return BIOMES[window.__forceBiome]; /* perf A/B instrumentation: pin one biome so NUM_POINT_LIGHTS stays invariant across re-entries (unset in normal play) */ return BIOMES[Math.floor(Math.random() * BIOMES.length)]; }
 /* shared prop instancing + per-tint material cache (one clone per atlas+hex, persists across rebuilds) */
 const _propMatCache = {};
 function tintPropMat(base, hex) { const key = base.uuid + ':' + hex; let m = _propMatCache[key]; if (!m) { m = base.clone(); if (m.color) m.color.setHex(hex); m.userData = Object.assign(m.userData || {}, { sharedProto: true }); _propMatCache[key] = m; } return m; }
@@ -1341,7 +1353,7 @@ function buildGLBEntity(role, mul) {
   const start = actions.walk || actions.idle; if (start) { start.play(); g.userData.cur = start; } return g;
 }
 function glbPlay(g, key, once) { const acts = g.userData && g.userData.actions; if (!acts) return; const a = acts[key]; if (!a || g.userData.cur === a) return; if (g.userData.cur) g.userData.cur.fadeOut(0.15); a.reset(); a.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, once ? 1 : Infinity); a.clampWhenFinished = !!once; a.fadeIn(0.15).play(); g.userData.cur = a; }
-function killMesh(m) { const g = m.mesh, ud = g && g.userData; if (ud && ud.glb && ud.actions && ud.actions.death) { glbPlay(g, 'death', true); _dying.push({ g, t: 1400 }); } else removeMob(g); }
+function killMesh(m) { const g = m.mesh, ud = g && g.userData; if (ud && ud.glb && ud.actions && ud.actions.death) { _ev('deathAnim'); glbPlay(g, 'death', true); _dying.push({ g, t: 1400 }); } else removeMob(g); }
 /* KayKit Adventurer/hero meshes bake the FULL weapon set onto handslot.r/.l (1H_Axe, 2H_Staff, Knife, Shield, Quiver…).
    Town NPCs are shopkeepers -> hide every weapon/held-item node by name (tokens word-anchored so 'elbow' != 'Bow'),
    plus hide any leftover children of the handslot bones. Spellbook/Mug kept as merchant flavor (e.g. mage-vendor's book). */
@@ -1674,6 +1686,7 @@ function buildMonsterMesh(t, col, scale) {
   g.scale.setScalar(scale); g.userData.noDispose = true; return g;
 }
 function spawnMonster(t, eliteMods, pos) {
+  if (_SPK.on) { _ev(eliteMods ? 'spawnElite' : 'spawnMon'); if (!_SPK.seen.has(t)) { _SPK.seen.add(t); _ev('NEWTYPE:' + t); } }
   const base = MTYPES[t]; let x, z;
   if (pos) { x = pos.x; z = pos.z; } else { const ang = rand(0, Math.PI * 2), d = rand(40, 70); const p = { x: player.x + Math.cos(ang) * d, z: player.z + Math.sin(ang) * d }; clampEntToZone(p); x = p.x; z = p.z; }
   const sc = eliteMods ? base.scale * 1.4 : base.scale;
@@ -1793,6 +1806,7 @@ function bossAI(m, dt, d, sp) {
 const WILD_POOL = ['fallen', 'fallen', 'zombie', 'zombie', 'shaman', 'brute'];
 function biomePool() { return (zone === 'dungeon' && curTheme && curTheme.pool) ? curTheme.pool : WILD_POOL; }
 let _spawnQueue = [], _spawnCd = 0;
+const MOB_CAP = 30; /* ponytail: flat concurrent-monster ceiling. Normal play (killing) rarely reaches it; it only bites the pathological case (walking past mobs without clearing) where the uncapped spawner piled 1000+. Make depth-scaled if a zone needs denser packs. */
 function spawnWave() {
   const eliteChance = zone === 'dungeon' ? 0.10 + depth * 0.02 : 0.04; if (Math.random() < eliteChance) _spawnQueue.push({ pack: true });
   const extra = zone === 'dungeon' ? 1 : 0; const pool = biomePool(); for (let i = 0; i < rand(2, 5) + extra; i++) _spawnQueue.push({ type: choice(pool) });
@@ -1802,6 +1816,7 @@ function spawnWave() {
 // stutters; cached after first encounter, so it's a once-per-machine cost.
 function drainSpawns(dt) {
   if (!_spawnQueue.length) return;
+  if (monsters.length >= MOB_CAP) { _spawnQueue.length = 0; return; }   /* at the field cap: drop the queue rather than overflow it */
   _spawnCd -= dt; if (_spawnCd > 0) return;
   const job = _spawnQueue.shift();
   if (job.pack) spawnPack(); else spawnMonster(job.type);
@@ -1892,7 +1907,7 @@ const SKILL_COEF = {
   secondwind: { school: 'none', note: 'heals from spent mana' },
 };
 function castActive(id, aim, isEcho) {
-  const def = SKILLDEFS[id]; let rank = character.skills[id]; if (!def || rank < 1) return; rank += (player.effects.allskills || 0);
+  const def = SKILLDEFS[id]; let rank = character.skills[id]; if (!def || rank < 1) return; if (_SPK.on) _ev('cast:' + id); rank += (player.effects.allskills || 0);
   const t = now(); if (!isEcho) { if (t - (_cd[id] || -9999) < def.cd) return; if (player.mp < def.cost) { floatText('No mana', player.x, player.z, '#88aaff'); return; } _cd[id] = t; player.mp -= def.cost; updateGlobes(); sfx(SFX_FOR[def.kind] || def.kind); }
   const ang = Math.atan2(aim.x - player.x, aim.z - player.z) + (isEcho ? rand(-0.12, 0.12) : 0); player.dir = ang; player.swing = now(); const fwd = { x: Math.sin(ang), z: Math.cos(ang) }; const skM = (player.skillMult || 1) * ((id === character.activeSkillId) ? (player.activeSkillDmg || 1) : 1); const sm = player.spellMult * skM, mm = player.meleeMult * skM;
   const _C = SKILL_COEF[def.kind]; const cf = (_C && _C.coef) ? _C.coef(rank) : 1;
@@ -1922,14 +1937,26 @@ function castActive(id, aim, isEcho) {
 }
 const _orbGeo = new THREE.SphereGeometry(1, 8, 8); const _matCache = {};
 function projMat(hex) { if (!_matCache[hex]) _matCache[hex] = new THREE.MeshBasicMaterial({ color: hex }); return _matCache[hex]; }
-function makeOrb(x, y, z, hex, r) { const m = new THREE.Mesh(_orbGeo, projMat(hex)); m.scale.setScalar(r); m.position.set(x, y, z); m.userData.noDispose = true; return m; }
+/* ponytail: free-lists for the high-churn combat throwaways. geo+mats are already shared/cached; this recycles the
+   Mesh/Line *wrappers* (and the chain-line's GPU buffer) so sustained combat stops minting hundreds of short-lived
+   objects/sec — that allocation rate is the GC-pause source, not a leak. Bounded; pool overflow is just left to GC.
+   removeMesh() returns userData.pooled / userData.linePooled objects here instead of discarding them. */
+const _POOL_MAX = 256, _meshPool = [], _linePool = [], _LINE_PTS = 16;
+function poolMesh(geo, mat) { const m = _meshPool.pop(); if (m) { m.geometry = geo; m.material = mat; m.visible = true; m.position.set(0, 0, 0); m.rotation.set(0, 0, 0); m.scale.setScalar(1); return m; } const nm = new THREE.Mesh(geo, mat); nm.userData.pooled = true; return nm; }
+function poolLine() { const ln = _linePool.pop(); if (ln) { ln.visible = true; ln.material.opacity = 1; return ln; } const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(_LINE_PTS * 3), 3)); const nl = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0x9fe8ff, transparent: true, opacity: 1 })); nl.frustumCulled = false; nl.userData.linePooled = true; return nl; }
+function makeOrb(x, y, z, hex, r) { const m = poolMesh(_orbGeo, projMat(hex)); m.scale.setScalar(r); m.position.set(x, y, z); return m; }
+/* perftest-only spike profiler: when on, the loop logs every frame over _SPK.thresh with heap-delta (gc=heap dropped
+   ⇒ GC pause) and the game events that fired that frame (loot/kill/cast/new-monster-type) — so a real-play hitch can
+   be attributed to GC vs first-render-compile vs a specific event. Drive via window.__spikeStart()/__spikeStop(). */
+const _SPK = { on: false, thresh: 40, spikes: [], ev: {}, rates: {}, seen: new Set(), lcSeen: new Set(), t0: 0 };
+function _ev(n) { if (!_SPK.on) return; _SPK.ev[n] = (_SPK.ev[n] || 0) + 1; _SPK.rates[n] = (_SPK.rates[n] || 0) + 1; }
 function spawnProj(x, z, dir, sp, dmg, kind, slow, onHit) { const col = kind === 'frost' ? 0x9fe8ff : kind === 'poison' ? 0x8fe07a : (kind === 'phys' ? 0xd8d8e8 : 0xff8a3a); const mesh = makeOrb(x, 2, z, col, 0.5); scene.add(mesh); const pierce = ((kind === 'phys' || kind === 'poison') ? (player.effects.pierce || 0) : 0); const p = { x, z, vx: dir.x * sp, vz: dir.z * sp, dmg, kind, life: 120, mesh, slow: slow || 120, onHit: onHit || null, hit: pierce > 0 ? new Set() : null, pierce }; projectiles.push(p); return p; }
 function castChain(rank, skM) {
   skM = skM || 1; let dmg = player.dmg * SKILL_COEF.chain.coef(rank) * skM; const jumps = 2 + rank; const hitSet = new Set(); let cur = { x: player.x, z: player.z }; const pts = [new THREE.Vector3(player.x, 2.6, player.z)];
   for (let j = 0; j <= jumps; j++) { let best = null, bd = 1e9; for (const m of monsters) { if (hitSet.has(m)) continue; const d = Math.hypot(m.x - cur.x, m.z - cur.z); const range = j === 0 ? 40 : 18; if (d < range && d < bd) { bd = d; best = m; } } if (!best) break; hitSet.add(best); pts.push(new THREE.Vector3(best.x, 2.4, best.z)); hitMonsterProj(best, dmg, 'lightning'); dmg *= 0.85; cur = { x: best.x, z: best.z }; }
   if (pts.length > 1) spawnLightning(pts);
 }
-function spawnLightning(pts) { const geo = new THREE.BufferGeometry().setFromPoints(pts); const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x9fe8ff, transparent: true, opacity: 1 })); scene.add(line); pushFx({ mesh: line, life: 14 }); }
+function spawnLightning(pts) { const ln = poolLine(), arr = ln.geometry.attributes.position.array, n = Math.min(pts.length, _LINE_PTS); for (let i = 0; i < n; i++) { arr[i * 3] = pts[i].x; arr[i * 3 + 1] = pts[i].y; arr[i * 3 + 2] = pts[i].z; } ln.geometry.setDrawRange(0, n); ln.geometry.attributes.position.needsUpdate = true; ln.geometry.boundingSphere = null; scene.add(ln); pushFx({ mesh: ln, life: 14 }); } /* pooled Line: own material (per-instance opacity fade), fixed max-point buffer reused via draw-range — was a fresh BufferGeometry+material every cast */
 /* shared FX/loot geometry+material caches (avoid per-event allocation + GPU-upload spikes) */
 const _LGEO = { gold: new THREE.SphereGeometry(0.4, 8, 8), pot: new THREE.CylinderGeometry(0.3, 0.3, 0.9, 8), item: new THREE.OctahedronGeometry(0.55, 0), ring: new THREE.RingGeometry(0.85, 1.2, 28), expl: new THREE.SphereGeometry(6, 16, 12), spark: new THREE.TetrahedronGeometry(0.22, 0), flash: new THREE.SphereGeometry(0.5, 8, 8) };
 const _beamGeoC = {}; function _beamGeo(h, w) { const k = h + 'x' + w; return _beamGeoC[k] || (_beamGeoC[k] = new THREE.CylinderGeometry(w * 0.45, w, h, 10, 1, true)); }
@@ -1939,10 +1966,10 @@ const _basicMatC = {}; function _basicMat(col, opacity) { const k = col + '_' + 
 const FX_CAP = 160; function pushFx(o) { if (fx.length >= FX_CAP) { const old = fx.shift(); if (old) removeMesh(old.mesh); } fx.push(o); }
 function spawnSparks(x, z, col, count) {
   if (SAVE._data.settings.vfx === false) return; count = Math.min(count || 6, 8); const mat = _basicMat(col, 0.95);
-  for (let i = 0; i < count; i++) { const m = new THREE.Mesh(_LGEO.spark, mat); m.userData.noDispose = true; m.position.set(x, 1.4, z); const a = Math.random() * 6.2832, sp = 4 + Math.random() * 7, s0 = 0.6 + Math.random() * 0.6; m.scale.setScalar(s0); m.rotation.set(Math.random() * 3, Math.random() * 3, 0); scene.add(m); const lf = 18 + (Math.random() * 10 | 0); pushFx({ mesh: m, life: lf, life0: lf, scale0: s0, vx: Math.cos(a) * sp, vy: 4.5 + Math.random() * 5, vz: Math.sin(a) * sp, grav: 20, spin: 0.18 + Math.random() * 0.25 }); }
+  for (let i = 0; i < count; i++) { const m = poolMesh(_LGEO.spark, mat); m.position.set(x, 1.4, z); const a = Math.random() * 6.2832, sp = 4 + Math.random() * 7, s0 = 0.6 + Math.random() * 0.6; m.scale.setScalar(s0); m.rotation.set(Math.random() * 3, Math.random() * 3, 0); scene.add(m); const lf = 18 + (Math.random() * 10 | 0); pushFx({ mesh: m, life: lf, life0: lf, scale0: s0, vx: Math.cos(a) * sp, vy: 4.5 + Math.random() * 5, vz: Math.sin(a) * sp, grav: 20, spin: 0.18 + Math.random() * 0.25 }); }
 }
-function impactFlash(x, z, col) { if (SAVE._data.settings.vfx === false) return; const m = new THREE.Mesh(_LGEO.flash, _basicMat(col, 0.7)); m.userData.noDispose = true; m.position.set(x, 1.6, z); const s0 = 1.7; m.scale.setScalar(s0); scene.add(m); pushFx({ mesh: m, life: 9, life0: 9, scale0: s0 }); }
-function spawnExplosion(x, z, col) { const m = new THREE.Mesh(_LGEO.expl, new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.5, wireframe: true })); m.position.set(x, 1.5, z); m.userData.noDispose = true; scene.add(m); pushFx({ mesh: m, life: 14 }); }
+function impactFlash(x, z, col) { if (SAVE._data.settings.vfx === false) return; const m = poolMesh(_LGEO.flash, _basicMat(col, 0.7)); m.position.set(x, 1.6, z); const s0 = 1.7; m.scale.setScalar(s0); scene.add(m); pushFx({ mesh: m, life: 9, life0: 9, scale0: s0 }); }
+const _explMatC = {}; function spawnExplosion(x, z, col) { const mat = _explMatC[col] || (_explMatC[col] = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.5, wireframe: true })); const m = poolMesh(_LGEO.expl, mat); m.position.set(x, 1.5, z); scene.add(m); pushFx({ mesh: m, life: 14 }); } /* ponytail: per-color wireframe mat cached (was a per-call alloc + a noDispose leak). Two same-color explosions overlapping share the opacity fade — negligible/rare. */
 const POTION_PCT = 0.40, POTION_TIER_PCT = 0.05;
 function potionHealAmt() { return Math.round(player.hpMax * (POTION_PCT + (character.potionTier || 0) * POTION_TIER_PCT)); }
 function potionManaAmt() { return Math.round(player.mpMax * (POTION_PCT + (character.potionTier || 0) * POTION_TIER_PCT)); }
@@ -1991,6 +2018,7 @@ function tickStatuses(ent, dt, isPlayer) {
 function hitMonster(m, from) { sfx('melee'); meleeDamage(m, 1, from); }
 function hitMonsterProj(m, dmg, kind) { const rm = monsterResistMult(m, kind); if (rm < 1) { floatText('resist', m.x, m.z + 1, '#9aa'); } dmg *= rm; if (player.elemMult && player.elemMult[kind]) dmg *= player.elemMult[kind]; m.hp -= dmg; m.flash = 8; if (!m._nova) spawnSparks(m.x, m.z, kind === 'frost' ? 0x9fe8ff : kind === 'poison' ? 0x8fe07a : kind === 'lightning' ? 0xcfe8ff : kind === 'phys' ? 0xd8d8e8 : 0xff8a3a, 5); floatText(Math.round(dmg), m.x, m.z, rm > 1 ? '#ff8a6a' : '#ffe'); if (player.effects.lifesteal > 0) player.hp = Math.min(player.hpMax, player.hp + dmg * player.effects.lifesteal); if (player.effects.manaleech > 0) player.mp = Math.min(player.mpMax, player.mp + dmg * player.effects.manaleech); if (m._nova !== true) procOnHit(m, dmg); if (m.hp <= 0) killMonster(m); }
 function killMonster(m) {
+  _ev(m.boss ? 'killBoss' : m.elite ? 'killElite' : 'kill');
   gainXP(m.xp); player.kills++; killsTxt.textContent = 'Slain: ' + player.kills; sfx(m.boss ? 'bossdie' : 'death'); spawnSparks(m.x, m.z, 0xff7a3a, m.boss ? 8 : 7); impactFlash(m.x, m.z, m.boss ? 0xff5030 : 0xffb060);
   if (m.empowered && !m.boss) { spawnExplosion(m.x, m.z, 0xff6a2a); if (Math.hypot(m.x - player.x, m.z - player.z) < 7) damagePlayer(Math.round(m.dmg * 0.8), []); }
   if (m.boss) {
@@ -2021,6 +2049,7 @@ function gainXP(n) {
   updateGlobes(); updatePips();
 }
 function dropLoot(x, z, kind, payload) {
+  _ev('loot:' + kind);
   const group = new THREE.Group(); group.position.set(x, 0, z); group.userData.noDispose = true; let icon, col, tier;
   if (kind === 'gold') { col = 0xffd24d; tier = 1; icon = new THREE.Mesh(_LGEO.gold, _lootMat('gold', col)); }
   else if (kind === 'potion') { col = 0xff5a4a; tier = 1; icon = new THREE.Mesh(_LGEO.pot, _lootMat('potion', col)); }
@@ -2032,7 +2061,7 @@ function dropLoot(x, z, kind, payload) {
   const ring = new THREE.Mesh(_LGEO.ring, _basicMat(col, 0.55)); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.13; group.add(ring);
   scene.add(group); loots.push({ x, z, kind, payload, mesh: group, icon, beam, ring, tier, t: rand(0, 6) });
 }
-const tmpV = new THREE.Vector3(); function floatText(txt, x, z, col) { if (floats.length > 80) floats.splice(0, floats.length - 80); floats.push({ txt: String(txt), x, z, col, life: 55, y: 3 }); }
+const tmpV = new THREE.Vector3(); function floatText(txt, x, z, col) { _ev('float'); if (floats.length > 80) floats.splice(0, floats.length - 80); floats.push({ txt: String(txt), x, z, col, life: 55, y: 3 }); }
 
 /* ---------- collision ---------- */
 function activeColliders() { return zone === 'town' ? townColliders : zone === 'wild' ? wildColliders : zone === 'dungeon' ? dungeonColliders : []; }
@@ -2084,6 +2113,33 @@ function setScale() {
    transient combat content first-rendered after reveal - monsters, projectiles, FX, skills - whose pipeline
    variants are context/pass-specific; that residual (~1.5-1.9s on first combat) is a separate, unsolved piece
    (see PERF-FINDINGS). Token + 8s watchdog guard against a stuck overlay (black-screen guard). */
+/* Pre-compile the FULL transient combat pipeline set in THIS zone's exact lighting context, behind the loading
+   gate. Combat content (wave monsters, skill FX, projectiles, loot) first-renders AFTER reveal, so without this
+   the first render of each compiles its pipeline on the main thread mid-fight — the "freeze when walking around"
+   (browser-measured ~3.2s cold on first combat, plus per-biome residuals). The pipeline variant is context-
+   specific (point-light count is baked per biome — verified: a warm done in town left wild's first combat at
+   ~670ms), so the warm MUST run in each zone's own context, not once globally. Builds one temp mesh per distinct
+   (geometry, material) combo, renders it once via warmScene's compileAsync+renderFrame, then removes it.
+   _warmedCtx gates it to once per biome/zone-context per session so re-entries don't repay the load cost. */
+const _warmedCtx = new Set();
+function _combatCtxKey() { return zone + ':' + (zone === 'dungeon' ? ((curTheme && curTheme.name) || '?') : zone === 'wild' ? ((curRegion && curRegion.name) || '?') : 'town'); }
+function warmCombatPipelines() {
+  if (!isCombat()) return [];
+  const tmp = [], px = player.x, pz = player.z;
+  const add = (geo, mat, y) => { const m = new THREE.Mesh(geo, mat); m.position.set(px, y == null ? 1.5 : y, pz); m.frustumCulled = false; m.userData.noDispose = true; scene.add(m); tmp.push(m); return m; };
+  for (const t of new Set(biomePool())) { const b = MTYPES[t]; if (!b) continue; const mesh = buildMonsterMesh(t, b.col, b.scale); if (mesh) { mesh.position.set(px, 0, pz); mesh.frustumCulled = false; scene.add(mesh); tmp.push(mesh); } } /* skinned MeshStandard, one per spawnable type */
+  add(_orbGeo, projMat(0xff8a3a), 2);                                  /* projectile orb (opaque MeshBasic) */
+  add(_LGEO.spark, _basicMat(0xffffff, 0.95));                          /* additive-transparent VFX, one per distinct geo layout */
+  add(_LGEO.flash, _basicMat(0xffffff, 0.7));
+  add(_LGEO.ring, _basicMat(0xffffff, 0.55));
+  add(_beamGeo(3.5, 0.4), _basicMat(0xffffff, 0.3), 1.5);
+  add(_LGEO.expl, new THREE.MeshBasicMaterial({ color: 0xff5020, transparent: true, opacity: 0.5, wireframe: true })); /* explosion = wireframe variant (distinct pipeline) */
+  { const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(px, 2, pz), new THREE.Vector3(px + 2, 2.4, pz)]); const ln = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0x9fe8ff, transparent: true, opacity: 1 })); ln.frustumCulled = false; ln.userData.noDispose = true; scene.add(ln); tmp.push(ln); } /* chain-lightning Line */
+  add(_LGEO.gold, _lootMat('gold', 0xffd24d), 1);                       /* loot: MeshStandard (gold/item) + MeshPhong (potion) */
+  add(_LGEO.pot, _lootMat('potion', 0xff5a4a), 1);
+  add(_LGEO.item, _lootMat('item', 0xc080ff), 1);
+  return tmp;
+}
 let _warming = false, _warmToken = 0;
 function warmScene(label) {
   const el = document.getElementById('loading');
@@ -2094,12 +2150,17 @@ function warmScene(label) {
   /* yield two frames so the overlay actually paints before the (potentially blocking) warm render begins */
   requestAnimationFrame(() => requestAnimationFrame(async () => {
     if (tok !== _warmToken) return;
+    const _ckey = isCombat() ? _combatCtxKey() : null;
+    const _skipWarm = typeof window !== 'undefined' && window.__skipCombatWarm; /* perf A/B: disable the combat warm to measure the un-warmed first-combat hitch (unset in normal play) */
+    const _warmMobs = (_ckey && !_warmedCtx.has(_ckey) && !_skipWarm) ? warmCombatPipelines() : [];  /* combat content, gated once per context */
     try {
       if (renderer.shadowMap.enabled) moon.shadow.needsUpdate = true;
       await renderer.compileAsync(scene, camera); /* off-main-thread warm of modules/pipelines; overlay stays live */
       renderFrame();                              /* sync: finalize the exact active (post) variant behind the gate */
+      if (_ckey) _warmedCtx.add(_ckey);           /* mark warmed only after a successful in-context compile+render */
     } catch (err) { console.warn('warmScene warm failed:', err && err.message); }
     finally {
+      for (const o of _warmMobs) { if (o.userData && o.userData.glb) removeMob(o); else removeMesh(o); } /* drop temp instances (noDispose → shared geo/mat survive) */
       if (tok !== _warmToken) return;
       _warming = false; if (el) el.style.display = 'none'; last = now(); placeCamera(player);
     }
@@ -2241,7 +2302,7 @@ function update(dt) {
   else if (d_deeperPortal) { d_deeperPortal.ring.rotation.z += 0.02; }
   torch.position.set(player.x, 9, player.z); playerGlow.position.set(player.x, 14, player.z); updateAmbient(dt); if (typeof NET !== 'undefined') NET.tick(dt);
 
-  if (isCombat() && !bossActive) { waveTimer -= dt; if (_spawnQueue.length === 0 && (waveTimer <= 0 || monsters.length < 3)) { spawnWave(); waveTimer = 4200; } drainSpawns(dt); }
+  if (isCombat() && !bossActive) { waveTimer -= dt; if (_spawnQueue.length === 0 && monsters.length < MOB_CAP && (waveTimer <= 0 || monsters.length < 3)) { spawnWave(); waveTimer = 4200; } drainSpawns(dt); }
   saveTimer -= dt; if (saveTimer <= 0) { saveTimer = 8000; saveProgress(false); }
 
   const o = nearest(); const pr = document.getElementById('prompt');
@@ -2610,8 +2671,10 @@ let _fps = 60, _errCount = 0, _lastErr = '', _lastErrAt = 0, _frame = 0;
 function loop() {
   if (!running) return; requestAnimationFrame(loop); if (_warming) return; /* paused while pre-warming a new scene's GPU pipelines (see warmScene) */ const t = now(); const dt = Math.min(50, t - last); last = t; _fps = _fps * 0.9 + (1000 / Math.max(1, dt)) * 0.1; recordFrame(dt);
   _frame++; if (renderer.shadowMap.enabled && (_frame & 1)) moon.shadow.needsUpdate = true; /* Phase 1b: per-light one-shot refresh; keep the (_frame&1) every-other-frame throttle. */
-  try { update(dt); renderFrame(); }
+  const _spkHB = _SPK.on && performance.memory ? performance.memory.usedJSHeapSize : 0, _spkT0 = _SPK.on ? performance.now() : 0; let _spkU = _spkT0;
+  try { update(dt); if (_SPK.on) _spkU = performance.now(); renderFrame(); }
   catch (err) { _errCount++; _lastErr = (err && err.message) || String(err); if (now() - _lastErrAt > 1000) { _lastErrAt = now(); console.error('frame error #' + _errCount + ':', err); } }
+  if (_SPK.on) { const _tend = performance.now(), _ft = _tend - _spkT0; if (_ft > _SPK.thresh) { const _hA = performance.memory ? performance.memory.usedJSHeapSize : 0, _dH = (_hA - _spkHB) / 1048576, _lcNew = !_SPK.lcSeen.has(_plVisN); const rec = { f: _frame, ft: +_ft.toFixed(1), uMs: +(_spkU - _spkT0).toFixed(1), rMs: +(_tend - _spkU).toFixed(1), dt: +dt.toFixed(1), gc: _dH < -0.25, dHeapMB: +_dH.toFixed(2), heapMB: +(_hA / 1048576).toFixed(1), lc: _plVisN, lcNew: _lcNew, mon: monsters.length, fx: fx.length, proj: projectiles.length, loot: loots.length, dying: _dying.length, draws: _lastDraws, zone: zone, ev: Object.assign({}, _SPK.ev) }; _SPK.spikes.push(rec); if (_SPK.spikes.length > 400) _SPK.spikes.shift(); console.warn('[SPIKE] ' + rec.ft + 'ms (u' + rec.uMs + '/r' + rec.rMs + ') ' + (rec.gc ? 'GC' + rec.dHeapMB : 'cpu+' + rec.dHeapMB) + ' lc' + rec.lc + (_lcNew ? '(NEW)' : '') + ' mon' + rec.mon + ' ' + JSON.stringify(rec.ev)); } _SPK.lcSeen.add(_plVisN); _SPK.ev = {}; }
 }
 
 /* ---- Phase 0 rig: deterministic perf harness (perftest mode only). Load a fixed-L1 char, then call
@@ -2643,9 +2706,46 @@ if (_perftest) {
     console.log('[perfRun] results (seed-deterministic):\n' + JSON.stringify(out, null, 2));
     return out;
   };
-  console.log('[perfRun] deterministic harness ready — load a character, then call perfRun() in the console.');
+  /* ---- walking harness: standing-still doesn't trigger the freeze, so auto-patrol a diamond loop and
+     measure standing vs lap1 vs lap2. lap2-clean ⇒ one-time cached first-render compile; lap2≈lap1 ⇒ a
+     recurring per-walk cost (cull/GC/draw-call/CPU). Drives moveTo directly (module-scoped click target). ---- */
+  let _gpuMax = 0;
+  const _visLights = () => { let n = 0; scene.traverse(o => { if (o.isLight && o.visible) n++; }); return n; };
+  const _walkTo = async (x, z, maxMs) => {
+    moveTo = { x, z }; const t0 = performance.now();
+    while (performance.now() - t0 < (maxMs || 6000)) { await _raf(); if (_gpuMs > _gpuMax) _gpuMax = _gpuMs; if (Math.hypot(player.x - x, player.z - z) < 1.4) break; }
+  };
+  const _wp = r => [[0, 0], [r, 0], [0, r], [-r, 0], [0, -r], [r * 0.7, r * 0.7], [-r * 0.7, -r * 0.7], [0, 0]];
+  const _metrics = phase => { const p = framePctl(); return { phase, fps: +_fps.toFixed(0), p50: +p.p50.toFixed(1), p95: +p.p95.toFixed(1), p99: +p.p99.toFixed(1), max: +p.max.toFixed(1), gpuNow: +_gpuMs.toFixed(2), gpuMax: +_gpuMax.toFixed(2), draws: _lastDraws, trisK: +(_lastTris / 1000).toFixed(1), lights: _visLights(), monsters: monsters.length }; };
+  window.perfWalk = async (label, enterFn, r) => {
+    enterFn(); await _waitUntil(() => !_warming, 15000); await _frames(10);
+    const out = { zone: label };
+    _ftReset(); _gpuMax = 0; await _frames(150); out.stand = _metrics('stand');   /* baseline: stationary */
+    const path = _wp(r);
+    for (let lap = 1; lap <= 2; lap++) {
+      const x0 = player.x, z0 = player.z; _ftReset(); _gpuMax = 0;
+      for (const [x, z] of path) await _walkTo(x, z, 6000);
+      if (lap === 1 && Math.hypot(player.x - x0, player.z - z0) < 0.5) console.warn('[perfWalk] player barely moved — harness may be broken (check moveTo wiring)');
+      out['lap' + lap] = _metrics('lap' + lap);
+    }
+    moveTo = null; return out;
+  };
+  window.perfWalkAll = async () => {
+    if (typeof running === 'undefined' || !running) { console.warn('[perfWalk] load a character first.'); return; }
+    const res = [];
+    res.push(await window.perfWalk('town', () => enterTown(), 30));        /* spawn-free control zone */
+    res.push(await window.perfWalk('wild', () => enterWild(), 110));
+    res.push(await window.perfWalk('dungeon-d1', () => enterDungeon(1), 60));
+    enterTown();   /* park in a spawn-free zone so the harness doesn't keep spawning monsters after it returns */
+    console.log('[perfWalkAll] results:\n' + JSON.stringify(res, null, 2));
+    return res;
+  };
+  console.log('[perfRun] deterministic harness ready — load a character, then call perfRun() (zone-entry) or perfWalkAll() (walking) in the console.');
   Object.assign(window, { enterDungeon, enterTown, enterWild }); /* perftest-only: lets the QA harness jump zones/biomes from the console (pairs with window.perfRun) */
   Object.defineProperty(window, '__perfGod', { get: () => _perfGod, set: v => { _perfGod = !!v; } }); /* toggle god-mode from console (default on under ?perftest) */
+  window.__spikeStart = thresh => { _SPK.thresh = thresh || 35; _SPK.on = true; _SPK.spikes.length = 0; _SPK.ev = {}; _SPK.rates = {}; _SPK.seen = new Set(); _SPK.lcSeen = new Set(); _SPK.t0 = performance.now(); console.log('[spike] logging ON. thresh=' + _SPK.thresh + 'ms. Play/fight to reproduce the stutter, then call __spikeStop().'); };
+  window.__spikeStop = () => { _SPK.on = false; const secs = Math.max(0.001, (performance.now() - _SPK.t0) / 1000); const ratesPerSec = {}; for (const k in _SPK.rates) ratesPerSec[k] = +(_SPK.rates[k] / secs).toFixed(2); const out = { secs: +secs.toFixed(1), spikeCount: _SPK.spikes.length, gcSpikes: _SPK.spikes.filter(s => s.gc).length, worst: _SPK.spikes.slice().sort((a, b) => b.ft - a.ft).slice(0, 15), ratesPerSec, allSpikes: _SPK.spikes }; console.log('[spike] STOP — ' + out.spikeCount + ' spikes (' + out.gcSpikes + ' GC) in ' + out.secs + 's'); return out; };
+  window.__spikeStart(); /* auto-on under ?perftest: captures real-play hitches from first load (call __spikeStop() to read) */
 }
 function show(id) { ['selectScreen', 'createScreen', 'overScreen'].forEach(s => document.getElementById(s).style.display = 'none'); if (id) document.getElementById(id).style.display = 'flex'; }
 function setHud(on) { document.getElementById('hud').style.display = on ? 'block' : 'none'; document.getElementById('topbar').style.display = on ? 'flex' : 'none'; document.getElementById('xpbar').style.display = on ? 'block' : 'none'; document.getElementById('minimap').style.display = on ? 'block' : 'none'; document.getElementById('prompt').style.display = 'none'; document.getElementById('bossBar').style.display = 'none'; if (!on) closeAll(); }
