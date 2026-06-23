@@ -1,0 +1,38 @@
+{
+  "hero": {
+    "file": "hero.glb",
+    "bytes": 2474424
+  },
+  "zombie": {
+    "file": "zombie.glb",
+    "bytes": 129956
+  },
+  "fallen": {
+    "file": "fallen.glb",
+    "bytes": 203148
+  },
+  "brute": {
+    "file": "brute.glb",
+    "bytes": 499836
+  },
+  "shaman": {
+    "file": "shaman.glb",
+    "bytes": 90632
+  },
+  "boss": {
+    "file": "boss.glb",
+    "bytes": 540700
+  },
+  "vendor": {
+    "file": "vendor.glb",
+    "bytes": 340752
+  },
+  "smith": {
+    "file": "smith.glb",
+    "bytes": 352692
+  },
+  "stash": {
+    "file": "stash.glb",
+    "bytes": 341684
+  }
+}

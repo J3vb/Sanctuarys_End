@@ -1,0 +1,4 @@
+# Source downloads staged here are NOT published — sorted picks live in assets/models|animations.
+*
+!.gitignore
+!DOWNLOADS_TODO.md
