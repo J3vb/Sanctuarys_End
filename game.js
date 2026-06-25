@@ -138,14 +138,22 @@ function rollItem(ilvl, forceSlot, quality) {
   item.name = name; return item;
 }
 const UPGRADE_CAP = { common: 5, magic: 6, rare: 8, set: 8, unique: 10 };
+/* The item helpers below are annotated with JSDoc as worked examples of the zero-build type-checking
+   set up in jsconfig.json — the `Item` shape lives in types/game.d.ts. See types/README.md. */
+/** @param {{upgrade?:number}|null} it @returns {number} */
 const upFactor = it => 1 + ((it && it.upgrade) || 0) * 0.08;
+/** @param {Item} it @returns {number} */
 const upgradeMax = it => UPGRADE_CAP[it.rarity] || 5;
+/** @param {*} it @returns {number} */
 function itemScore(it) { if (!it) return 0; let s = it.baseStat * (it.slot === 'weapon' ? 3 : 2); const W = { dmg: 3, hp: 1, crit: 5, ias: 4, ms: 3, leech: 6, allstats: 5, thorns: 1, fireRes: 2, coldRes: 2, poisonRes: 2, lightRes: 2, allRes: 4, critDmg: 5, manaLeech: 4, leechAll: 7, burnOnHit: 5, bleedOnHit: 5, skilldmg: 6, activeskill: 6, skillranks: 25, fireDmg: 5, coldDmg: 5, lightDmg: 5, poisonDmg: 5, hpregen: 4, mpregen: 3 }; for (const k in it.affixes) s += it.affixes[k] * (W[k] || 2); if (it.effect) s += 40; if (it.set) s += 15; return Math.round(s * upFactor(it)); }
 const upgradeCost = it => Math.round(itemScore(it) * (1 + ((it.upgrade) || 0)) * 0.5) + 15;
 const enchantAffixes = it => Object.keys(it.affixes || {}).filter(k => AFFIXES[k]);
 const enchantCost = it => Math.round(itemScore(it) * 0.35) + 25;
+/** @param {Item} it @returns {number} */
 function sellValue(it) { return Math.max(2, Math.round(itemScore(it) * 0.5)); }
+/** @param {Item} it @returns {number} */
 function buyPrice(it) { return Math.round(sellValue(it) * 3) + 8; }
+/** @param {LootFilter|null} lf @param {Item} it @returns {boolean} */
 function lootPasses(lf, it) { if (!lf) return true; if (lf.rarity && lf.rarity[it.rarity] === false) return false; if (lf.slot && lf.slot[it.slot] === false) return false; if ((it.ilvl || 0) < (lf.minIlvl || 0) && it.rarity !== 'set' && it.rarity !== 'unique') return false; return true; }
 const POTION_PRICE = 25, MANA_POTION_PRICE = 20;
 
@@ -1282,7 +1290,9 @@ function buildDungeon(depth) {
       const wp = PROP_PROTO['wall'], ws = WALL_H / wp.base, segW = wp.size.x * ws;
       const wallMat = tintPropMat(wp.mat, th.pillar);
       const n = Math.max(4, Math.round((2 * HW) / segW)), step = (2 * HW) / n, doorI = Math.floor(n / 2);
-      const wtf = [], dtf = [];
+      const wtf = [];
+      /** @type {Array<{x:number,z:number,ry:number,s?:number}>} */
+      const dtf = [];
       for (let i = 0; i < n; i++) {
         const t = -HW + (i + 0.5) * step;
         if (i === doorI) { dtf.push({ x: t, z: -WL, ry: 0 }, { x: t, z: WL, ry: Math.PI }); }
@@ -1431,7 +1441,10 @@ function _concatPropGeos(geos) { /* like _concatGeos but position/normal/uv only
 function _extractProp(root, name) { /* named node -> prop-local geometry re-based to y=0, ready for InstancedMesh */
   const node = root.getObjectByName(name); if (!node) { console.warn('prop miss: ' + name); return null; }
   const c = node.clone(true); c.position.set(0, 0, 0); c.rotation.set(0, 0, 0); c.scale.set(1, 1, 1); c.updateMatrixWorld(true);
-  const geos = []; let mat = null;
+  /** @type {any[]} */
+  const geos = [];
+  /** @type {any} */
+  let mat = null;
   c.traverse(o => { if (o.isMesh && o.geometry && o.geometry.attributes.position && o.geometry.attributes.uv) { const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone(); g.applyMatrix4(o.matrixWorld); if (!g.attributes.normal) g.computeVertexNormals(); geos.push(g); if (!mat) mat = o.material; } });
   if (!geos.length || !mat) { console.warn('prop empty: ' + name); return null; }
   const geo = geos.length === 1 ? geos[0] : _concatPropGeos(geos);
@@ -1580,7 +1593,7 @@ function recompute() {
   player.hp = Math.min(player.hp, player.hpMax); player.mp = Math.min(player.mp, player.mpMax); updateGlobes(); updatePips();
 }
 
-let activeSkill = 0, visibleActives = []; let monsters = [], projectiles = [], loots = [], floats = [], fx = []; let target = null, moveTo = null; let boss = null, bossActive = false;
+let activeSkill = 0, visibleActives = []; let monsters = [], projectiles = [], loots = [], floats = [], fx = []; let target = null, moveTarget = null; let boss = null, bossActive = false;
 /* Phase 1: in-place list compaction — replaces the per-frame Array.filter() that allocated a fresh array
    AND a fresh closure every frame for projectiles/fx/loots/floats. Predicate/killer are module-level
    singletons (no per-frame closure alloc); arr.length=w truncates in place (no realloc). Order-preserving. */
@@ -1834,7 +1847,7 @@ renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
 renderer.domElement.addEventListener('mousedown', e => {
   if (!running || anyPanel() || anyModal()) return; e.preventDefault(); const m = pick(e);
   if (e.button === 2) { rmbDown = true; if (isCombat()) castActive(visibleActives[activeSkill], { x: mouseWorld.x, z: mouseWorld.z }); return; }
-  if (e.button === 0) { lmbDown = true; if (m && isCombat()) { target = m; moveTo = null; } else { moveTo = { x: mouseWorld.x, z: mouseWorld.z }; target = null; } }
+  if (e.button === 0) { lmbDown = true; if (m && isCombat()) { target = m; moveTarget = null; } else { moveTarget = { x: mouseWorld.x, z: mouseWorld.z }; target = null; } }
 });
 renderer.domElement.addEventListener('mousemove', e => { if (running && !anyPanel() && !anyModal()) pick(e); });
 addEventListener('mouseup', e => { if (e.button === 2) rmbDown = false; else if (e.button === 0) lmbDown = false; });
@@ -2043,7 +2056,7 @@ function gainXP(n) {
   while (player.xp >= player.xpNext) {
     player.xp -= player.xpNext; player.level++; character.level = player.level; player.xpNext = Math.round(player.xpNext * 1.45);
     const gr = (CLASSES[character.class] || CLASSES.warrior).grow; character.base.hpMax += gr.hp; character.base.mpMax += gr.mp; character.base.dmg += gr.dmg; character.skillPoints += 2;
-    recompute(); syncActives(); renderSkillbar(); player.hp = player.hpMax; player.mp = player.mpMax; lvlNum.textContent = player.level; showMsg('Level Up!  Lv ' + player.level); sfx('level'); leveled = true;
+    recompute(); syncActives(); renderSkillbar(); player.hp = player.hpMax; player.mp = player.mpMax; lvlNum.textContent = String(player.level); showMsg('Level Up!  Lv ' + player.level); sfx('level'); leveled = true;
   }
   if (leveled) saveProgress(true);
   updateGlobes(); updatePips();
@@ -2070,7 +2083,7 @@ function resolveCircles(e, r, arr, iters) { for (let it = 0; it < iters; it++) {
 /* ================= ZONES ================= */
 let zone = 'town', depth = 0;
 function isCombat() { return zone === 'wild' || zone === 'dungeon'; }
-function clearField() { for (const d of _dying) removeMesh(d.g); _dying.length = 0; for (const m of monsters) removeMob(m.mesh); for (const p of projectiles) removeMesh(p.mesh); for (const l of loots) removeMesh(l.mesh); for (const e of fx) removeMesh(e.mesh); monsters = []; projectiles = []; loots = []; fx = []; _spawnQueue.length = 0; _spawnCd = 0; target = null; moveTo = null; boss = null; bossActive = false; _resetHudCache(); }
+function clearField() { for (const d of _dying) removeMesh(d.g); _dying.length = 0; for (const m of monsters) removeMob(m.mesh); for (const p of projectiles) removeMesh(p.mesh); for (const l of loots) removeMesh(l.mesh); for (const e of fx) removeMesh(e.mesh); monsters = []; projectiles = []; loots = []; fx = []; _spawnQueue.length = 0; _spawnCd = 0; target = null; moveTarget = null; boss = null; bossActive = false; _resetHudCache(); }
 function setZoneVisuals() {
   wildGroup.visible = zone === 'wild'; townGroup.visible = zone === 'town'; dungeonGroup.visible = zone === 'dungeon'; dungeonExtraGroup.visible = zone === 'dungeon'; if (typeof markGlows === 'function') markGlows();
   playerGlow.intensity = PLAYER_GLOW[zone] || 0; /* Diablo-style player aura — on in dungeons, off in lit town/open wild */
@@ -2190,10 +2203,12 @@ function enterDungeon(d) {
 }
 
 /* ---------- interaction ---------- */
+/** @returns {Interactable[]} */
 function interactables() {
   if (zone === 'town') return [...npcs.filter(n => !n.towns || (curTownArea && n.towns.includes(curTownArea.id))).map(n => ({ kind: n.kind, x: n.x, z: n.z })), { kind: 'wild', x: t_wildPortal.x, z: t_wildPortal.z }, { kind: 'waypoint', x: t_waypoint.x, z: t_waypoint.z }, { kind: 'cauldron', x: t_cauldron.x, z: t_cauldron.z }];
   if (zone === 'wild') {
     const r = curRegion || REGIONS[0];
+    /** @type {Interactable[]} */
     const arr = [{ kind: 'towngate', x: wpTown.x, z: wpTown.z, area: r.town }, { kind: 'cave', x: wpCave.x, z: wpCave.z }, { kind: 'waypoint', x: w_waypoint.x, z: w_waypoint.z }];
     if (r.next) arr.push({ kind: 'wildnext', x: wpNext.x, z: wpNext.z, to: r.next });
     if (r.prev) arr.push({ kind: 'wildprev', x: wpPrev.x, z: wpPrev.z, to: r.prev });
@@ -2233,8 +2248,8 @@ function update(dt) {
   if (running && !anyPanel()) {
     if (rmbDown && isCombat() && !player.stunned) { const hid = visibleActives[activeSkill], hd = SKILLDEFS[hid]; if (hd && hd.kind !== 'melee' && player.mp >= hd.cost) castActive(hid, { x: mouseWorld.x, z: mouseWorld.z }); }
     if (lmbDown) {
-      const hm = isCombat() ? monsterAt() : null; if (hm) { target = hm; moveTo = null; }
-      else if (Math.hypot(mouseWorld.x - player.x, mouseWorld.z - player.z) > 1.0) { moveTo = { x: mouseWorld.x, z: mouseWorld.z }; target = null; } else { target = null; }
+      const hm = isCombat() ? monsterAt() : null; if (hm) { target = hm; moveTarget = null; }
+      else if (Math.hypot(mouseWorld.x - player.x, mouseWorld.z - player.z) > 1.0) { moveTarget = { x: mouseWorld.x, z: mouseWorld.z }; target = null; } else { target = null; }
     }
   }
   if (isCombat()) {
@@ -2243,8 +2258,8 @@ function update(dt) {
       const d = Math.hypot(target.x - player.x, target.z - player.z); const reach = player.range + (target.r || 0); if (d > reach) moveToward(target.x, target.z, dt);
       else { player.dir = Math.atan2(target.x - player.x, target.z - player.z); if (T - player.attackCd > player.attackRate) { player.attackCd = T; player.swing = T; hitMonster(target, player); } }
     }
-    else if (moveTo) { moveToward(moveTo.x, moveTo.z, dt); if (Math.hypot(moveTo.x - player.x, moveTo.z - player.z) < 0.5) moveTo = null; }
-  } else { if (moveTo) { moveToward(moveTo.x, moveTo.z, dt); if (Math.hypot(moveTo.x - player.x, moveTo.z - player.z) < 0.5) moveTo = null; } }
+    else if (moveTarget) { moveToward(moveTarget.x, moveTarget.z, dt); if (Math.hypot(moveTarget.x - player.x, moveTarget.z - player.z) < 0.5) moveTarget = null; }
+  } else { if (moveTarget) { moveToward(moveTarget.x, moveTarget.z, dt); if (Math.hypot(moveTarget.x - player.x, moveTarget.z - player.z) < 0.5) moveTarget = null; } }
   player.mp = Math.min(player.mpMax, player.mp + dt * player.mpRegen);
   if (player.hpRegen > 0 && player.hp > 0 && player.hp < player.hpMax) player.hp = Math.min(player.hpMax, player.hp + dt * player.hpRegen);
   if (running) tickStatuses(player, dt, true);
@@ -2708,11 +2723,11 @@ if (_perftest) {
   };
   /* ---- walking harness: standing-still doesn't trigger the freeze, so auto-patrol a diamond loop and
      measure standing vs lap1 vs lap2. lap2-clean ⇒ one-time cached first-render compile; lap2≈lap1 ⇒ a
-     recurring per-walk cost (cull/GC/draw-call/CPU). Drives moveTo directly (module-scoped click target). ---- */
+     recurring per-walk cost (cull/GC/draw-call/CPU). Drives moveTarget directly (module-scoped click target). ---- */
   let _gpuMax = 0;
   const _visLights = () => { let n = 0; scene.traverse(o => { if (o.isLight && o.visible) n++; }); return n; };
   const _walkTo = async (x, z, maxMs) => {
-    moveTo = { x, z }; const t0 = performance.now();
+    moveTarget = { x, z }; const t0 = performance.now();
     while (performance.now() - t0 < (maxMs || 6000)) { await _raf(); if (_gpuMs > _gpuMax) _gpuMax = _gpuMs; if (Math.hypot(player.x - x, player.z - z) < 1.4) break; }
   };
   const _wp = r => [[0, 0], [r, 0], [0, r], [-r, 0], [0, -r], [r * 0.7, r * 0.7], [-r * 0.7, -r * 0.7], [0, 0]];
@@ -2725,10 +2740,10 @@ if (_perftest) {
     for (let lap = 1; lap <= 2; lap++) {
       const x0 = player.x, z0 = player.z; _ftReset(); _gpuMax = 0;
       for (const [x, z] of path) await _walkTo(x, z, 6000);
-      if (lap === 1 && Math.hypot(player.x - x0, player.z - z0) < 0.5) console.warn('[perfWalk] player barely moved — harness may be broken (check moveTo wiring)');
+      if (lap === 1 && Math.hypot(player.x - x0, player.z - z0) < 0.5) console.warn('[perfWalk] player barely moved — harness may be broken (check moveTarget wiring)');
       out['lap' + lap] = _metrics('lap' + lap);
     }
-    moveTo = null; return out;
+    moveTarget = null; return out;
   };
   window.perfWalkAll = async () => {
     if (typeof running === 'undefined' || !running) { console.warn('[perfWalk] load a character first.'); return; }
@@ -2752,7 +2767,7 @@ function setHud(on) { document.getElementById('hud').style.display = on ? 'block
 function enterGame() {
   stopMenu(); Object.assign(player, { level: character.level, xp: character.xp, xpNext: character.xpNext, gold: character.gold, kills: character.kills, potions: character.hpPotions, hpPotions: character.hpPotions, mpPotions: character.mpPotions, attackCd: 0, bob: 0 });
   recompute(); syncActives(); player.hp = player.hpMax; player.mp = player.mpMax;
-  charName.textContent = character.name; lvlNum.textContent = player.level; killsTxt.textContent = 'Slain: ' + player.kills; goldTxt.textContent = player.gold + ' g';
+  charName.textContent = character.name; lvlNum.textContent = String(player.level); killsTxt.textContent = 'Slain: ' + player.kills; goldTxt.textContent = player.gold + ' g';
   hero.userData.cloak.material.color.setHex((CLASSES[character.class] || CLASSES.warrior).col);
   swapHeroToGLB(); /* re-pick hero mesh by class — roster loaded on the title screen before a class was chosen, so the per-class swap must fire again here */
   show(null); setHud(true); renderSkillbar(); const _si = character.activeSkillId ? visibleActives.indexOf(character.activeSkillId) : -1; activeSkill = _si >= 0 ? _si : 0; renderSkillbar(); updateGlobes(); updatePips(); saveTimer = 8000; enterTown(); applyGraphics(); running = true; last = now(); loop();
