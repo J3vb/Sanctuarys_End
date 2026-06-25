@@ -432,6 +432,12 @@
 <!-- three.js r184 loaded as ES modules via import map (Phase 1b: WebGPURenderer + TSL post-FX). -->
 <!-- Launch over http://localhost (a local static server) - module scripts cannot load over file://; WebGPU also needs a secure context (localhost qualifies, LAN http://192.168.x.x does not -> WebGL2 fallback). -->
 <!-- R5: bare "three" is remapped to the three.webgpu.js build (matching the official webgpu_postprocessing_bloom example) so GLTFLoader/SkeletonUtils/PMREMGenerator bind to the SAME module graph as the renderer/scene. -->
+<!-- Integrity: the two core builds are pinned to a Subresource-Integrity hash via the import-map "integrity"
+     key (HTML spec; honored by Chromium 127+, the WebGPU audience — silently ignored by older/other browsers,
+     so it never breaks loading). The exact version (three@0.184.0) is already immutable on npm/unpkg; the hash
+     adds tamper/corruption protection on top. (Addons under three/addons/ are a path prefix and can't be hashed
+     per-file here; for full offline/availability resilience the next step would be to self-host the build.)
+     To regenerate after a version bump: openssl dgst -sha384 -binary <file> | openssl base64 -A -->
 <script type="importmap">
 {
   "imports": {
@@ -439,6 +445,10 @@
     "three/webgpu": "https://unpkg.com/three@0.184.0/build/three.webgpu.js",
     "three/tsl": "https://unpkg.com/three@0.184.0/build/three.tsl.js",
     "three/addons/": "https://unpkg.com/three@0.184.0/examples/jsm/"
+  },
+  "integrity": {
+    "https://unpkg.com/three@0.184.0/build/three.webgpu.js": "sha384-vatRh9vQy/B/ECoJSF7P/Jg9rF6KVuG/ovU+3Wp/BUaCcpR0DM+a4zCEbQ8Y/RFK",
+    "https://unpkg.com/three@0.184.0/build/three.tsl.js": "sha384-dqftyqccaI6qYFdGtJtugSSe4YKncDgGHttpZJr+lR/vSq18VR5ubqlzEHdGLdJ1"
   }
 }
 </script>

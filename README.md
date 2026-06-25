@@ -57,6 +57,20 @@ The full game codex lives in `sanctuary_wiki.html` — open it in your browser f
 
 See also [CHANGELOG.md](CHANGELOG.md) for the release history.
 
+## Development
+
+The game ships as plain static files — there's **no build step**, and nothing below changes how it's
+served on GitHub Pages. The tooling is purely a dev safety net (it runs in your editor and in CI):
+
+```
+npm install      # one-time: installs the dev tools (TypeScript + Biome); not shipped to players
+npm run check    # type-check + lint + format-check + tests — the same gate CI runs on every PR
+```
+
+Individual steps: `npm run typecheck` (TypeScript checks `game.js` via JSDoc + `jsconfig.json`, no
+emit), `npm run lint` / `npm run format` (Biome), and `npm test` (Node's test runner — save/migration
+regression tests in `tests/`). Type definitions live in `types/` — see [types/README.md](types/README.md).
+
 ## License & credits
 
 Game code is MIT-licensed — see [LICENSE](LICENSE). Bundled third-party models and libraries keep their own licenses; attribution and terms are in [CREDITS.md](CREDITS.md).

@@ -2174,6 +2174,7 @@ function warmScene(label) {
     } catch (err) { console.warn('warmScene warm failed:', err && err.message); }
     finally {
       for (const o of _warmMobs) { if (o.userData && o.userData.glb) removeMob(o); else removeMesh(o); } /* drop temp instances (noDispose → shared geo/mat survive) */
+      // biome-ignore lint/correctness/noUnsafeFinally: the try/catch above already absorbs all throws, so this return only skips the cleanup tail when a newer warm-up superseded this token — no exception is masked.
       if (tok !== _warmToken) return;
       _warming = false; if (el) el.style.display = 'none'; last = now(); placeCamera(player);
     }

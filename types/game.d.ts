@@ -9,19 +9,46 @@
 // keep them in sync when those shapes change.
 
 // --- enumerations (mirror the const literals / key sets in game.js) ----------------------------------
-type Slot = "weapon" | "helm" | "armor" | "gloves" | "boots" | "ring" | "amulet";
-type Rarity = "common" | "magic" | "rare" | "set" | "unique";
-type ClassId = "warrior" | "mage" | "rogue";
-type Difficulty = "Normal" | "Hard" | "Hell" | "Inferno";
+type Slot = 'weapon' | 'helm' | 'armor' | 'gloves' | 'boots' | 'ring' | 'amulet';
+type Rarity = 'common' | 'magic' | 'rare' | 'set' | 'unique';
+type ClassId = 'warrior' | 'mage' | 'rogue';
+type Difficulty = 'Normal' | 'Hard' | 'Hell' | 'Inferno';
 
 /** Keys of the AFFIXES table (game.js). */
 type AffixKey =
-  | "dmg" | "hp" | "mp" | "armor" | "str" | "dex" | "vit" | "eng"
-  | "crit" | "ias" | "ms" | "leech" | "allstats" | "thorns"
-  | "fireRes" | "coldRes" | "poisonRes" | "lightRes" | "allRes"
-  | "critDmg" | "manaLeech" | "leechAll" | "burnOnHit" | "bleedOnHit"
-  | "skillranks" | "skilldmg" | "activeskill"
-  | "fireDmg" | "coldDmg" | "lightDmg" | "poisonDmg" | "hpregen" | "mpregen";
+  | 'dmg'
+  | 'hp'
+  | 'mp'
+  | 'armor'
+  | 'str'
+  | 'dex'
+  | 'vit'
+  | 'eng'
+  | 'crit'
+  | 'ias'
+  | 'ms'
+  | 'leech'
+  | 'allstats'
+  | 'thorns'
+  | 'fireRes'
+  | 'coldRes'
+  | 'poisonRes'
+  | 'lightRes'
+  | 'allRes'
+  | 'critDmg'
+  | 'manaLeech'
+  | 'leechAll'
+  | 'burnOnHit'
+  | 'bleedOnHit'
+  | 'skillranks'
+  | 'skilldmg'
+  | 'activeskill'
+  | 'fireDmg'
+  | 'coldDmg'
+  | 'lightDmg'
+  | 'poisonDmg'
+  | 'hpregen'
+  | 'mpregen';
 
 /** Rolled affixes on an item: a subset of affix keys mapped to magnitudes. */
 type Affixes = Partial<Record<AffixKey, number>>;
@@ -87,7 +114,7 @@ interface LootFilter {
 interface SkillDef {
   name: string;
   ico: string;
-  type: "active" | "passive";
+  type: 'active' | 'passive';
   maxRank: number;
   req: number;
   granted: boolean;
