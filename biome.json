@@ -1,0 +1,39 @@
+{
+  "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
+  "files": {
+    "ignore": ["node_modules", "assets", "Archive", "Docs", "graphify-out", "workspace", "Ultimate Monsters"]
+  },
+  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 2, "lineWidth": 120 },
+  "javascript": { "formatter": { "quoteStyle": "single" } },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "style": {
+        "useSingleVarDeclarator": "off",
+        "useTemplate": "off",
+        "noParameterAssign": "off",
+        "useNumberNamespace": "off",
+        "useExponentiationOperator": "off",
+        "useConst": "off",
+        "noUnusedTemplateLiteral": "off"
+      },
+      "complexity": {
+        "useOptionalChain": "off",
+        "noForEach": "off",
+        "useLiteralKeys": "off"
+      },
+      "suspicious": {
+        "noAssignInExpressions": "off",
+        "noExplicitAny": "off"
+      }
+    }
+  },
+  "overrides": [
+    {
+      "include": ["game.js", "Server/**", "*.html"],
+      "formatter": { "enabled": false }
+    }
+  ]
+}
