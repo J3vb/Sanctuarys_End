@@ -1,0 +1,31 @@
+name: CI
+
+# Runs the dev-quality gate on every pull request, and on direct pushes to the
+# main branches. This does NOT build or deploy anything — the game ships as plain
+# static files (sanctuary.html + game.js) served by GitHub Pages, unchanged.
+on:
+  pull_request:
+  push:
+    branches: [master, dev]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: typecheck · lint · format · test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dev tooling
+        run: npm ci
+
+      # tsc --noEmit (type-check game.js) + biome lint + biome format check + node:test save tests.
+      - name: Run checks
+        run: npm run check

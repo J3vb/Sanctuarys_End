@@ -92,7 +92,7 @@
 <nav class="side">
   <div class="brand">
     <div class="t">Sanctuary's End</div>
-    <div class="s">Field Codex · v48</div>
+    <div class="s">Field Codex · v49</div>
   </div>
   <div class="search"><input id="q" type="text" placeholder="Search the wiki…" autocomplete="off"></div>
 
@@ -123,6 +123,7 @@
   <a href="#difficulty">Difficulty &amp; Scaling</a>
   <a href="#monsters">Monsters</a>
   <a href="#elites">Elites &amp; Champions</a>
+  <a href="#events">Dungeon Floor Events</a>
   <a href="#bosses">Bosses</a>
   <a href="#save">Saves</a>
 
@@ -142,12 +143,13 @@
     <div class="grid g3">
       <div class="card"><h4>Goal</h4><p>Descend The Descent as deep as you can. Each 5th floor is a boss.
       There is no fixed ending — depth scales forever.</p></div>
-      <div class="card"><h4>Loop</h4><p>Fight → loot → return to town → sell/upgrade at the Smith &amp;
-      Merchant → spend skill points in the Forest → dive deeper.</p></div>
+      <div class="card"><h4>Loop</h4><p>Fight → loot → return to town → sell, upgrade, reforge &amp; socket gear
+      → spend skill &amp; ability points → dive deeper.</p></div>
       <div class="card"><h4>Classes</h4><p>Warrior, Mage, Rogue. Each has unique base stats, growth,
-      damage multipliers, and an auto-unlocking set of active skills.</p></div>
+      damage multipliers, and its own roster of unlockable active skills.</p></div>
     </div>
-    <div class="note">This wiki documents game version <strong>v48</strong>. All numbers are taken directly
+    <div class="note">This wiki documents game version <strong>v49</strong> (now a modular
+    <code>sanctuary.html</code> + <code>game.js</code> build). All numbers are taken directly
     from the game's data tables and combat formulas. Where the engine clamps or caps a value, the cap is
     noted. See the <a href="#changelog">Version History</a> for what changed in each release.</div>
   </section>
@@ -161,13 +163,15 @@
       <tbody>
         <tr><td><b>Left click</b></td><td>Move to point. Click a monster to attack it (auto-walks into range).</td></tr>
         <tr><td><b>Hold left</b></td><td>Continuous move / attack toward the cursor.</td></tr>
-        <tr><td><b>Right click</b></td><td>Cast the currently selected active skill at the cursor.</td></tr>
-        <tr><td><b>Hold right</b></td><td>Keep casting the selected skill (if it isn't a melee attack and you have mana).</td></tr>
+        <tr><td><b>Right click</b></td><td>Cast the ability in your <b>RMB</b> action-bar slot at the cursor.</td></tr>
+        <tr><td><b>Hold right</b></td><td>Keep casting the RMB ability (if it isn't a melee attack and you have mana).</td></tr>
         <tr><td><b>Mouse wheel</b></td><td>Zoom camera in/out (28–72 range). Disabled while a panel or modal is open.</td></tr>
       </tbody>
     </table>
     <h3>Default keys</h3>
-    <p class="muted">All of these are rebindable in Settings → Controls. Number keys <span class="kbd">1</span>–<span class="kbd">0</span> are reserved for selecting skill slots 1–10.</p>
+    <p class="muted">All of these are rebindable in Settings → Controls. Keys <span class="kbd">1</span>–<span class="kbd">4</span>
+    now <b>cast</b> the four keyed slots of your action bar. Binds use the <em>physical key code</em>, so the layout is
+    AZERTY/QWERTZ-safe; older saves are migrated forward automatically.</p>
     <table>
       <thead><tr><th>Key</th><th>Action</th></tr></thead>
       <tbody>
@@ -181,7 +185,7 @@
         <tr><td><span class="kbd">M</span></td><td>Toggle Sound</td></tr>
         <tr><td><span class="kbd">H</span> / <span class="kbd">?</span></td><td>Help</td></tr>
         <tr><td><span class="kbd">`</span> / <span class="kbd">~</span></td><td>Debug overlay (FPS, draws, entity counts)</td></tr>
-        <tr><td><span class="kbd">1</span>–<span class="kbd">9</span>, <span class="kbd">0</span></td><td>Select skill slot 1–10</td></tr>
+        <tr><td><span class="kbd">1</span>–<span class="kbd">4</span></td><td>Cast action-bar ability slots 1–4 (left/right click fire the LMB &amp; RMB slots)</td></tr>
         <tr><td><span class="kbd">Esc</span></td><td>Close / cancel the open panel or modal</td></tr>
       </tbody>
     </table>
@@ -209,12 +213,14 @@
     </table>
     <p class="muted">All characters start at Level 1 with base <code>HP 100 / MP 50 / DMG 10</code>,
     4 health potions, 2 mana potions, and 0 gold.</p>
-    <h3>Granted starting skills</h3>
+    <h3>Free starting kit (level 1)</h3>
+    <p class="muted">Every class owns <b>Strike</b> plus its level-1 ability for free. Every other active is
+    <b>unlocked by spending an ability point</b> once you reach its class level — see <a href="#skills">Active Skills</a>.</p>
     <table>
-      <thead><tr><th>Class</th><th>Starts with</th></tr></thead>
+      <thead><tr><th>Class</th><th>Owns at level 1</th></tr></thead>
       <tbody>
         <tr><td>Warrior</td><td>Strike, <b>Cleave</b></td></tr>
-        <tr><td>Mage</td><td>Strike, <b>Fireball</b>, <b>Frost</b></td></tr>
+        <tr><td>Mage</td><td>Strike, <b>Fireball</b></td></tr>
         <tr><td>Rogue</td><td>Strike, <b>Multishot</b></td></tr>
       </tbody>
     </table>
@@ -223,9 +229,10 @@
   <!-- ============ STATS ============ -->
   <section id="stats">
     <h2>Stats &amp; Attributes</h2>
-    <div class="note">There is <strong>no manual attribute point allocation</strong> in v46. Attributes come
-    from your class base, the bonuses you path through in the Skill Forest, and item affixes. You spend
-    <strong>skill points</strong> (2 per level) only in the Forest.</div>
+    <div class="note">There is <strong>no manual attribute point allocation</strong>. Attributes come
+    from your class base, the bonuses you path through in the Skill Forest, and item affixes. Each level grants
+    <strong>two separate point pools</strong>: <b>2 skill points</b> for the passive <a href="#forest">Skill Forest</a>,
+    and <b>1 ability point</b> for unlocking actives and allocating their <a href="#skills">rune trees</a>.</div>
     <h3>The four attributes</h3>
     <table>
       <thead><tr><th>Attribute</th><th>Per point</th><th>Notes</th></tr></thead>
@@ -284,11 +291,17 @@ spellMult = classSpell(×1.30 Mage)  × (1 + 0.06·ArcaneMind + (%Spell + %Damag
       </tbody>
     </table>
     <h3>Taking damage (mitigation)</h3>
-    <p>Incoming damage is reduced by Armor, then by elemental Resists, then by buffs/shields:</p>
-    <div class="formula">Armor reduction = armor / (armor + 40)        (hard-capped at 75%)
-Resist reduction = min(resist%, 75)          (per element; All-Resist applies to everything)
-War Cry  → further × (1 − cryDR)             while active
-Mana Shield → absorbs a share of the hit using Mana before Life</div>
+    <p>Incoming damage runs a fixed gauntlet — a <b>Dodge</b> roll can avoid it outright, then Armor, flat
+    Damage Reduction, elemental Resists, War Cry and a Mana Shield each chip away at what's left:</p>
+    <div class="formula">1. Dodge          → min(Dodge%, 60) chance to take 0 damage      [v49]
+2. Armor          → ×(1 − min(armor/(armor+40), 75%))
+3. Damage Reduct. → ×(1 − min(flatDR%, 50))                     [v49]
+4. Resist         → ×(1 − min(elementRes% + AllRes%, 75))       (per element)
+5. War Cry        → ×(1 − cryDR)                                while active
+6. Mana Shield    → absorbs a share of the remainder using Mana before Life</div>
+    <p class="muted"><span class="pill">v49</span> Resists are applied as <b>element-specific + All-Resist</b>,
+    hard-capped at 75% — the same cap covers both direct hits and damage-over-time (Bleed is physical and
+    therefore <b>unresisted</b>).</p>
     <table>
       <thead><tr><th>Armor</th><th>Reduction</th></tr></thead>
       <tbody>
@@ -302,10 +315,12 @@ Mana Shield → absorbs a share of the hit using Mana before Life</div>
     <div class="formula">attack interval (ms) = clamp((420 − DEX×1.2) × (1−Haste) × (1−IAS%/100), 150, 420)
 attacks/sec shown   = 1000 / interval        → between 2.38/s and 6.67/s
 move speed          = 0.32 × (1 + min(moveBonus, 75%))</div>
-    <h3>Leech &amp; Thorns</h3>
+    <h3>Leech, Life on Hit &amp; Thorns</h3>
     <ul class="clean">
       <li><b>Life Leech</b> — heals you for a % of damage you deal.</li>
       <li><b>Mana Leech</b> — restores mana for a % of damage you deal.</li>
+      <li><b>Life on Hit</b> <span class="pill">v49</span> — restores a <em>flat</em> amount of Life every time you
+        land a hit, regardless of the damage dealt (great for fast, many-hit skills).</li>
       <li><b>Thorns</b> — reflects a flat amount back to melee attackers when they hit you.</li>
     </ul>
   </section>
@@ -337,13 +352,15 @@ move speed          = 0.32 × (1 + min(moveBonus, 75%))</div>
   <!-- ============ SKILLS ============ -->
   <section id="skills">
     <h2>Active Skills</h2>
-    <p>Active skills are <strong>unlocked automatically</strong> when you reach the listed level for your
-    class — there is no manual skill-point spend on actives. They start (and normally stay) at rank&nbsp;1;
-    a skill's effective rank only rises through <code>+to All Skills</code> bonuses, which boost the damage
-    and effect of every skill at once.</p>
-    <p class="muted"><span class="pill">v47</span> Hovering a skill on the action bar now shows a <b>tooltip</b>
-    with its current damage, mana cost, cooldown and effect — computed live from a single shared coefficient
-    table, so the numbers always match what the skill actually deals.</p>
+    <p><span class="pill">v49</span> Actives now run off a <b>6-slot action bar</b> and are <b>unlocked by
+    spending ability points</b> — you earn <b>1 ability point per level</b> (from level 2). Reach an ability's
+    class level, spend a point, and it's yours; that same pool also buys nodes in each skill's
+    <a href="#runes">rune tree</a>. Strike and each class's level-1 ability are free.</p>
+    <p>Most skills rank up to <b>5</b>. A skill's effective rank rises with its <b>Empower</b> rune node and
+    with <code>+to All Skills</code> bonuses — both boost the damage and effect of the skill.</p>
+    <p class="muted"><span class="pill">v47</span> Hovering a slot shows a live <b>tooltip</b> — current damage,
+    mana cost, cooldown, on-hit effect and any allocated runes — computed from the same coefficient table the
+    skill actually fires with, so the numbers never drift.</p>
 
     <h3>Unlock levels by class</h3>
     <table>
@@ -384,16 +401,60 @@ move speed          = 0.32 × (1 + min(moveBonus, 75%))</div>
         <tr><td><b>Second Wind</b></td><td>Heal</td><td class="num">0</td><td class="num">6.0s</td><td>—</td><td>Spend <b>all</b> mana to heal for a share of it.</td></tr>
       </tbody>
     </table>
+    <h3 id="bar">The action bar &amp; loadout <span class="pill">v49</span></h3>
+    <p>Six slots, assigned from the <b>Abilities</b> tab of the Skills panel (<span class="kbd">K</span>):</p>
+    <table>
+      <thead><tr><th>Slot</th><th>Fires on</th><th>Holds</th></tr></thead>
+      <tbody>
+        <tr><td><b>1</b></td><td><span class="kbd">LMB</span></td><td><b>Strike</b> — your basic attack. Locked; can't be reassigned.</td></tr>
+        <tr><td><b>2</b></td><td><span class="kbd">RMB</span></td><td>Any unlocked ability. This is also your "selected skill" — it receives the <b>Active Skill Damage</b> affix bonus, and hold-RMB repeats it.</td></tr>
+        <tr><td><b>3–6</b></td><td><span class="kbd">1</span>–<span class="kbd">4</span></td><td>Any unlocked abilities.</td></tr>
+      </tbody>
+    </table>
+    <p class="muted">Each slot shows its key, icon, mana cost, current rank (<code>R#</code>) and a sweeping
+    cooldown wipe. The <b>XP bar and level badge</b> now live inside the action bar itself.</p>
+
+    <h3 id="runes">Rune trees <span class="pill">v49</span></h3>
+    <p>Every active except Strike has its own small <b>rune tree</b> (21 trees in all). You spend the same
+    <b>ability points</b> here as on unlocks, and a tree is <b>refundable in full at any time, for free</b>.
+    All trees share one shape, growing from an <b>Empower</b> root:</p>
+    <table>
+      <thead><tr><th>Node</th><th>Type</th><th class="num">Max</th><th class="num">Cost</th><th>Effect</th></tr></thead>
+      <tbody>
+        <tr><td><b>Empower</b></td><td>minor · root</td><td class="num">5</td><td class="num">1</td><td>+7% skill damage per rank.</td></tr>
+        <tr><td><b>Quicken</b></td><td>minor</td><td class="num">3</td><td class="num">1</td><td>−5% cooldown per rank.</td></tr>
+        <tr><td><b>Focus</b></td><td>minor</td><td class="num">3</td><td class="num">1</td><td>−8% mana cost per rank.</td></tr>
+        <tr><td><b>Extra Bolt / Arc Splitter</b></td><td>minor</td><td class="num">2</td><td class="num">2</td><td>+1 projectile / +1 chain jump (multi-projectile &amp; chain skills only).</td></tr>
+        <tr><td><b>Shape ×3</b></td><td>notable · pick 1</td><td class="num">1</td><td class="num">2</td><td>Three mutually-exclusive behaviours (below).</td></tr>
+        <tr><td><b>Keystone</b></td><td>keystone</td><td class="num">1</td><td class="num">3</td><td>One big finisher — Seeker (homing, +15% dmg), Mastery (−20% cd, +20% dmg) or Devastate (+40% dmg).</td></tr>
+      </tbody>
+    </table>
+    <p>Node level-gates and the shape options depend on the skill's <b>archetype</b> (projectile, multi-projectile,
+    chain, area or utility). The exclusive shape notables let a skill fork, pierce, explode on impact, chill,
+    knock back, echo (cast a second time), linger, and more. Examples:</p>
+    <ul class="clean">
+      <li><b>Fireball</b> (projectile): Volatile (explode on impact), Splinter (fork in two) or Impale (pierce
+        everything) at Lv 3; keystone <b>Seeker</b> (homing, +15% dmg) at Lv 5.</li>
+      <li><b>Chain Lightning</b> (chain): Arc Splitter (+1 jump) at Lv 8; Wide Arc, Echo Strike (cast twice) or
+        Overload (+25% dmg) at Lv 10; keystone <b>Devastate</b> (+40% dmg) at Lv 12.</li>
+      <li><b>Whirlwind</b> (area): Wide Reach, Echo Strike or Overpower (+25% dmg) at Lv 7; keystone
+        <b>Devastate</b> (+40% dmg) at Lv 9.</li>
+    </ul>
+    <p class="muted">Allocation mirrors the Forest: you must already own an adjacent node (every path roots at
+    Empower), meet the node's level requirement, and only one node of an exclusive group can be taken. These
+    rune level-gates are separate from the ability's class unlock level.</p>
+
     <div class="note">Skills tagged with an element interact with monster resistances (see <a href="#monsters">Monsters</a>).
-    The <b>Spell Echo</b> keystone re-casts spell-type skills a second time automatically.</div>
+    The <b>Spell Echo</b> keystone (Forest) and the <b>Echo Strike</b> rune both re-cast their skill a second time.</div>
   </section>
 
   <!-- ============ FOREST ============ -->
   <section id="forest">
     <h2>Skill Forest (Passives)</h2>
-    <p>Press <span class="kbd">K</span> to open the Forest — a connected web of passive nodes. You start on
-    your class's start node and spend <b>2 points per level</b>, allocating any node adjacent to one you
-    already own. Nodes come in four kinds:</p>
+    <p>Press <span class="kbd">K</span> to open the Skills panel and switch to the <b>Passive Forest</b> tab
+    <span class="pill">v49</span> (its sibling tab is <a href="#skills">Abilities</a>). The Forest is a connected
+    web of passive nodes: you start on your class's start node and spend <b>2 skill points per level</b> (a
+    pool separate from ability points), allocating any node adjacent to one you already own. Nodes come in four kinds:</p>
     <table>
       <thead><tr><th>Node</th><th>Role</th></tr></thead>
       <tbody>
@@ -458,6 +519,12 @@ move speed          = 0.32 × (1 + min(moveBonus, 75%))</div>
         <tr><td><b>Move Speed</b></td><td>Faster movement (total movement bonus capped at +75%).</td></tr>
         <tr><td><b>Burn / Bleed on Hit</b></td><td>% chance per hit to apply the matching DoT.</td></tr>
         <tr><td><b>Resists</b></td><td>Reduce Fire / Cold / Poison / Lightning (or All) damage taken, capped 75% each.</td></tr>
+        <tr><td><b>Magic Find</b> <span class="pill">v49</span></td><td>Improves the odds of higher-rarity drops (adds to Loot Luck).</td></tr>
+        <tr><td><b>Gold Find</b> <span class="pill">v49</span></td><td>Multiplies the gold monsters drop.</td></tr>
+        <tr><td><b>Dodge</b> <span class="pill">v49</span></td><td>Chance to take <b>0</b> damage from a hit — capped at 60%.</td></tr>
+        <tr><td><b>Damage Reduction</b> <span class="pill">v49</span></td><td>Flat % less damage taken, applied after Armor — capped at 50%.</td></tr>
+        <tr><td><b>Cooldown Reduction</b> <span class="pill">v49</span></td><td>Shortens every skill's cooldown — capped at 50%.</td></tr>
+        <tr><td><b>Life on Hit</b> <span class="pill">v49</span></td><td>Restores flat Life each time you land a hit.</td></tr>
       </tbody>
     </table>
   </section>
@@ -469,6 +536,9 @@ move speed          = 0.32 × (1 + min(moveBonus, 75%))</div>
     <p>⚔️ Weapon · 🪖 Helm · 🛡️ Armor · 🧤 Gloves · 🥾 Boots · 💍 Ring · 📿 Amulet.
     Weapons grant base Damage; armor pieces grant base Armor; rings and amulets have <b>no base stat</b>
     (their power is entirely in affixes &amp; effects).</p>
+    <p><span class="pill">v49</span> Items can also roll <b>sockets</b> that hold <a href="#smith">gems</a> —
+    up to <b>3</b> on weapons &amp; armor, <b>2</b> on helm / gloves / boots, <b>1</b> on rings &amp; amulets.
+    A gem's bonus depends on the <em>slot</em> it sits in (see <a href="#smith">Gems &amp; Sockets</a>).</p>
 
     <h3>Rarities</h3>
     <p>Higher rarity multiplies an item's <b>base stat and every rolled affix</b>, and grants more affixes.</p>
@@ -527,6 +597,12 @@ Dungeon drop ilvl = your Level + depth × 2</div>
         <tr><td>Fire / Cold / Lightning / Poison Damage % <span class="pill">v46</span></td><td><code>6 … 12 + il×0.4</code></td></tr>
         <tr><td>Health Regen /s <span class="pill">v46</span></td><td><code>2 … 4 + il×0.5</code></td></tr>
         <tr><td>Mana Regen /s <span class="pill">v46</span></td><td><code>1 … 2 + il×0.4</code></td></tr>
+        <tr><td>Magic Find % <span class="pill">v49</span></td><td><code>5 … 10 + il×0.3</code></td></tr>
+        <tr><td>Gold Find % <span class="pill">v49</span></td><td><code>6 … 12 + il×0.4</code></td></tr>
+        <tr><td>Dodge % <span class="pill">v49</span></td><td><code>2 … 4 + il×0.15</code></td></tr>
+        <tr><td>Damage Reduction % <span class="pill">v49</span></td><td><code>2 … 4 + il×0.15</code></td></tr>
+        <tr><td>Cooldown Reduction % <span class="pill">v49</span></td><td><code>3 … 6 + il×0.2</code></td></tr>
+        <tr><td>Life on Hit <span class="pill">v49</span></td><td><code>2 … 4 + il×0.5</code></td></tr>
       </tbody>
     </table>
     <div class="note">The <strong>v46</strong> affixes let gear empower your kit directly:
@@ -535,6 +611,10 @@ Dungeon drop ilvl = your Level + depth × 2</div>
     skill currently selected in your bar; the four <b>Elemental Damage %</b> affixes multiply all damage of
     that element (basic melee is intentionally left unbuffed by Skill Damage). Roll them onto any item, or add
     one as a chosen <a href="#smith">enchant</a>.</div>
+    <div class="note"><span class="pill">v49</span> The newest affixes are <b>defensive &amp; utility</b> rolls:
+    <b>Dodge</b>, <b>Damage Reduction</b> and <b>Cooldown Reduction</b> (capped at 60% / 50% / 50%), plus
+    <b>Magic Find</b>, <b>Gold Find</b> and <b>Life on Hit</b>. They roll on gear, can be added as a chosen
+    <a href="#smith">enchant</a>, or be granted by socketed <a href="#smith">gems</a>.</div>
   </section>
 
   <!-- ============ UNIQUES ============ -->
@@ -614,16 +694,51 @@ Dungeon drop ilvl = your Level + depth × 2</div>
   <!-- ============ SMITH ============ -->
   <section id="smith">
     <h2>Upgrading, Enchanting &amp; Gems</h2>
-    <p>Four town craftsmen work on your gear &amp; potions. The <b>Smith</b> and <b>Alchemist</b> are in every
-    town; the <b>Enchanter</b> appears in the main towns; the <b>Jeweler</b> is exclusive to Emberhold.</p>
+    <p>Town craftsmen work on your gear, gems &amp; potions. The <b>Smith</b> and <b>Alchemist</b> are in every
+    town; the <b>Enchanter</b> appears in the main towns; the <b>Jeweler</b> is exclusive to Emberhold. Crafting
+    spends two currencies — <b>Gold</b> and <span class="pill">v49</span> <b>Dust ✦</b>.</p>
+    <div class="note"><span class="pill">v49</span> <b>Dust ✦</b> is a crafting material earned by <b>salvaging</b>
+    items (and from bulk-selling junk). An item's Dust value is set by rarity — Common <b>1</b> · Magic <b>3</b> ·
+    Rare <b>8</b> · Set <b>15</b> · Unique <b>25</b> — and Dust pays for Reforging and adding sockets.</div>
 
-    <h3>The Smith — gear upgrades</h3>
-    <p><span class="pill">v47</span> The Smith is now <b>upgrade-only</b> (its old Consumables tab moved to the new
-    Alchemist). Each upgrade level adds <b>+8% to all of an item's stats</b>, up to the rarity's cap
-    (Common +5 … Unique +10). Cost scales with item value:</p>
-    <div class="formula">upgrade cost = round(itemScore × (1 + currentLevel) × 0.5) + 15</div>
-    <p class="muted">The Smith's old random single-affix re-roll was removed in v46 — chosen enchanting now
-    lives with the Enchanter below.</p>
+    <h3>The Smith — Upgrade · Reforge · Salvage · Socket <span class="pill">v49</span></h3>
+    <p>The Smith now works across <b>four tabs</b> (its old potion upgrades moved to the Alchemist in v47):</p>
+    <table>
+      <thead><tr><th>Tab</th><th>What it does</th><th>Cost</th></tr></thead>
+      <tbody>
+        <tr><td><b>Upgrade</b></td><td>+8% to <em>all</em> of an item's stats per level, up to the rarity cap (Common +5 … Unique +10).</td><td><code>round(itemScore × (1+level) × 0.5) + 15</code> gold</td></tr>
+        <tr><td><b>Reforge</b></td><td>Re-rolls an item's base stat and its <em>whole</em> affix set and renames it, with a <b>15% chance to bump one rarity tier</b> first (up to Rare). Common / Magic / Rare only — Set &amp; Unique are hand-tuned and excluded.</td><td><code>4 + rarityTier×4</code> Dust + <code>round(itemScore×0.15)+15</code> gold</td></tr>
+        <tr><td><b>Salvage</b></td><td>Breaks an inventory item down into <b>Dust</b> (no gold). Equipped gear can't be salvaged; Rare+ asks to confirm.</td><td>— (yields <code>dustValue</code>)</td></tr>
+        <tr><td><b>Socket</b></td><td>Adds one empty socket, up to the slot's max (weapon/armor 3, helm/gloves/boots 2, ring/amulet 1).</td><td><code>6 + rarityTier×4</code> Dust + <code>round(itemScore×0.2)+20</code> gold</td></tr>
+      </tbody>
+    </table>
+    <p class="muted">Reforge Dust cost by rarity: Common 8 · Magic 12 · Rare 16. The Smith's old random single-affix
+    re-roll was removed in v46 — chosen enchanting lives with the Enchanter below.</p>
+
+    <h3 id="gems">Gems &amp; Sockets <span class="pill">v49</span></h3>
+    <p>Gems drop from monsters — especially <a href="#elites">Champions &amp; Treasure Goblins</a> — into a gem
+    pouch, then slot into an item's sockets. A gem's bonus is <b>slot-dependent</b>: the same gem grants one stat
+    in a weapon, another in armor, and another in jewelry.</p>
+    <table>
+      <thead><tr><th>Gem</th><th>In a weapon</th><th>In armor</th><th>In a ring / amulet</th></tr></thead>
+      <tbody>
+        <tr><td><b>Ruby</b></td><td>Fire Damage %</td><td>Life</td><td>Strength</td></tr>
+        <tr><td><b>Sapphire</b></td><td>Cold Damage %</td><td>Mana</td><td>All Resist</td></tr>
+        <tr><td><b>Topaz</b></td><td>Lightning Damage %</td><td>Lightning Resist</td><td>Energy</td></tr>
+        <tr><td><b>Emerald</b></td><td>Poison Damage %</td><td>Dexterity</td><td>Poison Resist</td></tr>
+        <tr><td><b>Amethyst</b></td><td>Damage</td><td>Armor</td><td>Vitality</td></tr>
+        <tr><td><b>Diamond</b></td><td>Crit Damage %</td><td>All Resist</td><td>Crit Chance %</td></tr>
+        <tr><td><b>Onyx</b></td><td>Crit Chance %</td><td>Thorns</td><td>Crit Damage %</td></tr>
+      </tbody>
+    </table>
+    <p>"Armor" covers helm, chest, gloves &amp; boots. Each gem has <b>five quality tiers</b> — Chipped → Flawed →
+    (plain) → Flawless → Perfect — and the bonus grows with quality. Gem bonuses are <b>flat</b> (they aren't
+    multiplied by an item's upgrade level).</p>
+    <ul class="clean">
+      <li><b>Get sockets</b> at the Smith (Socket tab), or roll them on a drop.</li>
+      <li><b>Insert / remove</b> gems at the Jeweler — removed gems return to your pouch.</li>
+      <li><b>Combine</b> three gems of one quality into one of the next tier (up to Perfect) at the Jeweler.</li>
+    </ul>
 
     <h3>The Alchemist — potions <span class="pill">v47</span></h3>
     <p>A new ⚗️ NPC in <b>every town</b> that permanently improves your potions (these upgrades used to sit on
@@ -647,11 +762,13 @@ Dungeon drop ilvl = your Level + depth × 2</div>
     <p class="muted">The chosen enchant is deliberately excluded from an item's sell/buy value, so re-imbuing
     doesn't inflate prices.</p>
 
-    <h3>The Jeweler — re-roll accessories <span class="pill">v46</span></h3>
+    <h3>The Jeweler — accessories &amp; gems <span class="pill">v46</span></h3>
     <p>Emberhold-only. The Jeweler sells fresh rings &amp; amulets and will <b>re-roll all affixes at once</b>
     on any ring or amulet you own (rolling fresh values for every existing affix). Same cost formula as an
     enchant:</p>
     <div class="formula">re-roll cost = round(itemScore × 0.35) + 25</div>
+    <p><span class="pill">v49</span> The Jeweler is also your <b>gem bench</b>: <b>insert</b> gems into sockets,
+    <b>remove</b> them back to your pouch, and <b>combine</b> three same-quality gems into one of the next tier.</p>
 
     <p class="muted">"itemScore" weighs base stat, each affix, special effects (+40) and set membership (+15),
     scaled by upgrade level — it's also what drives sell/buy prices.</p>
@@ -660,10 +777,14 @@ Dungeon drop ilvl = your Level + depth × 2</div>
   <!-- ============ ECONOMY ============ -->
   <section id="economy">
     <h2>Economy &amp; Town Services</h2>
-    <h3>Gold</h3>
+    <h3>Gold &amp; Dust</h3>
     <p>Gold drops from monsters (more from elites and bosses, and deeper floors). Spend it at the Merchant
-    (buy &amp; sell gear), the Smith (gear upgrades), the Alchemist (potion upgrades), the Enchanter / Jeweler,
-    and the Gambler. <span class="pill">v47</span> Vendors no longer sell potions — refill free at the Cauldron.</p>
+    (buy &amp; sell gear), the Smith (upgrade, reforge, sockets), the Alchemist (potion upgrades), the
+    Enchanter / Jeweler, and the Gambler. <span class="pill">v47</span> Vendors no longer sell potions — refill
+    free at the Cauldron.</p>
+    <p><span class="pill">v49</span> <b>Dust ✦</b> is the crafting currency, earned by <b>salvaging</b> gear at the
+    Smith and from bulk-selling junk. It pays (alongside gold) for <a href="#smith">Reforging</a> and adding
+    <a href="#smith">sockets</a>; per-rarity Dust values are listed under <a href="#smith">crafting</a>.</p>
 
     <h3>The Merchant</h3>
     <table>
@@ -672,8 +793,8 @@ Dungeon drop ilvl = your Level + depth × 2</div>
         <tr><td>Sell an item</td><td><code>max(2, round(itemScore × 0.5))</code> g</td></tr>
         <tr><td>Buy an item</td><td><code>round(sellValue × 3) + 8</code> g</td></tr>
         <tr><td>Restock wares</td><td><code>40 + Level × 8</code> g (re-rolls the 6 items on offer)</td></tr>
-        <tr><td>Sell Junk</td><td>Bulk-sells all Common &amp; Magic items in your bag.</td></tr>
-        <tr><td>Sell All</td><td>Sells your entire backpack — <b>asks for confirmation</b> (includes rare/set/unique).</td></tr>
+        <tr><td>Sell Junk</td><td>Bulk-sells all Common &amp; Magic items in your bag — for gold <b>and Dust ✦</b>. <span class="pill">v49</span></td></tr>
+        <tr><td>Sell All</td><td>Sells your entire backpack for gold <b>and Dust ✦</b> — <b>asks for confirmation</b> (includes rare/set/unique). <span class="pill">v49</span></td></tr>
       </tbody>
     </table>
     <p class="muted">The Merchant restocks 6 items near your level whenever you enter town.</p>
@@ -685,14 +806,14 @@ Dungeon drop ilvl = your Level + depth × 2</div>
       <thead><tr><th>Service</th><th>What it does</th><th>Found in</th></tr></thead>
       <tbody>
         <tr><td><b>Merchant</b></td><td>Buy &amp; sell gear; restock; Sell Junk / Sell All. <span class="pill">v47</span> No longer sells potions.</td><td>All towns</td></tr>
-        <tr><td><b>Smith</b></td><td>Upgrade gear (+8% per level).</td><td>All towns</td></tr>
+        <tr><td><b>Smith</b> <span class="pill">v49</span></td><td>Upgrade · Reforge · Salvage (→ Dust) · add Sockets.</td><td>All towns</td></tr>
         <tr><td><b>Alchemist</b> <span class="pill">v47</span></td><td>Improve potion strength &amp; capacity.</td><td>All towns</td></tr>
         <tr><td><b>Stash</b></td><td>Shared storage (80 slots, 8-column grid) plus a buy-slots option.</td><td>All towns</td></tr>
         <tr><td><b>Cauldron</b></td><td>Fully restores your HP and mana <em>and</em> refills both potion types — for free.</td><td>All towns</td></tr>
         <tr><td><b>Waypoint</b></td><td>Fast travel between unlocked areas (<span class="kbd">G</span>).</td><td>All towns</td></tr>
         <tr><td><b>Enchanter</b></td><td>Imbue one chosen stat onto any item (overwrites).</td><td>Aldermere, Highreach, Emberhold</td></tr>
         <tr><td><b>Gambler</b></td><td>Buy an unidentified random item near your level (a chance at any rarity).</td><td>Highreach, Emberhold</td></tr>
-        <tr><td><b>Jeweler</b></td><td>Sells rings &amp; amulets; re-rolls all affixes on an accessory.</td><td>Emberhold</td></tr>
+        <tr><td><b>Jeweler</b> <span class="pill">v49</span></td><td>Sells rings &amp; amulets; re-rolls accessory affixes; insert / remove / combine gems.</td><td>Emberhold</td></tr>
         <tr><td><b>Premium Vendor</b></td><td>Higher-tier wares: bigger item levels and boosted quality.</td><td>Emberhold</td></tr>
       </tbody>
     </table>
@@ -705,13 +826,14 @@ gamble ilvl = Level + 1 + townTier × 2 ,  quality = 0.10 + townTier × 0.12</di
 
     <h3>Loot Filter <span class="pill">v46</span></h3>
     <p>Set in <b>Settings → Loot</b>. Toggle which rarities and slots you care about, and a minimum item
-    level. Anything that <em>fails</em> the filter is <b>auto-salvaged into gold the instant you walk over it</b>
-    — it's converted, never destroyed, and never clutters your bag.</p>
+    level. Anything that <em>fails</em> the filter is <b>auto-salvaged the instant you walk over it</b> —
+    converted to its sell value in <b>gold</b> <span class="pill">v49</span> <b>plus Dust ✦</b>, never destroyed,
+    never cluttering your bag.</p>
     <ul class="clean">
-      <li>Unchecked <b>rarity</b> or <b>slot</b> → salvaged on pickup for its sell value.</li>
+      <li>Unchecked <b>rarity</b> or <b>slot</b> → salvaged on pickup for gold + Dust.</li>
       <li>Item level below your <b>minimum</b> → salvaged… except <b class="rc-set">Set</b> and
         <b class="rc-unique">Unique</b> items, which always bypass the minimum-level rule so you never lose them.</li>
-      <li>Gold and potions are always picked up regardless of the filter.</li>
+      <li>Gold, potions and <b>gems</b> are always picked up regardless of the filter.</li>
     </ul>
 
     <h3>Potions</h3>
@@ -727,46 +849,46 @@ gamble ilvl = Level + 1 + townTier × 2 ,  quality = 0.10 + townTier × 0.12</di
   <!-- ============ ZONES ============ -->
   <section id="zones">
     <h2>Zones &amp; Travel</h2>
-    <p>The three old wilderness maps are now one large <b>open world</b> <span class="pill">v48</span> you explore
-    on foot. Towns are safe hubs reached through <b>portals hidden in the wilds</b>; the endless dungeon is
-    entered from the cave portal near spawn. The <b>Waypoint</b> (fast travel, <span class="kbd">G</span>) still
-    works — but a town only joins your waypoint network once you've <b>physically reached it</b> at least once.</p>
+    <p><span class="pill">v49</span> The wilderness is <b>three separate, portal-linked biome maps</b> — no longer
+    one open world. Each is its own bounded arena you enter through a portal; from inside a biome you can step to
+    the <b>next</b> or <b>previous</b> biome, into its <b>adjoining town</b>, down the <b>cave</b> into the endless
+    dungeon, or open the <b>Waypoint</b> (fast travel, <span class="kbd">G</span>). A town joins your waypoint
+    network once you've <b>physically reached it</b> at least once.</p>
 
-    <h3>The Wilds — one open world <span class="pill">v48</span></h3>
-    <p>A single ~960-unit map divided into three concentric <b>biome rings</b> by distance from the centre. The
-    further you roam, the deadlier it gets — region difficulty replaces the old per-area level. Ground colour and
-    fog shift as you cross each ring; new monster spawns scale to the ring you're standing in (monsters already
-    on the field keep the stats they spawned with).</p>
+    <h3>The wild biomes <span class="pill">v49</span></h3>
+    <p>Each biome is rebuilt fresh on entry (radius ~150) and paired with one town. They form a chain —
+    Greenwilds → Frostfen → Ashlands — and a biome's level fixes the difficulty of the monsters spawned in it.</p>
     <table>
-      <thead><tr><th>Region</th><th>Ring</th><th class="num">Level</th><th>Notes</th></tr></thead>
+      <thead><tr><th>Biome</th><th class="num">Level</th><th>Adjoining town</th><th>Portals to</th></tr></thead>
       <tbody>
-        <tr><td><b>Greenwilds</b></td><td>Inner (centre → ~260)</td><td class="num">1</td><td>Starter band around the central hub; home town &amp; cave portal.</td></tr>
-        <tr><td><b>Frostfen</b></td><td>Middle (~260 → ~380)</td><td class="num">7</td><td>Frozen marsh; Highreach's portal is out here.</td></tr>
-        <tr><td><b>Ashlands</b></td><td>Outer (~380 → edge)</td><td class="num">14</td><td>Scorched far reaches; Emberhold's portal is the deepest find.</td></tr>
+        <tr><td><b>Greenwilds</b></td><td class="num">1</td><td>Aldermere</td><td>→ Frostfen</td></tr>
+        <tr><td><b>Frostfen</b></td><td class="num">7</td><td>Highreach</td><td>← Greenwilds · → Ashlands</td></tr>
+        <tr><td><b>Ashlands</b></td><td class="num">14</td><td>Emberhold</td><td>← Frostfen</td></tr>
       </tbody>
     </table>
+    <div class="note"><span class="pill">v49</span> The Frostfen → Ashlands portal is <b>gated</b>: you must reach
+    <b>Depth 10</b> in the Descent before it opens (until then it tells you to breach Ashlands by descending).
+    Greenwilds ↔ Frostfen is always open, and backward portals are never gated.</div>
 
     <h3>Towns &amp; the dungeon</h3>
     <table>
       <thead><tr><th>Area</th><th>Type</th><th>How you reach it</th></tr></thead>
       <tbody>
-        <tr><td><b>Aldermere</b></td><td>Town (tier 0)</td><td>Home hub — its portal sits at the centre of the Wilds. Merchant, Smith, Alchemist, Stash, Cauldron, Waypoint. <b>Known from the start.</b></td></tr>
-        <tr><td><b>Highreach</b></td><td>Town (tier 1)</td><td>Find its portal in the <b>Frostfen</b> ring. Adds the Gambler &amp; premium wares.</td></tr>
-        <tr><td><b>Emberhold</b></td><td>Town (tier 2)</td><td>Find its portal deep in the <b>Ashlands</b> ring. Full NPC roster incl. Jeweler &amp; Premium Vendor. <span class="pill">v48</span> No longer a fixed Depth-10 lock — the dangerous outer ring is the gate.</td></tr>
-        <tr><td><b>The Descent</b></td><td>Dungeon</td><td>Cave portal near the centre of the Wilds. Endless; depth scales forever; boss every 5th floor.</td></tr>
+        <tr><td><b>Aldermere</b></td><td>Town (tier 0)</td><td>Home hub, paired with Greenwilds. Merchant, Smith, Alchemist, Stash, Cauldron, Waypoint. <b>Known from the start.</b></td></tr>
+        <tr><td><b>Highreach</b></td><td>Town (tier 1)</td><td>Paired with <b>Frostfen</b>. Adds the Gambler &amp; premium wares.</td></tr>
+        <tr><td><b>Emberhold</b></td><td>Town (tier 2)</td><td>Paired with <b>Ashlands</b> — so reaching it means breaching the Depth-10 gate first. Full NPC roster incl. Jeweler &amp; Premium Vendor.</td></tr>
+        <tr><td><b>The Descent</b></td><td>Dungeon</td><td>Cave portal in any wild biome. <span class="pill">v49</span> A rectangular KayKit <b>stone hall</b> (no longer a circular arena). Endless; depth scales forever; boss every 5th floor.</td></tr>
       </tbody>
     </table>
 
-    <h3>Finding towns &amp; fast travel <span class="pill">v48</span></h3>
+    <h3>Finding towns &amp; fast travel</h3>
     <ul class="clean">
-      <li><b>Roads &amp; signposts</b> radiate from the central hub toward each town portal — follow them to search the wilds.</li>
-      <li>Walking into a town portal travels there and <b>discovers</b> that town. Discovered towns then appear in the Waypoint network for instant fast travel; undiscovered ones show as <em>"— undiscovered"</em> until you find them.</li>
-      <li>The minimap marks town portals: gold once discovered, grey while still unknown.</li>
-      <li><b>Depth selector</b> <span class="pill">v47</span>: from the Waypoint you can jump straight to <em>any dungeon depth you have already reached</em> (1 … your deepest), not just Depth 1 or your deepest checkpoint.</li>
+      <li>Stepping into a town portal travels there and <b>discovers</b> that town. Discovered towns then appear in the Waypoint network for instant fast travel; undiscovered ones show as <em>"— undiscovered"</em> until you find them.</li>
+      <li>Entering a biome auto-discovers its adjoining town, so the chain of biomes naturally reveals the chain of towns.</li>
+      <li><b>Depth selector</b> <span class="pill">v47</span>: from the Waypoint you can jump to <em>any dungeon depth you've already reached</em> (1 … your deepest), not just Depth 1 or your deepest checkpoint.</li>
     </ul>
-    <div class="note">Towns &amp; dungeons still confine you to a circular arena; the Wilds are one large open
-    map (a hard clamp bounds the very edge). Roads and signs, the town portals, and the cave/waypoint all sit on
-    the rolling terrain.</div>
+    <div class="note">Towns and wild biomes confine you to a circular arena (town radius 48, wild radius 150);
+    the dungeon is a rectangular stone hall (half-extent 80) with an axis-aligned clamp at its walls.</div>
   </section>
 
   <!-- ============ DIFFICULTY ============ -->
@@ -793,10 +915,9 @@ drop ilvl = Level + d×2 ,  Loot Luck = min(50%, d×2%)</div>
 
     <h3>Wild scaling</h3>
     <div class="formula">HP ×= 1 + regionLevel×0.12 ,  DMG ×= 1 + regionLevel×0.09 ,  XP ×= 1 + regionLevel×0.15</div>
-    <p class="muted"><span class="pill">v48</span> In the open world <code>regionLevel</code> is the level of the
-    biome ring you're standing in — <b>1</b> (Greenwilds), <b>7</b> (Frostfen) or <b>14</b> (Ashlands) — so the
-    farther you wander from the centre, the harder new spawns hit. Crossing a ring re-applies the scaling to
-    future spawns only.</p>
+    <p class="muted"><span class="pill">v49</span> <code>regionLevel</code> is the level of the biome map you're in
+    — <b>1</b> (Greenwilds), <b>7</b> (Frostfen) or <b>14</b> (Ashlands) — fixed on entry, so the deeper into the
+    biome chain you travel, the harder its monsters hit.</p>
     <p class="muted">Enemy resistances also <b>deepen</b> with depth (existing resistances grow stronger,
     floored so nothing becomes fully immune); vulnerabilities are left as-is.</p>
   </section>
@@ -824,7 +945,7 @@ drop ilvl = Level + d×2 ,  Loot Luck = min(50%, d×2%)</div>
     are big, slow, high-HP bruisers. <b>Skeletons</b> shrug off poison but crack to physical and fire; <b>Imps</b>
     and <b>Hellhounds</b> are fast infernal hunters that resist fire and hate frost.</p>
     <h3>Where they spawn <span class="pill">v47</span></h3>
-    <p>The open <b>Wilds</b> draw from a fixed pool (Fallen, Zombie, Shaman, Brute). The <b>dungeon</b> rolls a
+    <p>Each <b>wild biome</b> draws from its own monster pool. The <b>dungeon</b> rolls a
     <b>random biome</b> each time you enter, and that biome decides both the theme and the monster pool — e.g.
     Catacombs &amp; Bone Cathedral field Skeletons, Frozen Wastes &amp; The Void send Wraiths, and the Infernal
     Deep (and the Depth-666 Inferno) is packed with Imps and Hellhounds.</p>
@@ -848,16 +969,63 @@ drop ilvl = Level + d×2 ,  Loot Luck = min(50%, d×2%)</div>
         <tr><td><b>Fiery</b></td><td>Fire-resistant; <b>explodes on death</b> for heavy damage if you're close.</td></tr>
         <tr><td><b>Frozen</b></td><td>Frost-resistant; chills you on hit.</td></tr>
         <tr><td><b>Arcane</b></td><td>Lightning-resistant; fires arcane projectiles.</td></tr>
+        <tr><td><b>Toxic</b> <span class="pill">v49</span></td><td>Poison-resistant.</td></tr>
       </tbody>
     </table>
+    <h3>Named Champions <span class="pill">v49</span></h3>
+    <p>On a floor with a <a href="#events">Champion bounty</a>, a single <b>named Champion</b> stalks the level —
+    an elite with a gold nameplate and a name like <em>Gorehowl the Render</em> or <em>Ymira Frostfang</em>. On
+    top of its elite modifier it gains <b>×2 HP</b> and <b>×1.25 Damage</b>. Killing it is lavish: <b>5 items</b>,
+    a big gold purse, <b>2 potions</b>, and a <b>50% chance of a gem</b>.</p>
     <h3>Empowered monsters</h3>
     <p>From dungeon depth 6+, ordinary monsters have a growing chance (up to 50%) to spawn <b>Empowered</b>:
     ×1.6 HP, ×1.35 Damage, ×1.12 Speed, ×1.4 XP, and they erupt in a small blast on death.</p>
+    <h3>Treasure Goblins <span class="pill">v49</span></h3>
+    <p>Rarely (≈3% of dungeon waves) a <b>Treasure Goblin</b> appears, wrapped in a golden glow. It's
+    <b>harmless</b> and immediately <b>flees</b> — catch and kill it within <b>~18 seconds</b> or it escapes and
+    you get nothing. Crack it open for <b>3–4 items</b>, a heap of gold, and a <b>60% chance of a gem</b>.</p>
     <h3>Loot</h3>
     <ul class="clean">
       <li><b>Elites</b> always drop an item (best of several rolls) plus gold and often a potion.</li>
       <li><b>Normal monsters:</b> ~85% gold, ~30% item (rising with depth), ~12% potion.</li>
     </ul>
+  </section>
+
+  <!-- ============ EVENTS ============ -->
+  <section id="events">
+    <h2>Dungeon Floor Events <span class="pill">v49</span></h2>
+    <p>Beyond the boss every fifth floor, ordinary dungeon floors now carry their own optional content: a floor
+    bounty, a couple of shrines, and the occasional <a href="#elites">Treasure Goblin</a>.</p>
+
+    <h3>Floor Bounties</h3>
+    <p>Every non-boss floor from Depth 2 rolls one <b>bounty</b>, shown on screen. It's a <b>soft</b> objective —
+    the stairs down stay open whether or not you finish it — but completing it pays well.</p>
+    <table>
+      <thead><tr><th>Bounty</th><th>Goal</th></tr></thead>
+      <tbody>
+        <tr><td><b>Slay</b></td><td>Kill <code>6 + ⌊depth/2⌋</code> monsters (capped at 18).</td></tr>
+        <tr><td><b>Champion</b></td><td>Slay the floor's <a href="#elites">named Champion</a> (≈50% of floors roll this instead).</td></tr>
+      </tbody>
+    </table>
+    <p class="muted">Reward: <b>2 items</b> (ilvl + 2), <b>60–120 gold</b> (+ depth × 10), a <b>potion</b>, and about
+    <b>15%</b> of a level's XP.</p>
+
+    <h3>Shrines</h3>
+    <p><b>2–3</b> shrines spawn per floor; each is <b>single-use</b> — walk up and press <span class="kbd">E</span>
+    to commune. Roughly a quarter are Cursed; the rest split evenly among the three boons.</p>
+    <table>
+      <thead><tr><th>Shrine</th><th>Effect</th></tr></thead>
+      <tbody>
+        <tr><td><b>Shrine of Power</b></td><td>+25% damage for 30 s.</td></tr>
+        <tr><td><b>Shrine of Haste</b></td><td>+30% movement speed for 30 s.</td></tr>
+        <tr><td><b>Blessed Shrine</b></td><td>Instantly heal 40% of max Life and cleanse all DoTs &amp; chill.</td></tr>
+        <tr><td><b>Cursed Shrine</b></td><td>Springs an ambush — a monster pack appears — but drops bonus loot and gold for the danger.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Treasure Goblins</h3>
+    <p>The fleeing golden goblin can appear on any dungeon floor and escapes with the loot if you don't catch it
+    in time — full details under <a href="#elites">Elites &amp; Champions</a>.</p>
   </section>
 
   <!-- ============ BOSSES ============ -->
@@ -903,13 +1071,14 @@ XP  = round(300 × (1 + d×0.6) × difficultyXP)</div>
       <tbody>
         <tr><td>Character slots</td><td>3</td></tr>
         <tr><td>Storage</td><td>Browser <code>localStorage</code> (key <code>sanctuarys_end_saves</code>)</td></tr>
-        <tr><td>Save format version</td><td>5</td></tr>
+        <tr><td>Save format version</td><td>7 <span class="pill">v49</span></td></tr>
         <tr><td>Autosave</td><td>Every ~8 seconds, on zone change, and on level up.</td></tr>
       </tbody>
     </table>
     <div class="note">Saves live in your browser. Clearing site data, or opening the game from a different
     browser/profile, will not show the same characters. Old saves are auto-migrated forward when the format
-    version changes.</div>
+    version changes — <span class="pill">v49</span> format <b>7</b> adds your action-bar loadout, skill-rune
+    allocations, ability points, gem pouch &amp; Dust, and biome discovery, all backfilled for existing characters.</div>
     <h3>Export &amp; Import <span class="pill">v48</span></h3>
     <p>Open <b>Settings → Saves</b> to back up or move your characters — it works fully offline:</p>
     <ul class="clean">
@@ -927,7 +1096,7 @@ XP  = round(300 × (1 + d×0.6) × difficultyXP)</div>
   <section id="changelog">
     <h2>Version History</h2>
     <p class="lead">What was added in each release, newest first. This wiki currently documents
-    <strong>v48</strong>.</p>
+    <strong>v49</strong>.</p>
     <div class="note">The expansion program began from the <b>v26</b> baseline. The performance pass and the
     eight endgame features were applied to that file, which was then renamed <b>v30</b> — so there are no
     separate v27–v29 snapshots. Early releases (v30–v33) are summarised at the feature level; later releases
@@ -936,6 +1105,23 @@ XP  = round(300 × (1 + d×0.6) × difficultyXP)</div>
     <table>
       <thead><tr><th>Version</th><th>Theme</th><th>What was added</th></tr></thead>
       <tbody>
+        <tr>
+          <td><b>v49</b></td><td>Engine Rebuild, Gems, Abilities &amp; Dungeon Depth</td>
+          <td>The game moves to a modular <code>sanctuary.html</code> + <code>game.js</code> build (WebGPU/TSL
+          renderer with an imported model, texture &amp; HDRI library). <b>Action bar &amp; abilities:</b> a
+          Diablo-style 6-slot action bar (LMB basic, RMB, keys 1–4); actives are now <b>unlocked by spending
+          ability points</b> (1 per level) at their class level, and every skill gains its own <b>rune tree</b>
+          (Empower / Quicken / Focus, three exclusive shape notables, a keystone). The XP bar &amp; level badge
+          move into the bar; the Skills panel is now tabbed (Abilities + Passive Forest). <b>Items:</b>
+          <b>gems &amp; sockets</b> with slot-dependent bonuses and five quality tiers; <b>six new stats</b>
+          (Magic Find, Gold Find, Dodge, flat Damage Reduction, Cooldown Reduction, Life on Hit); a deeper Smith
+          — <b>Upgrade · Reforge · Salvage · Socket</b> — and a new <b>Dust ✦</b> crafting currency earned by
+          salvaging. <b>World:</b> the open world is replaced by three <b>portal-linked biome maps</b>
+          (Greenwilds → Frostfen → Ashlands, the last gated by Depth 10); the dungeon is rebuilt as a rectangular
+          KayKit <b>stone hall</b>. <b>Dungeon depth:</b> per-floor <b>bounties</b> (Slay / Champion),
+          <b>shrines</b> (Power / Haste / Blessed / Cursed), <b>named Champions</b>, and fleeing
+          <b>Treasure Goblins</b>. The character sheet now lists every stat. Save format bumped to <b>7</b>.</td>
+        </tr>
         <tr>
           <td><b>v48</b></td><td>Open World &amp; Save I/O</td>
           <td>The three separate wilderness maps are merged into one large <b>open world</b> (~2.4× bigger),
@@ -1078,7 +1264,7 @@ XP  = round(300 × (1 + d×0.6) × difficultyXP)</div>
     </table>
 
     <hr>
-    <p class="toc-top muted">Sanctuary's End — community field codex. Generated from the v48 game data.
+    <p class="toc-top muted">Sanctuary's End — community field codex. Generated from the v49 game data.
     Numbers reflect the in-game formulas; actual results vary with difficulty, depth, and gear.</p>
   </section>
 
