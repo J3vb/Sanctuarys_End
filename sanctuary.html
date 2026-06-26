@@ -86,6 +86,15 @@
   .panel{position:absolute;top:0;bottom:0;width:560px;background:linear-gradient(180deg,#1a130c,#0d0905);box-shadow:-8px 0 30px rgba(0,0,0,.7);z-index:8;display:none;padding:18px;color:#d8c4a0;overflow-y:auto;}
   #invPanel{right:0;border-left:3px solid #3a2e22;}#skillPanel{left:0;right:0;width:auto;border-right:none;}
   .modal{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:620px;max-height:80vh;background:linear-gradient(180deg,#1a130c,#0d0905);border:3px solid #3a2e22;border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.8);z-index:12;display:none;padding:18px;color:#d8c4a0;overflow-y:auto;}
+  /* Diablo-3 dual-pane: shop docks to the left, inventory panel (#invPanel) stays on the right */
+  .modal.dockL{left:0;right:auto;top:0;bottom:0;transform:none;width:560px;max-height:none;border-radius:3px;}
+  /* Smith anvil: selected-item slot + action row (item is chosen from the inventory pane, D3/D4 style) */
+  .smithSlot{display:flex;gap:12px;align-items:flex-start;background:linear-gradient(180deg,rgba(40,30,18,.6),rgba(14,9,5,.6));border:1px solid #5a4226;border-radius:6px;padding:12px;margin-bottom:12px;min-height:62px;}
+  .smithSlot.empty{align-items:center;justify-content:center;color:#6a5a44;font-style:italic;border-style:dashed;}
+  .smithSlot .rname{font-weight:bold;}
+  .smithSlot .aff{color:#7fa8ff;font-size:12px;}.smithSlot .base{color:#d8c4a0;font-size:12px;}
+  .smithAct{display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:#c8b89a;font-size:13px;}
+  .cell.smithSel{outline:2px solid #ffcf6a;outline-offset:1px;box-shadow:0 0 10px rgba(255,207,106,.55);}
   .panel h3,.modal h3{color:#e6b84d;font-size:20px;margin-bottom:10px;border-bottom:1px solid #3a2e22;padding-bottom:8px;}
   .close{position:absolute;top:14px;right:16px;cursor:pointer;color:#8a7a5a;font-size:20px;}.close:hover{color:#e6b84d;}
   .equipGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px;}
@@ -343,37 +352,37 @@
   <div id="resetSkills">↺ Refund all passives (free)</div>
 </div>
 
-<div id="vendorPanel" class="modal">
+<div id="vendorPanel" class="modal dockL">
   <h3>🧙 Merchant</h3><span class="close" id="vendorClose">✕</span>
   <div class="tabs"><div class="tab on" id="tabBuy">Buy</div><div class="tab" id="tabSell">Sell</div></div>
   <div id="vendorBody"></div>
 </div>
 
-<div id="smithPanel" class="modal">
+<div id="smithPanel" class="modal dockL">
   <h3>🔨 The Smith</h3><span class="close" id="smithClose">✕</span>
-  <div class="invHint" style="margin-bottom:8px">Spend gold to forge your gear stronger. Each upgrade adds +8% to a piece's stats. Higher rarity upgrades further.</div>
+  <div class="tabs"><div class="tab on" id="smithTabUpgrade">Upgrade</div><div class="tab" id="smithTabReforge">Reforge</div><div class="tab" id="smithTabSalvage">Salvage</div></div>
   <div id="smithBody"></div>
 </div>
 
-<div id="alchemistPanel" class="modal">
+<div id="alchemistPanel" class="modal dockL">
   <h3>⚗️ The Alchemist</h3><span class="close" id="alchemistClose">✕</span>
   <div class="invHint" style="margin-bottom:8px">Brew permanent improvements to your potions — stronger restores and a larger satchel. Refill them for free at the town cauldron.</div>
   <div id="alchemistBody"></div>
 </div>
 
-<div id="enchantPanel" class="modal">
+<div id="enchantPanel" class="modal dockL">
   <h3>✦ The Enchanter</h3><span class="close" id="enchantClose">✕</span>
   <div class="invHint" style="margin-bottom:8px">Imbue one chosen stat into a piece of gear. Each item holds a single enchant — re-enchanting overwrites the old one.</div>
   <div id="enchantBody"></div>
 </div>
 
-<div id="gamblePanel" class="modal">
+<div id="gamblePanel" class="modal dockL">
   <h3>🎲 The Gambler</h3><span class="close" id="gambleClose">✕</span>
   <div class="invHint" style="margin-bottom:8px">Pay for a mystery item of unknown quality. Fortune favors the bold — better towns, better odds.</div>
   <div id="gambleBody"></div>
 </div>
 
-<div id="jewelerPanel" class="modal">
+<div id="jewelerPanel" class="modal dockL">
   <h3>💍 The Jeweler</h3><span class="close" id="jewelerClose">✕</span>
   <div class="invHint" style="margin-bottom:8px">Specialist in rings &amp; amulets. Buy fresh jewelry or reroll the values on an accessory you own.</div>
   <div id="jewelerBody"></div>

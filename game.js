@@ -1925,15 +1925,15 @@ function pick(ev) {
 }
 renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
 renderer.domElement.addEventListener('mousedown', e => {
-  if (!running || anyPanel() || anyModal()) return; e.preventDefault(); const m = pick(e);
+  if (!running || busyPanel() || anyModal()) return; e.preventDefault(); const m = pick(e);
   if (e.button === 2) { rmbDown = true; if (isCombat()) castActive(visibleActives[activeSkill], { x: mouseWorld.x, z: mouseWorld.z }); return; }
   if (e.button === 0) { lmbDown = true; if (m && isCombat()) { target = m; moveTarget = null; } else { moveTarget = { x: mouseWorld.x, z: mouseWorld.z }; target = null; } }
 });
-renderer.domElement.addEventListener('mousemove', e => { if (running && !anyPanel() && !anyModal()) pick(e); });
+renderer.domElement.addEventListener('mousemove', e => { if (running && !busyPanel() && !anyModal()) pick(e); });
 addEventListener('mouseup', e => { if (e.button === 2) rmbDown = false; else if (e.button === 0) lmbDown = false; });
 renderer.domElement.addEventListener('mouseleave', () => { lmbDown = rmbDown = false; });
 addEventListener('blur', () => { lmbDown = rmbDown = false; });
-addEventListener('wheel', e => { if (!running || anyPanel() || anyModal()) return; camDist = clamp(camDist + Math.sign(e.deltaY) * 4, 28, 72); camHeight = camDist * 0.9; });
+addEventListener('wheel', e => { if (!running || busyPanel() || anyModal()) return; camDist = clamp(camDist + Math.sign(e.deltaY) * 4, 28, 72); camHeight = camDist * 0.9; });
 /* ---------- centralized keybinds + single dispatcher ---------- */
 const DEFAULT_KEYBINDS = { toggleInv: ['i', 'b'], toggleSkill: ['k'], enterTown: ['t'], interact: ['e'], hpPotion: [' '], manaPotion: ['q'], toggleMap: ['g'], toggleSound: ['m'], toggleDebug: ['`', '~'], toggleHelp: ['h', '?'], close: ['Escape'] };
 const KEYBIND_LABELS = { toggleInv: 'Inventory', toggleSkill: 'Skill Forest', enterTown: 'Return to Town', interact: 'Interact', hpPotion: 'Health Potion', manaPotion: 'Mana Potion', toggleMap: 'Waypoint Map', toggleSound: 'Toggle Sound', toggleDebug: 'Debug Overlay', toggleHelp: 'Help', close: 'Close / Cancel' };
@@ -1961,7 +1961,7 @@ addEventListener('keydown', e => {
   if (a === 'toggleSkill') { toggleSkill(); return; }
   if (a === 'enterTown') { if (zone !== 'town') enterTown(); return; }
   if (a === 'interact') { interact(); return; }
-  if (anyPanel()) return;
+  if (busyPanel()) return; /* inventory stays live: skill-select + potions work with it open */
   const n = (e.key === '0') ? 10 : +e.key; if (n >= 1 && n <= 10 && n <= visibleActives.length) { selectSkill(n - 1); return; }
   if (a === 'hpPotion') { drinkPotion(); return; }
   if (a === 'manaPotion') { drinkManaPotion(); return; }
@@ -2321,12 +2321,16 @@ function travelTo(id, mode, depthArg) {
 
 let last = now(), waveTimer = 0, running = false, saveTimer = 0, invOpen = false, skillOpen = false, vendorOpen = false, stashOpen = false, smithOpen = false, enchantOpen = false, gambleOpen = false, jewelerOpen = false, alchemistOpen = false;
 function anyPanel() { return invOpen || skillOpen || vendorOpen || stashOpen || smithOpen || enchantOpen || gambleOpen || jewelerOpen || alchemistOpen; }
+/* The inventory is a right-side panel — keep move/fight live when it's the ONLY thing open. Any other panel
+   (incl. a shop, which now opens the inventory alongside itself) pauses input, so list them explicitly
+   rather than `anyPanel() && !invOpen` (which would wrongly go live when a shop + inventory are both up). */
+function busyPanel() { return skillOpen || vendorOpen || stashOpen || smithOpen || enchantOpen || gambleOpen || jewelerOpen || alchemistOpen; }
 function anyModal() { try { return (wpModal && wpModal.style.display === 'block') || (mpModal && mpModal.style.display === 'block') || (settingsModal && settingsModal.style.display === 'block') || (helpModal && helpModal.style.display === 'block'); } catch (_) { return false; } }
 function syncBackdrop() { const b = document.getElementById('backdrop'); if (b) b.style.display = anyModal() ? 'block' : 'none'; }
 function update(dt) {
   const T = now(); /* Phase 1: one frame timestamp reused for all same-frame sine anims + time-gates below (was ~30-60 performance.now() calls/frame) */
   shake *= 0.85;
-  if (running && !anyPanel()) {
+  if (running && !busyPanel()) {
     if (rmbDown && isCombat() && !player.stunned) { const hid = visibleActives[activeSkill], hd = SKILLDEFS[hid]; if (hd && hd.kind !== 'melee' && player.mp >= hd.cost) castActive(hid, { x: mouseWorld.x, z: mouseWorld.z }); }
     if (lmbDown) {
       const hm = isCombat() ? monsterAt() : null; if (hm) { target = hm; moveTarget = null; }
@@ -2567,12 +2571,17 @@ function renderFloats() {
 /* ---------- panels (inventory/skills/vendor/stash) ---------- */
 const invPanel = document.getElementById('invPanel'), skillPanel = document.getElementById('skillPanel'), vendorPanel = document.getElementById('vendorPanel'), stashPanel = document.getElementById('stashPanel'), smithPanel = document.getElementById('smithPanel'), enchantPanel = document.getElementById('enchantPanel'), gamblePanel = document.getElementById('gamblePanel'), jewelerPanel = document.getElementById('jewelerPanel'), alchemistPanel = document.getElementById('alchemistPanel'), tooltip = document.getElementById('tooltip');
 function closeAll() { invOpen = skillOpen = vendorOpen = stashOpen = smithOpen = enchantOpen = gambleOpen = jewelerOpen = alchemistOpen = false;[invPanel, skillPanel, vendorPanel, stashPanel, smithPanel, enchantPanel, gamblePanel, jewelerPanel, alchemistPanel].forEach(p => p.style.display = 'none'); tooltip.style.display = 'none'; }
+/* Diablo-3 dual-pane: shops dock left and open the inventory on the right so gear + trading sit side by side.
+   Only one shop is open at a time, so renderOpenShop() refreshes whichever it is — call it after any
+   inventory mutation from the right pane to keep the shop's item indices fresh (see equipFromInv/unequip). */
+function openShopWithInv() { invOpen = true; invPanel.style.display = 'block'; renderInv(); }
+function renderOpenShop() { if (vendorOpen) renderVendor(); else if (smithOpen) renderSmith(); else if (enchantOpen) renderEnchanter(); else if (gambleOpen) renderGamble(); else if (jewelerOpen) renderJeweler(); else if (alchemistOpen) renderAlchemist(); }
 function toggleInv() { const o = !invOpen; closeAll(); if (o) { invOpen = true; invPanel.style.display = 'block'; renderInv(); } }
 function toggleSkill() { const o = !skillOpen; closeAll(); if (o) { skillOpen = true; skillPanel.style.display = 'block'; renderSkillTree(); } }
-function openVendor(tier) { closeAll(); vendorTier = tier || 1; vendorOpen = true; vendorPanel.style.display = 'block'; if (!vendorStock.length || vendorStockTier !== vendorTier) refreshVendor(vendorTier); setVendorTab('buy'); }
+function openVendor(tier) { closeAll(); openShopWithInv(); vendorTier = tier || 1; vendorOpen = true; vendorPanel.style.display = 'block'; if (!vendorStock.length || vendorStockTier !== vendorTier) refreshVendor(vendorTier); setVendorTab('buy'); }
 function openStash() { closeAll(); stashOpen = true; stashPanel.style.display = 'block'; renderStash(); }
-function openSmith() { closeAll(); smithOpen = true; smithPanel.style.display = 'block'; renderSmith(); }
-function openAlchemist() { closeAll(); alchemistOpen = true; alchemistPanel.style.display = 'block'; renderAlchemist(); }
+function openSmith() { closeAll(); openShopWithInv(); smithOpen = true; smithPick = null; smithPanel.style.display = 'block'; setSmithTab('upgrade'); }
+function openAlchemist() { closeAll(); openShopWithInv(); alchemistOpen = true; alchemistPanel.style.display = 'block'; renderAlchemist(); }
 function renderAlchemist() {
   const body = document.getElementById('alchemistBody');
   let html = `<div style="color:#ffe27a;margin-bottom:10px">Your gold: ${player.gold}</div><div class="tier">Potions</div>`;
@@ -2587,7 +2596,7 @@ function renderAlchemist() {
 const ENCHANT_POOL = ['dmg', 'hp', 'mp', 'armor', 'str', 'dex', 'vit', 'eng', 'crit', 'ias', 'ms', 'allstats', 'allRes', 'critDmg', 'leech', 'manaLeech', 'skillranks', 'skilldmg', 'activeskill', 'fireDmg', 'coldDmg', 'lightDmg', 'poisonDmg', 'hpregen', 'mpregen'];
 let _enchantPick = null;
 function enchantGearList() { const list = []; for (const s of SLOTS) { if (character.equipment[s]) list.push({ it: character.equipment[s], where: 'eq' }); } character.inventory.forEach(it => list.push({ it, where: 'inv' })); return list; }
-function openEnchanter() { closeAll(); enchantOpen = true; enchantPanel.style.display = 'block'; _enchantPick = null; renderEnchanter(); }
+function openEnchanter() { closeAll(); openShopWithInv(); enchantOpen = true; enchantPanel.style.display = 'block'; _enchantPick = null; renderEnchanter(); }
 function renderEnchanter() {
   const body = document.getElementById('enchantBody'); const list = enchantGearList();
   let html = `<div style="color:#ffe27a;margin-bottom:10px">Your gold: ${player.gold}</div>`;
@@ -2610,16 +2619,18 @@ function renderEnchanter() {
   body.querySelectorAll('[data-aff]').forEach(b => b.onclick = () => { if (!_enchantPick) return; const it = _enchantPick.it, k = b.dataset.aff, ecost = enchantCost(it); if (player.gold < ecost) return; player.gold -= ecost; it.enchant = { key: k, val: affixRoll(k, it.ilvl, it.rarity) }; goldTxt.textContent = player.gold + ' g'; if (_enchantPick.where === 'eq') recompute(); sfx('potion'); showMsg(it.name + ' · enchanted: +' + it.enchant.val + ' ' + AFFIXES[k].label); renderEnchanter(); saveProgress(false); });
 }
 let jewelerStock = [];
-function openGambler() { closeAll(); gambleOpen = true; gamblePanel.style.display = 'block'; renderGamble(); }
+function openGambler() { closeAll(); openShopWithInv(); gambleOpen = true; gamblePanel.style.display = 'block'; renderGamble(); }
 function renderGamble() {
+  if (invOpen) renderInv(); /* show the gambled item in the paired inventory pane */
   const body = document.getElementById('gambleBody'); const tier = (curTownArea && curTownArea.tier) || 0; const il = player.level + 1 + tier * 2, cost = 50 + player.level * 15 + tier * 150;
   body.innerHTML = `<div style="color:#ffe27a;margin-bottom:10px">Your gold: ${player.gold}</div>`;
   const row = document.createElement('div'); row.className = 'row'; row.innerHTML = `<div class="ric">🎲</div><div class="rname">Mystery Item <span style="color:#8a7a5a;font-size:11px">(ilvl ~${il}${tier ? ' · improved odds' : ''})</span></div><div class="rprice">${cost} g</div><div class="rbtn${player.gold >= cost && character.inventory.length < character.invMax ? '' : ' dis'}" id="gambleRoll">Roll</div>`; body.appendChild(row);
   const gb = document.getElementById('gambleRoll'); if (gb) gb.onclick = () => { if (player.gold < cost || character.inventory.length >= character.invMax) return; player.gold -= cost; const it = rollItem(il, null, 0.1 + tier * 0.12); character.inventory.push(it); goldTxt.textContent = player.gold + ' g'; sfx('potion'); showMsg('Gambled: ' + it.name); renderGamble(); updatePips(); saveProgress(false); };
 }
 function refreshJeweler(tier) { jewelerStock = []; const il = Math.max(1, player.level) + tier * 3; jewelerStock.push(rollItem(il, 'ring', 0.15 + tier * 0.1)); jewelerStock.push(rollItem(il, 'amulet', 0.15 + tier * 0.1)); jewelerStock.push(rollItem(il, 'ring', 0.05)); jewelerStock.push(rollItem(il, 'amulet', 0.05)); }
-function openJeweler() { closeAll(); jewelerOpen = true; jewelerPanel.style.display = 'block'; refreshJeweler((curTownArea && curTownArea.tier) || 0); renderJeweler(); }
+function openJeweler() { closeAll(); openShopWithInv(); jewelerOpen = true; jewelerPanel.style.display = 'block'; refreshJeweler((curTownArea && curTownArea.tier) || 0); renderJeweler(); }
 function renderJeweler() {
+  if (invOpen) renderInv(); /* show bought jewelry in the paired inventory pane */
   const body = document.getElementById('jewelerBody');
   body.innerHTML = `<div style="color:#ffe27a;margin-bottom:10px">Your gold: ${player.gold}</div><div class="tier">Buy Jewelry</div>`;
   jewelerStock.forEach((it, idx) => { const price = buyPrice(it); const row = document.createElement('div'); row.className = 'row'; row.innerHTML = `<div class="ric">${SLOT_ICON[it.slot]}</div><div class="rname rc-${it.rarity}">${it.name}</div><div class="rprice">${price} g</div><div class="rbtn${player.gold >= price && character.inventory.length < character.invMax ? '' : ' dis'}" data-jbuy="${idx}">Buy</div>`; bindTip(row.querySelector('.rname'), it); body.appendChild(row); });
@@ -2631,35 +2642,50 @@ function renderJeweler() {
   body.querySelectorAll('[data-jrr]').forEach(b => b.onclick = () => { const e = accs[+b.dataset.jrr], it = e.it; const keys = Object.keys(it.affixes || {}); const cost = enchantCost(it); if (!keys.length || player.gold < cost) return; player.gold -= cost; for (const k of keys) it.affixes[k] = affixRoll(k, it.ilvl, it.rarity); goldTxt.textContent = player.gold + ' g'; if (e.where === 'eq') recompute(); sfx('potion'); showMsg(it.name + ' · stats rerolled'); renderJeweler(); saveProgress(false); });
 }
 const POTION_TIER_MAX = 8, POTION_CAP_MAX = 30;
+let smithTab = 'upgrade', smithPick = null;
+function setSmithTab(t) { if (t !== 'reforge' && t !== 'salvage') t = 'upgrade';smithTab = t;['Upgrade', 'Reforge', 'Salvage'].forEach(n => document.getElementById('smithTab' + n).classList.toggle('on', t === n.toLowerCase())); renderSmith(); }
+/* Diablo-3/4 anvil: the Smith no longer lists gear — you click a piece in the inventory pane (renderInv
+   routes clicks here while smithOpen) and the Smith acts on that one selection. smithPickWhere() doubles as a
+   liveness check: if the picked item was salvaged/dropped it returns null and we drop the selection. */
+function smithPickWhere() { if (!smithPick) return null; for (const s of SLOTS) { if (character.equipment[s] === smithPick) return 'eq'; } return character.inventory.indexOf(smithPick) >= 0 ? 'inv' : null; }
+function selectSmithItem(it) { smithPick = it; renderSmith(); }
+function smithAction() {
+  const it = smithPick, where = smithPickWhere(); if (!it || !where) { smithPick = null; renderSmith(); return; }
+  if (smithTab === 'upgrade') { if ((it.upgrade || 0) >= upgradeMax(it)) return; const cost = upgradeCost(it); if (player.gold < cost) return; player.gold -= cost; it.upgrade = (it.upgrade || 0) + 1; if (where === 'eq') recompute(); sfx('level'); showMsg(it.name + ' → +' + it.upgrade); }
+  else if (smithTab === 'reforge') { if (!reforgeable(it)) return; const rc = reforgeCost(it); if (player.gold < rc.gold || (character.materials || 0) < rc.dust) return; player.gold -= rc.gold; character.materials = (character.materials || 0) - rc.dust; const before = it.rarity; reforgeItem(it); if (where === 'eq') { recompute(); attachHeroWeapon(); } sfx('level'); showMsg(it.rarity !== before ? (it.name + ' → ' + (RARITY_NAME[it.rarity] || it.rarity) + '!') : ('Reforged: ' + it.name)); }
+  else { if (where !== 'inv') return; const du = dustValue(it); if ((RTIER[it.rarity] || 1) >= 3 && !confirm('Salvage ' + it.name + ' (' + (RARITY_NAME[it.rarity] || it.rarity) + ') into ' + du + ' Dust? This destroys the item.')) return; const idx = character.inventory.indexOf(it); if (idx < 0) return; character.materials = (character.materials || 0) + du; character.inventory.splice(idx, 1); smithPick = null; sfx('potion'); showMsg('Salvaged: +' + du + '✦'); }
+  goldTxt.textContent = player.gold + ' g'; renderSmith(); updatePips(); saveProgress(false);
+}
 function renderSmith() {
-  const body = document.getElementById('smithBody');
-  let html = `<div style="color:#ffe27a;margin-bottom:6px">Your gold: ${player.gold} <span style="color:#b9a6ff">· ✦ ${character.materials || 0} Dust</span></div>`;
-  html += `<div style="color:#8a7a5a;font-size:12px;margin-bottom:10px">Upgrade adds raw power (gold). Reforge rerolls affixes (chance to raise rarity) for ✦ Dust. Salvage breaks backpack gear into ✦ Dust — no gold.</div>`;
-  html += `<div class="tier">Equipment &amp; Backpack</div>`;
-  const list = []; for (const s of SLOTS) { if (character.equipment[s]) list.push({ it: character.equipment[s], where: 'eq' }); } character.inventory.forEach(it => list.push({ it, where: 'inv' }));
-  if (!list.length) html += `<div style="color:#6a5a44">No gear to work — equip or loot some.</div>`;
-  body.innerHTML = html;
-  const junkInv = character.inventory.filter(it => it.rarity === 'common' || it.rarity === 'magic');
-  if (junkInv.length) {
-    const jd = junkInv.reduce((s, it) => s + dustValue(it), 0);
-    const bar = document.createElement('div'); bar.className = 'row'; bar.style.background = 'rgba(40,30,16,.55)';
-    bar.innerHTML = `<div class="rname" style="flex:1">Backpack junk <span style="color:#8a7a5a;font-size:11px">(${junkInv.length} common/magic → ✦ Dust)</span></div><div class="rbtn" id="smithSalvageJunk" style="border-color:#6a4aa0">Salvage Junk +${jd}✦</div>`;
-    body.appendChild(bar);
+  if (invOpen) renderInv(); /* paired inventory pane: refresh contents + selection highlight */
+  const body = document.getElementById('smithBody'), where = smithPickWhere(); if (!where) smithPick = null; const it = smithPick;
+  const DESC = { upgrade: 'Select a piece from your inventory, then forge it stronger — each upgrade adds raw power. Higher rarity upgrades further.', reforge: `Select a piece, then reroll its affixes for gold + ✦ Dust — ${Math.round(REFORGE_RARITY_UP * 100)}% chance to raise its rarity. Set &amp; unique gear can't be reforged.`, salvage: 'Select a backpack piece, then break it down into ✦ Dust — no gold. Equipped gear can\'t be salvaged.' };
+  let html = `<div style="color:#ffe27a;margin-bottom:8px">Your gold: ${player.gold} <span style="color:#b9a6ff">· ✦ ${character.materials || 0} Dust</span></div>`;
+  html += `<div style="color:#8a7a5a;font-size:12px;margin-bottom:12px">${DESC[smithTab]}</div>`;
+  if (!it) { html += `<div class="smithSlot empty">Click an item in your inventory →</div>`; }
+  else {
+    html += `<div class="smithSlot"><div class="ric" style="font-size:30px">${SLOT_ICON[it.slot]}</div><div style="flex:1"><div class="rname rc-${it.rarity}">${it.name}${it.upgrade ? ' <span style="color:#ffcf6a">+' + it.upgrade + '</span>' : ''}</div><div style="color:#8a7a5a;font-size:11px;text-transform:capitalize">${RARITY_NAME[it.rarity] || it.rarity} · ${it.slot}${where === 'eq' ? ' · equipped' : ''}</div>${affixLines(it)}</div></div>`;
+    if (smithTab === 'upgrade') {
+      const lvl = it.upgrade || 0, max = upgradeMax(it), atMax = lvl >= max, cost = upgradeCost(it), cur = Math.round((upFactor(it) - 1) * 100), nxt = Math.round((upFactor({ upgrade: lvl + 1 }) - 1) * 100);
+      html += atMax ? `<div class="smithAct">Fully upgraded — <b>+${cur}%</b> (MAX ${max})</div>` : `<div class="smithAct"><span>+${cur}% → <b>+${nxt}%</b></span><span class="rprice">${cost} g</span><div class="rbtn${player.gold >= cost ? '' : ' dis'}" id="smithDo">Upgrade</div></div>`;
+    } else if (smithTab === 'reforge') {
+      if (!reforgeable(it)) html += `<div class="smithAct" style="color:#6a5a44">${RARITY_NAME[it.rarity] || it.rarity} gear can't be reforged — only common, magic &amp; rare.</div>`;
+      else { const rc = reforgeCost(it), can = player.gold >= rc.gold && (character.materials || 0) >= rc.dust; html += `<div class="smithAct"><span>Reroll all affixes</span><span class="rprice">${rc.gold}g · ${rc.dust}✦</span><div class="rbtn${can ? '' : ' dis'}" id="smithDo" style="border-color:#6a4aa0">Reforge</div></div>`; }
+    } else {
+      if (where === 'eq') html += `<div class="smithAct" style="color:#6a5a44">Equipped — unequip it first to salvage.</div>`;
+      else html += `<div class="smithAct"><span>Break down into Dust</span><span class="rprice">+${dustValue(it)}✦</span><div class="rbtn" id="smithDo" style="border-color:#7a3a28">Salvage</div></div>`;
+    }
   }
-  list.forEach((e, i) => {
-    const it = e.it, lvl = it.upgrade || 0, max = upgradeMax(it), atMax = lvl >= max, cost = upgradeCost(it), cur = Math.round((upFactor(it) - 1) * 100), nxt = Math.round((upFactor({ upgrade: lvl + 1 }) - 1) * 100);
-    const upCtrl = atMax ? `<div class="rprice">MAX (${max})</div>` : `<div class="rprice">${cost} g</div><div class="rbtn${player.gold >= cost ? '' : ' dis'}" data-up="${i}">Upgrade</div>`;
-    const rc = reforgeCost(it), canRf = reforgeable(it) && player.gold >= rc.gold && (character.materials || 0) >= rc.dust;
-    const rfCtrl = reforgeable(it) ? `<div class="rbtn${canRf ? '' : ' dis'}" data-rf="${i}" title="Reroll all affixes · ${Math.round(REFORGE_RARITY_UP * 100)}% chance to raise rarity" style="margin-left:6px;border-color:#6a4aa0">Reforge ${rc.gold}g·${rc.dust}✦</div>` : '';
-    const svCtrl = e.where === 'inv' ? `<div class="rbtn" data-sv="${i}" title="Break this item down into ✦ Dust (no gold)" style="margin-left:6px;border-color:#7a3a28">Salvage +${dustValue(it)}✦</div>` : '';
-    const row = document.createElement('div'); row.className = 'row';
-    row.innerHTML = `<div class="ric">${SLOT_ICON[it.slot]}</div><div class="rname rc-${it.rarity}">${it.name} <span style="color:#ffcf6a">+${lvl}</span><span style="color:#8a7a5a;font-size:11px"> ${e.where === 'eq' ? '· equipped' : ''} · ${atMax ? '+' + cur + '% MAX' : '+' + cur + '% → +' + nxt + '%'}</span></div>${upCtrl}${rfCtrl}${svCtrl}`;
-    bindTip(row.querySelector('.rname'), it); body.appendChild(row);
-  });
-  body.querySelectorAll('[data-up]').forEach(b => b.onclick = () => { const e = list[+b.dataset.up], it = e.it; if ((it.upgrade || 0) >= upgradeMax(it)) return; const cost = upgradeCost(it); if (player.gold < cost) return; player.gold -= cost; it.upgrade = (it.upgrade || 0) + 1; goldTxt.textContent = player.gold + ' g'; if (e.where === 'eq') recompute(); sfx('level'); showMsg(it.name + ' → +' + it.upgrade); renderSmith(); saveProgress(false); });
-  body.querySelectorAll('[data-rf]').forEach(b => b.onclick = () => { const e = list[+b.dataset.rf], it = e.it; if (!reforgeable(it)) return; const rc = reforgeCost(it); if (player.gold < rc.gold || (character.materials || 0) < rc.dust) return; player.gold -= rc.gold; character.materials = (character.materials || 0) - rc.dust; const before = it.rarity; reforgeItem(it); goldTxt.textContent = player.gold + ' g'; if (e.where === 'eq') { recompute(); attachHeroWeapon(); } sfx('level'); showMsg(it.rarity !== before ? (it.name + ' → ' + (RARITY_NAME[it.rarity] || it.rarity) + '!') : ('Reforged: ' + it.name)); renderSmith(); updatePips(); saveProgress(false); });
-  body.querySelectorAll('[data-sv]').forEach(b => b.onclick = () => { const e = list[+b.dataset.sv], it = e.it; if (e.where !== 'inv') return; const du = dustValue(it); if ((RTIER[it.rarity] || 1) >= 3 && !confirm('Salvage ' + it.name + ' (' + (RARITY_NAME[it.rarity] || it.rarity) + ') into ' + du + ' Dust? This destroys the item.')) return; const idx = character.inventory.indexOf(it); if (idx < 0) return; character.materials = (character.materials || 0) + du; character.inventory.splice(idx, 1); sfx('potion'); showMsg('Salvaged: +' + du + '✦'); renderSmith(); updatePips(); saveProgress(false); });
-  const ssj = document.getElementById('smithSalvageJunk'); if (ssj) ssj.onclick = () => { const junk = character.inventory.filter(it => it.rarity === 'common' || it.rarity === 'magic'); if (!junk.length) return; const jd = junk.reduce((s, it) => s + dustValue(it), 0); character.materials = (character.materials || 0) + jd; character.inventory = character.inventory.filter(it => !(it.rarity === 'common' || it.rarity === 'magic')); sfx('potion'); showMsg('Salvaged junk: +' + jd + '✦'); renderSmith(); updatePips(); saveProgress(false); };
+  body.innerHTML = html;
+  if (it) { const rn = body.querySelector('.smithSlot .rname'); if (rn) bindTip(rn, it); const db = document.getElementById('smithDo'); if (db) db.onclick = smithAction; }
+  if (smithTab === 'salvage') {
+    const junk = character.inventory.filter(j => j.rarity === 'common' || j.rarity === 'magic');
+    if (junk.length) {
+      const jd = junk.reduce((s, j) => s + dustValue(j), 0); const bar = document.createElement('div'); bar.className = 'row'; bar.style.marginTop = '14px'; bar.style.background = 'rgba(40,30,16,.55)';
+      bar.innerHTML = `<div class="rname" style="flex:1">Backpack junk <span style="color:#8a7a5a;font-size:11px">(${junk.length} common/magic)</span></div><div class="rbtn" id="smithSalvageJunk" style="border-color:#6a4aa0">Salvage Junk +${jd}✦</div>`; body.appendChild(bar);
+      document.getElementById('smithSalvageJunk').onclick = () => { const jk = character.inventory.filter(j => j.rarity === 'common' || j.rarity === 'magic'); if (!jk.length) return; const d = jk.reduce((s, j) => s + dustValue(j), 0); if (jk.includes(smithPick)) smithPick = null; character.materials = (character.materials || 0) + d; character.inventory = character.inventory.filter(j => !(j.rarity === 'common' || j.rarity === 'magic')); sfx('potion'); showMsg('Salvaged junk: +' + d + '✦'); renderSmith(); updatePips(); saveProgress(false); };
+    }
+  }
 }
 function affixLines(it) { let s = ''; if (it.slot === 'weapon' && it.baseStat) s += `<div class="base">${it.baseStat} Damage</div>`; else if (it.baseStat) s += `<div class="base">${it.baseStat} Armor</div>`; for (const k in it.affixes) s += `<div class="aff">+${it.affixes[k]} ${AFFIXES[k].label}</div>`; if (it.enchant && it.enchant.key && AFFIXES[it.enchant.key]) s += `<div class="aff" style="color:#9f6aff">✦ +${it.enchant.val} ${AFFIXES[it.enchant.key].label} (enchant)</div>`; return s; }
 function statBundle(it) { const b = {}; if (it.baseStat) b[it.slot === 'weapon' ? 'Damage' : 'Armor'] = (b[it.slot === 'weapon' ? 'Damage' : 'Armor'] || 0) + it.baseStat; for (const k in it.affixes) { const l = AFFIXES[k] ? AFFIXES[k].label : k; b[l] = (b[l] || 0) + it.affixes[k]; } if (it.enchant && it.enchant.key && AFFIXES[it.enchant.key]) { const l = AFFIXES[it.enchant.key].label; b[l] = (b[l] || 0) + (it.enchant.val || 0); } return b; }
@@ -2684,14 +2710,14 @@ function bindTip(el, it) { el.onmouseenter = e => { tooltip.innerHTML = tooltipH
 function moveTip(e) { const pad = 14; let x = e.clientX - tooltip.offsetWidth - pad; if (x < 8) x = e.clientX + pad; x = clamp(x, 8, Math.max(8, innerWidth - tooltip.offsetWidth - 8)); tooltip.style.left = x + 'px'; tooltip.style.top = clamp(e.clientY - 20, 8, Math.max(8, innerHeight - tooltip.offsetHeight - 8)) + 'px'; }
 function renderInv() {
   const eg = document.getElementById('equipGrid'); eg.innerHTML = '';
-  for (const s of SLOTS) { const it = character.equipment[s]; const c = document.createElement('div'); c.className = 'cell' + (it ? ' r-' + it.rarity : ''); c.innerHTML = `<span class="lbl">${s}</span>${it ? SLOT_ICON[s] : '<span style="opacity:.25">' + SLOT_ICON[s] + '</span>'}`; if (it) { bindTip(c, it); c.onclick = () => unequip(s); } eg.appendChild(c); }
+  for (const s of SLOTS) { const it = character.equipment[s]; const c = document.createElement('div'); c.className = 'cell' + (it ? ' r-' + it.rarity : ''); c.innerHTML = `<span class="lbl">${s}</span>${it ? SLOT_ICON[s] : '<span style="opacity:.25">' + SLOT_ICON[s] + '</span>'}`; if (it) { bindTip(c, it); c.onclick = () => smithOpen ? selectSmithItem(it) : unequip(s); if (smithOpen && smithPick === it) c.classList.add('smithSel'); } eg.appendChild(c); }
   const sline = (k, lbl) => `<div class="statline">${lbl} <b>${player[k]}</b></div>`;
   document.getElementById('charStats').innerHTML = `<b>${character.name}</b> · Level ${player.level}<br>Damage <b>${player.dmg}</b> &nbsp; Crit <b>${(player.crit * 100).toFixed(0)}%</b> &nbsp; Atk Spd <b>${(1000 / player.attackRate).toFixed(2)}/s</b><br>Life <b>${player.hpMax}</b> &nbsp; Mana <b>${player.mpMax}</b> &nbsp; Armor <b>${player.armor}</b><br>${sline('str', 'STR')} ${sline('dex', 'DEX')} ${sline('vit', 'VIT')} ${sline('eng', 'ENG')}<span style="color:#8a7a5a">All stats now come from the skill forest (K)</span>`;
-  const ig = document.getElementById('invGrid'); ig.innerHTML = ''; for (let i = 0; i < character.invMax; i++) { const it = character.inventory[i]; const c = document.createElement('div'); c.className = 'cell' + (it ? ' r-' + it.rarity : ''); if (it) { const up = itemScore(it) > itemScore(character.equipment[it.slot]); c.innerHTML = (up ? '<span class="upg">▲</span>' : '') + SLOT_ICON[it.slot]; if (up) c.classList.add('isupg'); bindTip(c, it); c.onclick = () => equipFromInv(i); } ig.appendChild(c); }
+  const ig = document.getElementById('invGrid'); ig.innerHTML = ''; for (let i = 0; i < character.invMax; i++) { const it = character.inventory[i]; const c = document.createElement('div'); c.className = 'cell' + (it ? ' r-' + it.rarity : ''); if (it) { const up = itemScore(it) > itemScore(character.equipment[it.slot]); c.innerHTML = (up ? '<span class="upg">▲</span>' : '') + SLOT_ICON[it.slot]; if (up) c.classList.add('isupg'); bindTip(c, it); c.onclick = () => smithOpen ? selectSmithItem(it) : equipFromInv(i); if (smithOpen && smithPick === it) c.classList.add('smithSel'); } ig.appendChild(c); }
   goldTxt.textContent = player.gold + ' g'; const _dt = document.getElementById('dustTxt'); if (_dt) _dt.textContent = (character.materials || 0) + ' Dust'; /* currency bar lives at the bottom of the inventory now */
 }
-function equipFromInv(i) { const it = character.inventory[i]; if (!it) return; const prev = character.equipment[it.slot]; character.equipment[it.slot] = it; character.inventory.splice(i, 1); if (prev) character.inventory.push(prev); recompute(); attachHeroWeapon(); renderInv(); tooltip.style.display = 'none'; saveProgress(false); }
-function unequip(s) { const it = character.equipment[s]; if (!it) return; if (character.inventory.length >= character.invMax) { showMsg('Bag full'); return; } character.inventory.push(it); character.equipment[s] = null; recompute(); attachHeroWeapon(); renderInv(); tooltip.style.display = 'none'; saveProgress(false); }
+function equipFromInv(i) { const it = character.inventory[i]; if (!it) return; const prev = character.equipment[it.slot]; character.equipment[it.slot] = it; character.inventory.splice(i, 1); if (prev) character.inventory.push(prev); recompute(); attachHeroWeapon(); renderInv(); renderOpenShop(); tooltip.style.display = 'none'; saveProgress(false); }
+function unequip(s) { const it = character.equipment[s]; if (!it) return; if (character.inventory.length >= character.invMax) { showMsg('Bag full'); return; } character.inventory.push(it); character.equipment[s] = null; recompute(); attachHeroWeapon(); renderInv(); renderOpenShop(); tooltip.style.display = 'none'; saveProgress(false); }
 let ptT = { x: 0, y: 0, s: 1 };
 const PT_NAMES = { str: 'Strength', dex: 'Dexterity', vit: 'Vitality', eng: 'Energy', hp: 'Life', mp: 'Mana', dmg: 'Damage', armor: 'Armor', crit: 'Crit Chance', meleePct: '% Melee Damage', spellPct: '% Spell Damage', armorPct: '% Armor', hpPct: '% Life', allskills: 'to All Skills', pierce: 'Pierce', lifesteal: 'Life Leech', movespeed: '% Move Speed', thorns: 'Thorns' };
 function ptNote() { document.getElementById('skillPtsNote').textContent = character.skillPoints + ' point' + (character.skillPoints === 1 ? '' : 's') + ' to spend · drag to pan · scroll to zoom'; }
@@ -2742,6 +2768,7 @@ document.getElementById('resetSkills').onclick = () => { const start = PTREE.sta
 let vendorStock = [], vendorTab = 'buy', vendorTier = 1, vendorStockTier = 1;
 function refreshVendor(tier) { tier = tier || 1; vendorStockTier = tier; vendorStock = []; const bump = (tier - 1) * 7, q = tier >= 2 ? 0.35 : 0; for (let i = 0; i < 6; i++) vendorStock.push(rollItem(Math.max(1, player.level + randi(-1, 2)) + bump, null, q)); }
 function renderVendor() {
+  if (invOpen) renderInv(); /* keep the paired inventory pane in sync after a buy/sell */
   const body = document.getElementById('vendorBody'); body.innerHTML = `<div style="color:#ffe27a;margin-bottom:10px">Your gold: ${player.gold} <span style="color:#b9a6ff">· ✦ ${character.materials || 0} Dust</span></div>`;
   if (vendorTier >= 2) body.innerHTML += `<div style="color:#ff6ad0;margin-bottom:8px;font-size:13px">✦ Exotic wares — rarer, higher item level, premium prices.</div>`;
   if (vendorTab === 'buy') {
@@ -2767,6 +2794,9 @@ function renderVendor() {
 function setVendorTab(t) { if (t !== 'sell') t = 'buy'; vendorTab = t;['Buy', 'Sell'].forEach(n => document.getElementById('tab' + n).classList.toggle('on', t === n.toLowerCase())); renderVendor(); }
 document.getElementById('tabBuy').onclick = () => setVendorTab('buy');
 document.getElementById('tabSell').onclick = () => setVendorTab('sell');
+document.getElementById('smithTabUpgrade').onclick = () => setSmithTab('upgrade');
+document.getElementById('smithTabReforge').onclick = () => setSmithTab('reforge');
+document.getElementById('smithTabSalvage').onclick = () => setSmithTab('salvage');
 function renderStash() {
   const bp = document.getElementById('bpGrid'), st = document.getElementById('stGrid'); bp.innerHTML = ''; st.innerHTML = '';
   for (let i = 0; i < character.invMax; i++) { const it = character.inventory[i]; const c = document.createElement('div'); c.className = 'cell' + (it ? ' r-' + it.rarity : ''); c.innerHTML = it ? SLOT_ICON[it.slot] : ''; if (it) { bindTip(c, it); c.onclick = () => { if (character.stash.length >= character.stashMax) { showMsg('Stash full'); return; } character.stash.push(it); character.inventory.splice(i, 1); renderStash(); saveProgress(false); }; } bp.appendChild(c); }
