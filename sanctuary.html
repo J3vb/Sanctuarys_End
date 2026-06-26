@@ -24,13 +24,35 @@
   #manaFill{background:radial-gradient(circle at 50% 30%,#508dff,#001a8a);}
   .globe span{position:absolute;bottom:10px;left:0;right:0;text-align:center;color:#fff;font-size:13px;text-shadow:0 0 4px #000,0 0 4px #000;font-weight:bold;}
 
-  #skillbar{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:6px;padding:6px 10px;background:rgba(20,15,10,.85);border:2px solid #3a2e22;border-radius:6px;}
-  .skill{width:52px;height:52px;border:2px solid #4a3a28;border-radius:4px;background:#241b12;color:#d8c4a0;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;}
+  #actionBar{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);z-index:6;display:flex;flex-direction:column;gap:5px;padding:7px 10px 9px;background:linear-gradient(180deg,rgba(26,19,12,.92),rgba(13,9,5,.95));border:2px solid var(--border);border-radius:9px;box-shadow:0 0 0 2px #0a0706,0 10px 30px rgba(0,0,0,.7),inset 0 0 26px rgba(0,0,0,.55);}
+  #barRow{display:flex;align-items:center;gap:8px;}
+  #lvlBadge{flex:0 0 auto;width:44px;height:44px;border-radius:7px;border:2px solid var(--border-lit);background:radial-gradient(circle at 50% 32%,#3a2a14,#160f07);display:flex;align-items:center;justify-content:center;font-family:'Cinzel',Georgia,serif;font-weight:700;font-size:18px;color:var(--gold-bright);text-shadow:0 0 8px rgba(230,150,60,.6),0 1px 0 #000;box-shadow:inset 0 0 10px rgba(0,0,0,.6);}
+  #xpStrip{padding:0 1px;}
+  #skillbar{display:flex;gap:6px;}
+  .skill{width:52px;height:52px;border:2px solid #4a3a28;border-radius:4px;background:#241b12;color:#d8c4a0;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;cursor:pointer;}
   .skill.active{border-color:#ffe27a;box-shadow:0 0 16px #e6b84d,inset 0 0 8px rgba(255,226,122,.45);}
+  .skill.basic{border-color:#5a4632;background:#1d160e;cursor:default;}
+  .skill.basic .key{color:#cdb486;}
+  .skill.empty{border-style:dashed;opacity:.65;}
   .skill .key{position:absolute;top:1px;left:3px;font-size:9px;color:#8a7a5a;}
   .skill .rank{position:absolute;bottom:1px;right:3px;font-size:9px;color:#e6b84d;}
   .skill .ico{font-size:22px;}.skill .cost{font-size:9px;color:#8db;}
   .skill .cd{position:absolute;inset:0;background:rgba(0,0,0,.65);border-radius:2px;display:none;align-items:center;justify-content:center;font-size:18px;font-weight:bold;color:#fff;text-shadow:0 0 4px #000;}
+  #abilTree{margin-top:4px;}
+  .abilSlots{display:flex;gap:8px;justify-content:center;margin-bottom:6px;flex-wrap:wrap;}
+  .abilSlot{width:54px;height:54px;border:2px solid var(--border);border-radius:6px;background:#1a130c;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;cursor:pointer;}
+  .abilSlot.sel{border-color:var(--gold-bright);box-shadow:0 0 12px rgba(230,184,77,.5);}
+  .abilSlot.basic{border-color:#5a4632;background:#140e08;}
+  .abilSlot .slk{position:absolute;top:1px;left:3px;font-size:9px;color:var(--muted);}
+  .abilSlot .sli{font-size:24px;}
+  .abilSlot .sle{font-size:22px;color:#5a4632;}
+  .abilBar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:6px 0;flex-wrap:wrap;}
+  .abilHint{font-size:12px;color:#7a6a4a;}
+  .abilPick{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 10px;}
+  .abilChip{display:flex;align-items:center;gap:5px;padding:4px 9px;background:#241b12;border:1px solid var(--border);border-radius:5px;color:var(--text);cursor:pointer;font-size:13px;}
+  .abilChip:hover{border-color:var(--border-lit);}
+  .abilChip.on{background:#3a2418;border-color:var(--border-lit);color:var(--gold);}
+  #runeReset{cursor:pointer;color:#b9a6ff;font-size:12px;border:1px solid #3a2e22;border-radius:5px;padding:4px 10px;background:#1a1320;}
 
   #topbar{position:absolute;top:0;left:0;right:0;padding:8px 16px;display:flex;justify-content:space-between;align-items:center;color:#d8c4a0;text-shadow:0 0 4px #000;z-index:5;display:none;}
   #topbar .lvl{font-size:18px;}#topbar .name{font-size:15px;color:#e6b84d;}
@@ -41,8 +63,8 @@
   .pip{position:absolute;top:-6px;right:-6px;background:#c4302b;color:#fff;border-radius:50%;width:16px;height:16px;font-size:10px;display:flex;align-items:center;justify-content:center;}
   #saveNote{position:absolute;top:34px;right:16px;color:#8a7a5a;font-size:12px;opacity:0;transition:opacity .3s;z-index:5;}
   #minimap{position:absolute;top:60px;right:16px;width:170px;height:170px;z-index:5;display:none;border-radius:50%;border:2px solid #3a2e22;box-shadow:0 0 16px rgba(0,0,0,.7);background:rgba(8,6,4,.55);}
-  #xpbar{position:absolute;top:42px;left:50%;transform:translateX(-50%);width:320px;height:8px;background:#1a130c;border:1px solid #3a2e22;border-radius:4px;overflow:hidden;z-index:5;display:none;}
-  #xpfill{height:100%;width:0;background:linear-gradient(90deg,#e6b84d,#fff2b0);transition:width .2s;}
+  #xpbar{width:100%;height:6px;background:#160f07;border:1px solid var(--border);border-radius:4px;overflow:hidden;}
+  #xpfill{height:100%;width:0;background:linear-gradient(90deg,var(--gold),var(--gold-bright));transition:width .2s;}
   #msg{position:absolute;top:92px;left:50%;transform:translateX(-50%);color:#e6b84d;font-size:28px;text-shadow:0 0 8px #000;opacity:0;transition:opacity .4s;z-index:5;text-align:center;}
   #prompt{position:absolute;bottom:150px;left:50%;transform:translateX(-50%);color:#e6d8a0;background:rgba(20,14,8,.8);border:1px solid #4a3a28;border-radius:6px;padding:8px 16px;font-size:15px;z-index:6;display:none;text-shadow:0 0 4px #000;}
   #prompt b{color:#ffe27a;}
@@ -321,7 +343,6 @@
 </div>
 <div id="saveNote">Saved</div>
 <canvas id="minimap" width="170" height="170"></canvas>
-<div id="xpbar"><div id="xpfill"></div></div>
 <div id="msg"></div>
 <div id="prompt"></div>
 <div id="bossBar" style="display:none"><div id="bossName">Boss</div><div id="bossTrack"><div id="bossFill"></div></div></div>
@@ -330,7 +351,13 @@
   <div class="globe" id="healthGlobe"><div class="fill" id="healthFill"></div><span id="hpTxt">100/100</span></div>
   <div class="globe" id="manaGlobe"><div class="fill" id="manaFill"></div><span id="mpTxt">50/50</span></div>
   <div id="potionInd">🧪 <b id="potCount">4</b> 🔵 <b id="potCountM" style="color:#5a9bff">2</b> <span id="potKeys">Space / Q</span></div>
-  <div id="skillbar"></div>
+  <div id="actionBar">
+    <div id="xpStrip"><div id="xpbar"><div id="xpfill"></div></div></div>
+    <div id="barRow">
+      <div id="lvlBadge"><span id="lvlBadgeNum">1</span></div>
+      <div id="skillbar"></div>
+    </div>
+  </div>
 </div>
 
 <div id="statsPanel" class="panel">
@@ -350,17 +377,27 @@
 </div>
 
 <div id="skillPanel" class="panel">
-  <h3>Skill Forest</h3><span class="close" id="skillClose">✕</span>
-  <div class="ptsNote" id="skillPtsNote">0 skill points</div>
-  <div class="ptLegend">
-    <span class="lg"><span class="dot" style="border-color:#ffe27a;background:#c8ad7a"></span>Allocated</span>
-    <span class="lg"><span class="dot" style="border-color:#e6b84d;background:#16110a"></span>Available</span>
-    <span class="lg"><span class="dot" style="border-color:#352c20;background:#16110a"></span>Locked</span>
-    <span class="lg"><span class="dot" style="border-color:#ffcf3a;background:#16110a;width:16px;height:16px"></span>Keystone</span>
-    <span class="recenter" id="ptRecenter">⌖ Recenter</span>
+  <h3>Skills</h3><span class="close" id="skillClose">✕</span>
+  <div class="tabs" id="skillTabs">
+    <div class="tab on" data-sktab="abilities">Abilities</div>
+    <div class="tab" data-sktab="forest">Passive Forest</div>
   </div>
-  <div id="skillTree"></div>
-  <div id="resetSkills">↺ Refund all passives (free)</div>
+  <div class="skPane" data-skpane="abilities">
+    <div class="ptsNote" id="abilNote">Assign skills to your action bar, then spend ability points on their rune trees.</div>
+    <div id="abilTree"></div>
+  </div>
+  <div class="skPane" data-skpane="forest" style="display:none">
+    <div class="ptsNote" id="skillPtsNote">0 skill points</div>
+    <div class="ptLegend">
+      <span class="lg"><span class="dot" style="border-color:#ffe27a;background:#c8ad7a"></span>Allocated</span>
+      <span class="lg"><span class="dot" style="border-color:#e6b84d;background:#16110a"></span>Available</span>
+      <span class="lg"><span class="dot" style="border-color:#352c20;background:#16110a"></span>Locked</span>
+      <span class="lg"><span class="dot" style="border-color:#ffcf3a;background:#16110a;width:16px;height:16px"></span>Keystone</span>
+      <span class="recenter" id="ptRecenter">⌖ Recenter</span>
+    </div>
+    <div id="skillTree"></div>
+    <div id="resetSkills">↺ Refund all passives (free)</div>
+  </div>
 </div>
 
 <div id="vendorPanel" class="modal dockL">
@@ -470,7 +507,7 @@
   </div>
   <div class="setPane" data-pane="controls" style="display:none">
     <div id="ctrlList"></div>
-    <div style="font-size:12px;color:#7a6a4a;margin-top:8px;">Click ✎ then press a key. Skill slots 1–9, 0 are fixed.</div>
+    <div style="font-size:12px;color:#7a6a4a;margin-top:8px;">Click ✎ then press a key. Keys use the physical key position, so rebinds work on any layout (AZERTY/QWERTZ). Left-click moves &amp; basic-attacks; the right slot casts on right-click.</div>
     <button class="btn small" id="ctrlReset" style="margin-top:10px;width:100%">Reset to Defaults</button>
   </div>
   <div class="setPane" data-pane="saves" style="display:none">
@@ -496,7 +533,7 @@
   <h4>Movement &amp; Combat</h4>
   <div class="keyrow"><span class="kbd">Left-click</span><span class="kd">Move, or attack the enemy under the cursor — <b>hold</b> to keep moving/attacking</span></div>
   <div class="keyrow"><span class="kbd">Right-click</span><span class="kd">Cast your selected skill toward the cursor — <b>hold</b> to keep casting (auto-repeats off cooldown)</span></div>
-  <div class="keyrow"><span class="kbd">1 – 9, 0</span><span class="kd">Pick which skill is active on the bar</span></div>
+  <div class="keyrow"><span class="kbd" id="hkSkills">1 2 3 4</span><span class="kd">Cast the skills assigned to your action-bar slots</span></div>
   <div class="keyrow"><span class="kbd" id="hkHp">Space</span><span class="kd">Drink a health potion</span></div>
   <div class="keyrow"><span class="kbd" id="hkMana">Q</span><span class="kd">Drink a mana potion</span></div>
   <div class="keyrow"><span class="kbd">Scroll</span><span class="kd">Zoom the camera in and out</span></div>
@@ -506,7 +543,7 @@
   <div class="keyrow"><span class="kbd" id="hkMap">G</span><span class="kd">Open the waypoint map to fast-travel between towns &amp; areas</span></div>
   <h4>Panels</h4>
   <div class="keyrow"><span class="kbd" id="hkInv">I</span><span class="kd">Inventory — click a backpack item to equip, hover to compare</span></div>
-  <div class="keyrow"><span class="kbd" id="hkSkill">K</span><span class="kd">Skill Forest — drag to pan, scroll to zoom, click a node to allocate</span></div>
+  <div class="keyrow"><span class="kbd" id="hkSkill">K</span><span class="kd">Skills — assign abilities to bar slots &amp; spend points on rune trees / passive forest</span></div>
   <div class="keyrow"><span class="kbd" id="hkSound">M</span><span class="kd">Toggle sound</span></div>
   <div class="keyrow"><span class="kbd" id="hkClose">Esc</span><span class="kd">Close any open panel</span></div>
   <h4>Tips</h4>

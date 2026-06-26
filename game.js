@@ -318,10 +318,25 @@ const PTREE = (() => {
   return { nodes, adj, starts };
 })();
 function defaultSkillRanks() { const o = {}; for (const id in SKILLDEFS) o[id] = (id === 'strike') ? 1 : 0; return o; }
+// V7 action-bar loadout: 6 fixed slots [LMB basic, RMB, key1..4]. Backfill from currently-unlocked actives;
+// RMB (slot 1) preferentially takes the old activeSkillId so existing characters keep their "selected" skill.
+function defaultLoadout(ch) {
+  const lo = ['strike', null, null, null, null, null];
+  const unlocked = ACTIVE_ORDER.filter(id => id !== 'strike' && ch.skills && ch.skills[id] >= 1);
+  if (ch.activeSkillId && ch.activeSkillId !== 'strike' && unlocked.indexOf(ch.activeSkillId) >= 0) lo[1] = ch.activeSkillId;
+  let s = 1;
+  for (const id of unlocked) {
+    if (id === lo[1]) continue;
+    while (s < 6 && lo[s]) s++;
+    if (s >= 6) break;
+    lo[s] = id; s++;
+  }
+  return lo;
+}
 
 /* ================= SAVE ================= */
 const SAVE = {
-  KEY: 'sanctuarys_end_saves', VERSION: 6, NUM_SLOTS: 3, _data: null,
+  KEY: 'sanctuarys_end_saves', VERSION: 7, NUM_SLOTS: 3, _data: null,
   load() {
     try { this._data = JSON.parse(localStorage.getItem(this.KEY)); } catch (e) { this._data = null; }
     if (!this._data) this._data = { version: this.VERSION, slots: Array(this.NUM_SLOTS).fill(null) };
@@ -341,7 +356,12 @@ const SAVE = {
     if (ch.invMax == null) ch.invMax = 40; if (ch.stashMax == null) ch.stashMax = 40; if (ch.activeSkillId === undefined) ch.activeSkillId = null; if (ch.materials == null) ch.materials = 0;
     if (ch.xpNext == null) ch.xpNext = 30; if (ch.maxDepth == null) ch.maxDepth = 0; if (!ch.class) ch.class = 'warrior'; if (!ch.passives || !ch.passives.length) ch.passives = [PTREE.starts[ch.class] || 'start_str']; if (ch.statPoints > 0) { ch.skillPoints = (ch.skillPoints || 0) + ch.statPoints; ch.statPoints = 0; }
     if (ch.discovered == null) ch.discovered = { town: true, highreach: false, emberhold: false };
-    if (ch.gems == null) ch.gems = {}; return ch;
+    if (ch.gems == null) ch.gems = {};
+    // ---- V7: ability loadout + per-skill rune trees (additive; never touches skills/passives/skillPoints/gems) ----
+    if (!Array.isArray(ch.loadout) || ch.loadout.length !== 6) ch.loadout = defaultLoadout(ch); else ch.loadout[0] = 'strike';
+    ch.skillRunes = ch.skillRunes || {};
+    if (ch.abilityPoints == null) ch.abilityPoints = Math.max(0, (ch.level || 1) - 1); // retroactive +1/lvl from L2
+    return ch;
   },
   persist() { try { localStorage.setItem(this.KEY, JSON.stringify(this._data)); return true; } catch (e) { return false; } },
   getSlot(i) { return this._data.slots[i]; },
@@ -350,7 +370,8 @@ const SAVE = {
     return {
       name, class: cls, version: this.VERSION, created: Date.now(), lastPlayed: Date.now(), level: 1, xp: 0, xpNext: 30, gold: 0, materials: 0, gems: {}, kills: 0, potions: 4, hpPotions: 4, mpPotions: 2, potionTier: 0, potionCap: 10, invMax: 40, stashMax: 40, maxDepth: 0, activeSkillId: null, discovered: { town: true, highreach: false, emberhold: false },
       base: { hpMax: 100, mpMax: 50, dmg: 10 }, stats: { str: c.base.str, dex: c.base.dex, vit: c.base.vit, eng: c.base.eng }, statPoints: 0, skillPoints: 0,
-      inventory: [], stash: [], equipment: { weapon: null, helm: null, armor: null, gloves: null, boots: null, ring: null, amulet: null }, skills, passives: [PTREE.starts[cls]]
+      inventory: [], stash: [], equipment: { weapon: null, helm: null, armor: null, gloves: null, boots: null, ring: null, amulet: null }, skills, passives: [PTREE.starts[cls]],
+      loadout: ['strike', (c.granted && c.granted[0]) || null, null, null, null, null], skillRunes: {}, abilityPoints: 0
     };
   },
   saveCharacter(i, ch) { ch.lastPlayed = Date.now(); this._data.slots[i] = ch; return this.persist(); },
@@ -1674,7 +1695,7 @@ loadRoster();
 const player = { x: 0, z: 0, r: 1.4, speed: 0.32, hp: 100, hpMax: 100, mp: 50, mpMax: 50, level: 1, xp: 0, xpNext: 30, gold: 0, kills: 0, dmg: 14, attackCd: 0, attackRate: 420, range: 3.2, potions: 4, dir: 0, swing: 0, bob: 0, armor: 0, crit: 0.05, mpRegen: 0.004, chillUntil: 0, effects: { lifesteal: 0, thorns: 0, allskills: 0, movespeed: 0, critdmg: false, pierce: 0, dodge: 0, flatDR: 0, lifeOnHit: 0 }, goldFind: 0, cdr: 0, meleeMult: 1, spellMult: 1, buffs: { cryUntil: 0, cryMul: 1, cryDR: 0 } };
 // Effective skill cooldown after Cooldown Reduction. MUST be used by both the cast gate and the cooldown
 // swirl render, or the on-screen timer desyncs from when the skill actually re-fires.
-const skillCd = def => def.cd * (1 - (player.cdr || 0));
+const skillCd = (def, id) => def.cd * (1 - (player.cdr || 0)) * (id ? resolveSkill(id).cdrMult : 1);
 
 function recompute() {
   const b = character.base, st = character.stats, eq = character.equipment, sk = character.skills; const cls = CLASSES[character.class] || CLASSES.warrior;
@@ -1722,7 +1743,7 @@ function recompute() {
   player.hp = Math.min(player.hp, player.hpMax); player.mp = Math.min(player.mp, player.mpMax); updateGlobes(); updatePips();
 }
 
-let activeSkill = 0, visibleActives = []; let monsters = [], projectiles = [], loots = [], floats = [], fx = []; let target = null, moveTarget = null; let boss = null, bossActive = false;
+let monsters = [], projectiles = [], loots = [], floats = [], fx = []; let target = null, moveTarget = null; let boss = null, bossActive = false;
 /* Phase 1: in-place list compaction — replaces the per-frame Array.filter() that allocated a fresh array
    AND a fresh closure every frame for projectiles/fx/loots/floats. Predicate/killer are module-level
    singletons (no per-frame closure alloc); arr.length=w truncates in place (no realloc). Order-preserving. */
@@ -1976,7 +1997,7 @@ function pick(ev) {
 renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
 renderer.domElement.addEventListener('mousedown', e => {
   if (!running || busyPanel() || anyModal()) return; e.preventDefault(); const m = pick(e);
-  if (e.button === 2) { rmbDown = true; if (isCombat()) castActive(visibleActives[activeSkill], { x: mouseWorld.x, z: mouseWorld.z }); return; }
+  if (e.button === 2) { rmbDown = true; if (isCombat()) castActive(character.loadout[1], { x: mouseWorld.x, z: mouseWorld.z }); return; }
   if (e.button === 0) { lmbDown = true; if (m && isCombat()) { target = m; moveTarget = null; } else { moveTarget = { x: mouseWorld.x, z: mouseWorld.z }; target = null; } }
 });
 renderer.domElement.addEventListener('mousemove', e => { if (running && !busyPanel() && !anyModal()) pick(e); });
@@ -1985,15 +2006,42 @@ renderer.domElement.addEventListener('mouseleave', () => { lmbDown = rmbDown = f
 addEventListener('blur', () => { lmbDown = rmbDown = false; });
 addEventListener('wheel', e => { if (!running || busyPanel() || anyModal()) return; camDist = clamp(camDist + Math.sign(e.deltaY) * 4, 28, 72); camHeight = camDist * 0.9; });
 /* ---------- centralized keybinds + single dispatcher ---------- */
-const DEFAULT_KEYBINDS = { toggleInv: ['i', 'b'], toggleSkill: ['k'], enterTown: ['t'], interact: ['e'], hpPotion: [' '], manaPotion: ['q'], toggleMap: ['g'], toggleSound: ['m'], toggleDebug: ['`', '~'], toggleHelp: ['h', '?'], close: ['Escape'] };
-const KEYBIND_LABELS = { toggleInv: 'Inventory', toggleSkill: 'Skill Forest', enterTown: 'Return to Town', interact: 'Interact', hpPotion: 'Health Potion', manaPotion: 'Mana Potion', toggleMap: 'Waypoint Map', toggleSound: 'Toggle Sound', toggleDebug: 'Debug Overlay', toggleHelp: 'Help', close: 'Close / Cancel' };
-const KEYBIND_ORDER = ['toggleInv', 'toggleSkill', 'enterTown', 'interact', 'hpPotion', 'manaPotion', 'toggleMap', 'toggleSound', 'toggleHelp', 'toggleDebug'];
-const RESERVED_KEYS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+/* Keybinds use KeyboardEvent.code (PHYSICAL key) so they're AZERTY/QWERTZ-safe — e.key would shift with layout. */
+const DEFAULT_KEYBINDS = { toggleInv: ['KeyI', 'KeyB'], toggleSkill: ['KeyK'], enterTown: ['KeyT'], interact: ['KeyE'], hpPotion: ['Space'], manaPotion: ['KeyQ'], toggleMap: ['KeyG'], toggleSound: ['KeyM'], toggleDebug: ['Backquote'], toggleHelp: ['KeyH', 'Slash'], close: ['Escape'], skill1: ['Digit1'], skill2: ['Digit2'], skill3: ['Digit3'], skill4: ['Digit4'] };
+const KEYBIND_LABELS = { toggleInv: 'Inventory', toggleSkill: 'Skills', enterTown: 'Return to Town', interact: 'Interact', hpPotion: 'Health Potion', manaPotion: 'Mana Potion', toggleMap: 'Waypoint Map', toggleSound: 'Toggle Sound', toggleDebug: 'Debug Overlay', toggleHelp: 'Help', close: 'Close / Cancel', skill1: 'Skill Slot 1', skill2: 'Skill Slot 2', skill3: 'Skill Slot 3', skill4: 'Skill Slot 4' };
+const KEYBIND_ORDER = ['skill1', 'skill2', 'skill3', 'skill4', 'toggleInv', 'toggleSkill', 'enterTown', 'interact', 'hpPotion', 'manaPotion', 'toggleMap', 'toggleSound', 'toggleHelp', 'toggleDebug'];
 let KEYBINDS = {};
-function buildKeybinds() { const u = (SAVE._data.settings && SAVE._data.settings.keybinds) || {}; KEYBINDS = {}; for (const a in DEFAULT_KEYBINDS) KEYBINDS[a] = Array.isArray(u[a]) ? u[a].slice() : DEFAULT_KEYBINDS[a].slice(); return KEYBINDS; }
+// Convert a legacy e.key-char bind (pre-V7 saves) to an event.code; returns null if unmappable (caller falls back to default).
+function migrateKey(k) {
+  if (typeof k !== 'string' || !k) return null;
+  if (/^(Key[A-Z]|Digit[0-9]|Numpad[0-9]|Arrow(Up|Down|Left|Right)|Space|Escape|Backquote|Slash|Minus|Equal|Comma|Period|Semicolon|Quote|Backslash|Bracket(Left|Right)|F\d{1,2}|Enter|Tab)$/.test(k)) return k;
+  if (k === ' ') return 'Space';
+  if (k === 'Escape') return 'Escape';
+  if (k === '`' || k === '~') return 'Backquote';
+  if (k === '?' || k === '/') return 'Slash';
+  if (k.length === 1) { const c = k.toLowerCase(); if (c >= 'a' && c <= 'z') return 'Key' + c.toUpperCase(); if (c >= '0' && c <= '9') return 'Digit' + c; }
+  return null;
+}
+function buildKeybinds() {
+  const u = (SAVE._data.settings && SAVE._data.settings.keybinds) || {}; KEYBINDS = {}; let dirty = false;
+  for (const a in DEFAULT_KEYBINDS) {
+    let arr = Array.isArray(u[a]) ? u[a].map(migrateKey).filter(Boolean) : null;
+    if (Array.isArray(u[a]) && (!arr || arr.length !== u[a].length)) dirty = true;
+    KEYBINDS[a] = (arr && arr.length) ? arr : DEFAULT_KEYBINDS[a].slice();
+  }
+  if (dirty && SAVE._data.settings) { const out = {}; for (const a in u) if (KEYBINDS[a]) out[a] = KEYBINDS[a].slice(); SAVE._data.settings.keybinds = out; SAVE.persist(); }
+  return KEYBINDS;
+}
 buildKeybinds();
-function normalizeKey(e) { const k = e.key; if (k === ' ' || e.code === 'Space') return ' '; if (k.length === 1) return k.toLowerCase(); return k; }
-function keyLabel(k) { if (k === ' ') return 'Space'; if (k === 'Escape') return 'Esc'; if (k === 'ArrowUp') return '↑'; if (k === 'ArrowDown') return '↓'; if (k === 'ArrowLeft') return '←'; if (k === 'ArrowRight') return '→'; return k.length === 1 ? k.toUpperCase() : k; }
+function normalizeKey(e) { return e.code || e.key; }
+function keyLabel(c) {
+  if (!c) return '?';
+  if (/^Key[A-Z]$/.test(c)) return c.slice(3);
+  if (/^Digit[0-9]$/.test(c)) return c.slice(5);
+  if (/^Numpad[0-9]$/.test(c)) return 'Num ' + c.slice(6);
+  const M = { Space: 'Space', Escape: 'Esc', Backquote: '`', Slash: '/', Minus: '-', Equal: '=', Comma: ',', Period: '.', Semicolon: ';', Quote: "'", Backslash: '\\', BracketLeft: '[', BracketRight: ']', ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→', Enter: 'Enter', Tab: 'Tab' };
+  return M[c] || c;
+}
 function actionForKey(e) { const k = normalizeKey(e); for (const a in KEYBINDS) { if (KEYBINDS[a].indexOf(k) >= 0) return a; } return null; }
 let capturingAction = null, captureCb = null;
 addEventListener('keydown', e => {
@@ -2012,7 +2060,10 @@ addEventListener('keydown', e => {
   if (a === 'enterTown') { if (zone !== 'town') enterTown(); return; }
   if (a === 'interact') { interact(); return; }
   if (busyPanel()) return; /* inventory stays live: skill-select + potions work with it open */
-  const n = (e.key === '0') ? 10 : +e.key; if (n >= 1 && n <= 10 && n <= visibleActives.length) { selectSkill(n - 1); return; }
+  if (a === 'skill1') { if (isCombat() && !player.stunned) castActive(character.loadout[2], { x: mouseWorld.x, z: mouseWorld.z }); return; }
+  if (a === 'skill2') { if (isCombat() && !player.stunned) castActive(character.loadout[3], { x: mouseWorld.x, z: mouseWorld.z }); return; }
+  if (a === 'skill3') { if (isCombat() && !player.stunned) castActive(character.loadout[4], { x: mouseWorld.x, z: mouseWorld.z }); return; }
+  if (a === 'skill4') { if (isCombat() && !player.stunned) castActive(character.loadout[5], { x: mouseWorld.x, z: mouseWorld.z }); return; }
   if (a === 'hpPotion') { drinkPotion(); return; }
   if (a === 'manaPotion') { drinkManaPotion(); return; }
 });
@@ -2049,33 +2100,123 @@ const SKILL_COEF = {
   fanofknives: { coef: r => 0.5 + 0.1 * r, school: 'melee', hits: r => 10 + 2 * r },
   secondwind: { school: 'none', note: 'heals from spent mana' },
 };
+/* ================= RUNES (deep per-skill upgrade trees) =================
+   Each active skill gets a small D3-rune-style tree (SKILL_RUNES[id]). Rune effects are a BOUNDED set of
+   composable numeric mods + named behavior flags, folded by resolveSkill(id) into one struct that castActive /
+   skillCd / the mana check / the tooltips all read — so adding runes is DATA, never new per-skill code. */
+const RUNE_FLAG_INFO = {
+  explodeOnImpact: ['Volatile', 'Bursts for area damage on impact'],
+  fork: ['Splinter', 'Splits into two on first hit'],
+  pierceAll: ['Impale', 'Passes through every enemy'],
+  freeze: ['Glaciate', 'Chills enemies it strikes'],
+  chillNova: ['Frost Burst', 'Frost nova at the impact point'],
+  knockback: ['Concussive', 'Knocks enemies back'],
+  homing: ['Seeking', 'Projectiles curve toward foes'],
+  vampiric: ['Vampiric', 'Heals you for part of the damage'],
+  lingering: ['Lingering', 'Leaves a damaging field at the impact'],
+  doubleCast: ['Echo Strike', 'Unleashes the skill a second time'],
+};
+// Skill kind -> rune archetype (drives which exclusive choices the tree offers).
+const RUNE_KIND = { fire: 'proj', frost: 'proj', arcaneorb: 'proj', nova: 'multiproj', multishot: 'multiproj', volley: 'multiproj', fanofknives: 'multiproj', chain: 'chain', cleave: 'aoe', whirl: 'aoe', leap: 'aoe', meteor: 'aoe', frostnova: 'aoe', groundslam: 'aoe', charge: 'aoe', blizzard: 'aoe', teleportstorm: 'aoe', warcry: 'util', secondwind: 'util', blink: 'util', shadowstep: 'util' };
+function _runeShape(kc) {
+  if (kc === 'proj') return [{ flag: 'explodeOnImpact', mod: { addRadius: 3 } }, { flag: 'fork' }, { flag: 'pierceAll' }];
+  if (kc === 'multiproj') return [{ flag: 'explodeOnImpact', mod: { addRadius: 3 } }, { flag: 'fork' }, { flag: 'freeze' }];
+  if (kc === 'chain') return [{ mod: { addRadius: 2 }, label: 'Wide Arc' }, { flag: 'doubleCast' }, { mod: { dmgMult: 0.25 }, label: 'Overload' }];
+  if (kc === 'aoe') return [{ mod: { addRadius: 3 }, label: 'Wide Reach' }, { flag: 'doubleCast' }, { mod: { dmgMult: 0.25 }, label: 'Overpower' }];
+  return [{ mod: { cdrMult: -0.15 }, label: 'Swift' }, { mod: { dmgMult: 0.25 }, label: 'Empowered' }, { mod: { addDuration: 1500 }, label: 'Extended' }];
+}
+function _runeKey(kc) {
+  if (kc === 'proj' || kc === 'multiproj') return { flag: 'homing', mod: { dmgMult: 0.15 }, label: 'Seeker' };
+  if (kc === 'util') return { mod: { cdrMult: -0.2, dmgMult: 0.2 }, label: 'Mastery' };
+  return { mod: { dmgMult: 0.4 }, label: 'Devastate' };
+}
+function buildSkillTree(id) {
+  const def = SKILLDEFS[id]; const kc = RUNE_KIND[def.kind] || 'util'; const base = def.req || 1; const nodes = {}, adj = {};
+  const N = (nid, x, y, type, max, cost, lvlreq, mod, flags, label, excl) => { nodes[nid] = { x, y, type, max, cost, lvlreq, mod: mod || {}, flags: flags || [], label, excl: excl || null }; adj[nid] = adj[nid] || []; };
+  const L = (a, b) => { (adj[a] = adj[a] || []).push(b); (adj[b] = adj[b] || []).push(a); };
+  const root = id + '_dmg';
+  N(root, 0, -72, 'minor', 5, 1, 0, { dmgMult: 0.07 }, [], 'Empower');
+  N(id + '_cdr', -62, -8, 'minor', 3, 1, 0, { cdrMult: -0.05 }, [], 'Quicken'); L(root, id + '_cdr');
+  N(id + '_mana', 62, -8, 'minor', 3, 1, 0, { costMult: -0.08 }, [], 'Focus'); L(root, id + '_mana');
+  if (kc === 'multiproj' || kc === 'chain') { N(id + '_proj', 0, 8, 'minor', 2, 2, base, { addProj: 1 }, [], kc === 'chain' ? 'Arc Splitter' : 'Extra Bolt'); L(root, id + '_proj'); }
+  const shapes = _runeShape(kc); const sx = [-80, 0, 80];
+  shapes.forEach((s, i) => { const nid = id + '_sh' + i; const lab = s.label || (s.flag && RUNE_FLAG_INFO[s.flag] ? RUNE_FLAG_INFO[s.flag][0] : 'Rune'); N(nid, sx[i], 80, 'notable', 1, 2, base + 2, s.mod || {}, s.flag ? [s.flag] : [], lab, 'shape'); L(i === 0 ? id + '_cdr' : i === 2 ? id + '_mana' : root, nid); });
+  const key = _runeKey(kc); N(id + '_key', 0, 158, 'keystone', 1, 3, base + 4, key.mod || {}, key.flag ? [key.flag] : [], key.label); L(id + '_sh1', id + '_key');
+  return { root, nodes, adj };
+}
+const SKILL_RUNES = (() => { const o = {}; for (const id of ACTIVE_ORDER) { if (id === 'strike') continue; o[id] = buildSkillTree(id); } return o; })();
+let _runeCache = {};
+function invalidateRunes() { _runeCache = {}; }
+// Pure: fold a skill's allocated rune nodes into one effect struct. Depends only on character.skillRunes[id] (cache-safe).
+function resolveSkill(id) {
+  const hit = _runeCache[id]; if (hit) return hit;
+  const out = { dmgMult: 1, cdrMult: 1, costMult: 1, addProj: 0, addHits: 0, addRadius: 0, addSlow: 0, addDuration: 0, pierce: 0, flags: new Set() };
+  const tree = SKILL_RUNES[id], alloc = character && character.skillRunes && character.skillRunes[id];
+  if (tree && alloc) {
+    let d = 0, c = 0, k = 0;
+    for (const nid in alloc) {
+      const ranks = alloc[nid]; if (!ranks) continue; const node = tree.nodes[nid]; if (!node) continue; const m = node.mod || {};
+      d += (m.dmgMult || 0) * ranks; c += (m.cdrMult || 0) * ranks; k += (m.costMult || 0) * ranks;
+      out.addProj += (m.addProj || 0) * ranks; out.addHits += (m.addHits || 0) * ranks; out.addRadius += (m.addRadius || 0) * ranks;
+      out.addSlow += (m.addSlow || 0) * ranks; out.addDuration += (m.addDuration || 0) * ranks; out.pierce += (m.pierce || 0) * ranks;
+      if (node.flags) for (const f of node.flags) out.flags.add(f);
+    }
+    out.dmgMult = 1 + d; out.cdrMult = clamp(1 + c, 0.2, 1.5); out.costMult = clamp(1 + k, 0.25, 2);
+  }
+  return _runeCache[id] = out;
+}
+// Stamp resolved rune flags/pierce onto a freshly spawned projectile.
+function applyRuneProj(p, R) {
+  if (!p || !R) return p;
+  if (R.pierce) { p.pierce = (p.pierce || 0) + R.pierce; if (!p.hit) p.hit = new Set(); }
+  if (R.flags.has('pierceAll')) { p.pierce = 999; if (!p.hit) p.hit = new Set(); }
+  if (R.flags.has('explodeOnImpact')) { p.explode = true; p.explodeR = 4 + R.addRadius; }
+  if (R.flags.has('freeze')) p.freeze = true;
+  if (R.flags.has('chillNova')) p.chillNova = true;
+  if (R.flags.has('fork')) p.fork = true;
+  if (R.flags.has('knockback')) p.knockback = true;
+  if (R.flags.has('homing')) p.homing = true;
+  if (R.flags.has('vampiric')) p.vampiric = true;
+  if (R.flags.has('lingering')) p.lingering = true;
+  return p;
+}
+// One-time on-impact rune burst for a projectile (explode / chill-nova / lingering field / fork).
+function projBurst(p) {
+  if (p._burst || !(p.explode || p.chillNova || p.fork || p.lingering)) return; p._burst = true;
+  if (p.explode) { spawnExplosion(p.x, p.z, 0xff7030); const r = p.explodeR || 4; for (const o of monsters) { if (Math.hypot(o.x - p.x, o.z - p.z) < r) { hitMonsterProj(o, p.dmg * 0.6, p.kind); if (o.hp > 0 && p.onHit) applyOnHit(o, p.onHit, p.dmg * 0.6); } } }
+  if (p.chillNova) { spawnExplosion(p.x, p.z, 0x6ad8ff); for (const o of monsters) { if (Math.hypot(o.x - p.x, o.z - p.z) < 5) applyStatus(o, 'chill', 1500, 0); } }
+  if (p.lingering) spawnLingerField(p.x, p.z, p.dmg, p.kind, p.onHit);
+  if (p.fork && !p._forked) { p._forked = true; const sp = Math.hypot(p.vx, p.vz) || 0.8, base = Math.atan2(p.vx, p.vz); for (const off of [-0.5, 0.5]) { const a = base + off; const c = spawnProj(p.x, p.z, { x: Math.sin(a), z: Math.cos(a) }, sp, p.dmg * 0.7, p.kind, p.slow, p.onHit); c._burst = true; c._forked = true; } }
+}
+function spawnLingerField(x, z, dmg, kind, onHit) { for (let i = 0; i < 5; i++) { setTimeout(() => { if (!running || !isCombat()) return; spawnExplosion(x, z, kind === 'frost' ? 0x6ad8ff : 0xff7030); for (const m of monsters) { if (Math.hypot(m.x - x, m.z - z) < 3.5) { hitMonsterProj(m, dmg * 0.35, kind); if (m.hp > 0 && onHit) applyOnHit(m, onHit, dmg * 0.35); } } }, i * 240); } }
 function castActive(id, aim, isEcho) {
-  const def = SKILLDEFS[id]; let rank = character.skills[id]; if (!def || rank < 1) return; if (_SPK.on) _ev('cast:' + id); rank += (player.effects.allskills || 0);
-  const t = now(); if (!isEcho) { if (t - (_cd[id] || -9999) < skillCd(def)) return; if (player.mp < def.cost) { floatText('No mana', player.x, player.z, '#88aaff'); return; } _cd[id] = t; player.mp -= def.cost; updateGlobes(); sfx(SFX_FOR[def.kind] || def.kind); }
+  const def = SKILLDEFS[id]; let rank = character.skills[id]; if (!def || rank < 1) return; if (_SPK.on) _ev('cast:' + id); rank += (player.effects.allskills || 0); const R = resolveSkill(id);
+  const t = now(); const cost = Math.round(def.cost * R.costMult); if (!isEcho) { if (t - (_cd[id] || -9999) < skillCd(def, id)) return; if (player.mp < cost) { floatText('No mana', player.x, player.z, '#88aaff'); return; } _cd[id] = t; player.mp -= cost; updateGlobes(); sfx(SFX_FOR[def.kind] || def.kind); }
   const ang = Math.atan2(aim.x - player.x, aim.z - player.z) + (isEcho ? rand(-0.12, 0.12) : 0); player.dir = ang; player.swing = now(); const fwd = { x: Math.sin(ang), z: Math.cos(ang) }; const skM = (player.skillMult || 1) * ((id === character.activeSkillId) ? (player.activeSkillDmg || 1) : 1); const sm = player.spellMult * skM, mm = player.meleeMult * skM;
-  const _C = SKILL_COEF[def.kind]; const cf = (_C && _C.coef) ? _C.coef(rank) : 1;
-  if (def.kind === 'fire') spawnProj(player.x, player.z, fwd, 0.9, player.dmg * cf * sm, 'fire', 120, def.onHit);
-  else if (def.kind === 'frost') { const p = spawnProj(player.x, player.z, fwd, 0.8, player.dmg * cf * sm, 'frost', 80 + 30 * rank, def.onHit); }
-  else if (def.kind === 'nova') { const cnt = 12 + 2 * rank; for (let k = 0; k < cnt; k++) { const a = k / cnt * Math.PI * 2; spawnProj(player.x, player.z, { x: Math.sin(a), z: Math.cos(a) }, 0.85, player.dmg * cf * sm, 'fire', 120, def.onHit); } }
-  else if (def.kind === 'chain') castChain(rank, skM);
-  else if (def.kind === 'multishot') { for (let k = -1; k <= 1; k++) { const a = ang + k * 0.18; spawnProj(player.x, player.z, { x: Math.sin(a), z: Math.cos(a) }, 1.0, player.dmg * cf * mm, 'poison', 120, def.onHit); } }
-  else if (def.kind === 'volley') { for (let k = -2; k <= 2; k++) { const a = ang + k * 0.16; spawnProj(player.x, player.z, { x: Math.sin(a), z: Math.cos(a) }, 1.0, player.dmg * cf * mm, 'phys', 120, def.onHit); } }
-  else if (def.kind === 'cleave') { for (const m of [...monsters]) { const dx = m.x - player.x, dz = m.z - player.z, d = Math.hypot(dx, dz); if (d < 6) { const ma = Math.atan2(dx, dz); const da = Math.abs(Math.atan2(Math.sin(ma - ang), Math.cos(ma - ang))); if (da < 1.2) meleeDamage(m, cf * skM, player); } } }
-  else if (def.kind === 'whirl') { for (const m of [...monsters]) { if (Math.hypot(m.x - player.x, m.z - player.z) < 7) meleeDamage(m, cf * skM, player); } }
-  else if (def.kind === 'leap') { const dd = Math.min(Math.hypot(aim.x - player.x, aim.z - player.z), 16); player.x += Math.sin(ang) * dd; player.z += Math.cos(ang) * dd; clampToZone(); spawnExplosion(player.x, player.z, 0xc4a050); for (const m of [...monsters]) { if (Math.hypot(m.x - player.x, m.z - player.z) < 6) meleeDamage(m, cf * skM, player); } }
+  const _C = SKILL_COEF[def.kind]; const cf = ((_C && _C.coef) ? _C.coef(rank) : 1) * R.dmgMult;
+  if (def.kind === 'fire') applyRuneProj(spawnProj(player.x, player.z, fwd, 0.9, player.dmg * cf * sm, 'fire', 120, def.onHit), R);
+  else if (def.kind === 'frost') { applyRuneProj(spawnProj(player.x, player.z, fwd, 0.8, player.dmg * cf * sm, 'frost', 80 + 30 * rank + R.addSlow, def.onHit), R); }
+  else if (def.kind === 'nova') { const cnt = 12 + 2 * rank + R.addProj; for (let k = 0; k < cnt; k++) { const a = k / cnt * Math.PI * 2; applyRuneProj(spawnProj(player.x, player.z, { x: Math.sin(a), z: Math.cos(a) }, 0.85, player.dmg * cf * sm, 'fire', 120, def.onHit), R); } }
+  else if (def.kind === 'chain') castChain(rank, skM, R);
+  else if (def.kind === 'multishot') { const s = 1 + R.addProj; for (let k = -s; k <= s; k++) { const a = ang + k * 0.18; applyRuneProj(spawnProj(player.x, player.z, { x: Math.sin(a), z: Math.cos(a) }, 1.0, player.dmg * cf * mm, 'poison', 120, def.onHit), R); } }
+  else if (def.kind === 'volley') { const s = 2 + R.addProj; for (let k = -s; k <= s; k++) { const a = ang + k * 0.16; applyRuneProj(spawnProj(player.x, player.z, { x: Math.sin(a), z: Math.cos(a) }, 1.0, player.dmg * cf * mm, 'phys', 120, def.onHit), R); } }
+  else if (def.kind === 'cleave') { for (const m of [...monsters]) { const dx = m.x - player.x, dz = m.z - player.z, d = Math.hypot(dx, dz); if (d < 6 + R.addRadius) { const ma = Math.atan2(dx, dz); const da = Math.abs(Math.atan2(Math.sin(ma - ang), Math.cos(ma - ang))); if (da < 1.2) meleeDamage(m, cf * skM, player); } } }
+  else if (def.kind === 'whirl') { for (const m of [...monsters]) { if (Math.hypot(m.x - player.x, m.z - player.z) < 7 + R.addRadius) meleeDamage(m, cf * skM, player); } }
+  else if (def.kind === 'leap') { const dd = Math.min(Math.hypot(aim.x - player.x, aim.z - player.z), 16); player.x += Math.sin(ang) * dd; player.z += Math.cos(ang) * dd; clampToZone(); spawnExplosion(player.x, player.z, 0xc4a050); for (const m of [...monsters]) { if (Math.hypot(m.x - player.x, m.z - player.z) < 6 + R.addRadius) meleeDamage(m, cf * skM, player); } }
   else if (def.kind === 'blink') { const dd = Math.min(Math.hypot(aim.x - player.x, aim.z - player.z), 22); player.x += Math.sin(ang) * dd; player.z += Math.cos(ang) * dd; clampToZone(); spawnExplosion(player.x, player.z, 0x6a8aff); }
-  else if (def.kind === 'meteor') { spawnExplosion(aim.x, aim.z, 0xff5020); for (const m of [...monsters]) { if (Math.hypot(m.x - aim.x, m.z - aim.z) < 7) { const dd = player.dmg * cf * sm; hitMonsterProj(m, dd, 'fire'); if (m.hp > 0 && def.onHit) applyOnHit(m, def.onHit, dd); } } }
-  else if (def.kind === 'frostnova') { spawnExplosion(player.x, player.z, 0x6ad8ff); for (const m of [...monsters]) { if (Math.hypot(m.x - player.x, m.z - player.z) < 9) { const dd = player.dmg * cf * sm; hitMonsterProj(m, dd, 'frost'); if (m.hp > 0) { m.slow = 120 + 30 * rank; if (def.onHit) applyOnHit(m, def.onHit, dd); } } } }
-  else if (def.kind === 'groundslam') { spawnExplosion(player.x + fwd.x * 3, player.z + fwd.z * 3, 0xc4a050); for (const m of [...monsters]) { const dx = m.x - player.x, dz = m.z - player.z, d = Math.hypot(dx, dz); if (d < 8) { const ma = Math.atan2(dx, dz); const da = Math.abs(Math.atan2(Math.sin(ma - ang), Math.cos(ma - ang))); if (da < 1.0) { meleeDamage(m, cf * skM, player); m.slow = Math.max(m.slow, 120); const kb = Math.min(4, 9 - d); m.x += Math.sin(ma) * kb; m.z += Math.cos(ma) * kb; } } } }
-  else if (def.kind === 'charge') { const dd = Math.min(Math.hypot(aim.x - player.x, aim.z - player.z), 20); player.x += Math.sin(ang) * dd; player.z += Math.cos(ang) * dd; clampToZone(); spawnExplosion(player.x, player.z, 0xd8c060); for (const m of [...monsters]) { if (Math.hypot(m.x - player.x, m.z - player.z) < 5) { meleeDamage(m, cf * skM, player); m.slow = Math.max(m.slow, 90); } } }
+  else if (def.kind === 'meteor') { spawnExplosion(aim.x, aim.z, 0xff5020); for (const m of [...monsters]) { if (Math.hypot(m.x - aim.x, m.z - aim.z) < 7 + R.addRadius) { const dd = player.dmg * cf * sm; hitMonsterProj(m, dd, 'fire'); if (m.hp > 0 && def.onHit) applyOnHit(m, def.onHit, dd); } } }
+  else if (def.kind === 'frostnova') { spawnExplosion(player.x, player.z, 0x6ad8ff); for (const m of [...monsters]) { if (Math.hypot(m.x - player.x, m.z - player.z) < 9 + R.addRadius) { const dd = player.dmg * cf * sm; hitMonsterProj(m, dd, 'frost'); if (m.hp > 0) { m.slow = 120 + 30 * rank + R.addSlow; if (def.onHit) applyOnHit(m, def.onHit, dd); } } } }
+  else if (def.kind === 'groundslam') { spawnExplosion(player.x + fwd.x * 3, player.z + fwd.z * 3, 0xc4a050); for (const m of [...monsters]) { const dx = m.x - player.x, dz = m.z - player.z, d = Math.hypot(dx, dz); if (d < 8 + R.addRadius) { const ma = Math.atan2(dx, dz); const da = Math.abs(Math.atan2(Math.sin(ma - ang), Math.cos(ma - ang))); if (da < 1.0) { meleeDamage(m, cf * skM, player); m.slow = Math.max(m.slow, 120); const kb = Math.min(4, 9 - d); m.x += Math.sin(ma) * kb; m.z += Math.cos(ma) * kb; } } } }
+  else if (def.kind === 'charge') { const dd = Math.min(Math.hypot(aim.x - player.x, aim.z - player.z), 20); player.x += Math.sin(ang) * dd; player.z += Math.cos(ang) * dd; clampToZone(); spawnExplosion(player.x, player.z, 0xd8c060); for (const m of [...monsters]) { if (Math.hypot(m.x - player.x, m.z - player.z) < 5 + R.addRadius) { meleeDamage(m, cf * skM, player); m.slow = Math.max(m.slow, 90); } } }
   else if (def.kind === 'warcry') { player.buffs.cryUntil = now() + 8000; player.buffs.cryMul = 1.2 + 0.06 * rank; player.buffs.cryDR = Math.min(0.4, 0.1 + 0.04 * rank); spawnExplosion(player.x, player.z, 0xffcf3a); floatText('War Cry!', player.x, player.z - 1, '#ffcf3a'); }
-  else if (def.kind === 'arcaneorb') { const p = spawnProj(player.x, player.z, fwd, 0.45, player.dmg * cf * sm, 'fire'); p.pierce = 3; if (!p.hit) p.hit = new Set(); p.slow = 60; p.mesh.scale.setScalar(0.85); }
-  else if (def.kind === 'blizzard') { const cx = aim.x, cz = aim.z, reps = 4 + rank, oh = def.onHit; for (let i = 0; i < reps; i++) { setTimeout(() => { if (!running || !isCombat()) return; const ox = cx + rand(-5, 5), oz = cz + rand(-5, 5); spawnExplosion(ox, oz, 0x6ad8ff); for (const m of [...monsters]) { if (Math.hypot(m.x - ox, m.z - oz) < 5) { const dd = player.dmg * cf * sm; hitMonsterProj(m, dd, 'frost'); if (m.hp > 0) { m.slow = Math.max(m.slow, 120); if (oh) applyOnHit(m, oh, dd); } } } }, i * 220); } }
-  else if (def.kind === 'teleportstorm') { const blast = () => { spawnExplosion(player.x, player.z, 0x9f6aff); for (const m of [...monsters]) { if (Math.hypot(m.x - player.x, m.z - player.z) < 6) hitMonsterProj(m, player.dmg * cf * sm, 'lightning'); } }; blast(); const dd = Math.min(Math.hypot(aim.x - player.x, aim.z - player.z), 22); player.x += Math.sin(ang) * dd; player.z += Math.cos(ang) * dd; clampToZone(); blast(); }
+  else if (def.kind === 'arcaneorb') { const p = spawnProj(player.x, player.z, fwd, 0.45, player.dmg * cf * sm, 'fire'); p.pierce = 3; if (!p.hit) p.hit = new Set(); p.slow = 60; p.mesh.scale.setScalar(0.85); applyRuneProj(p, R); }
+  else if (def.kind === 'blizzard') { const cx = aim.x, cz = aim.z, reps = 4 + rank + R.addHits, oh = def.onHit; for (let i = 0; i < reps; i++) { setTimeout(() => { if (!running || !isCombat()) return; const ox = cx + rand(-5, 5), oz = cz + rand(-5, 5); spawnExplosion(ox, oz, 0x6ad8ff); for (const m of [...monsters]) { if (Math.hypot(m.x - ox, m.z - oz) < 5 + R.addRadius) { const dd = player.dmg * cf * sm; hitMonsterProj(m, dd, 'frost'); if (m.hp > 0) { m.slow = Math.max(m.slow, 120); if (oh) applyOnHit(m, oh, dd); } } } }, i * 220); } }
+  else if (def.kind === 'teleportstorm') { const blast = () => { spawnExplosion(player.x, player.z, 0x9f6aff); for (const m of [...monsters]) { if (Math.hypot(m.x - player.x, m.z - player.z) < 6 + R.addRadius) hitMonsterProj(m, player.dmg * cf * sm, 'lightning'); } }; blast(); const dd = Math.min(Math.hypot(aim.x - player.x, aim.z - player.z), 22); player.x += Math.sin(ang) * dd; player.z += Math.cos(ang) * dd; clampToZone(); blast(); }
   else if (def.kind === 'shadowstep') { let best = null, bd = 1e9; for (const m of monsters) { const d = Math.hypot(m.x - player.x, m.z - player.z); if (d < bd) { bd = d; best = m; } } if (best) { const ba = Math.atan2(best.x - player.x, best.z - player.z); player.x = best.x - Math.sin(ba) * 2.2; player.z = best.z - Math.cos(ba) * 2.2; clampToZone(); player.dir = ba; spawnExplosion(player.x, player.z, 0x6a3a8a); const dmg = player.dmg * player.meleeMult * skM * cf * (player.effects.critdmg ? 3 : 2); best.hp -= dmg; best.flash = 8; floatText('✸' + Math.round(dmg), best.x, best.z, '#ffd24d'); if (player.effects.lifesteal > 0) player.hp = Math.min(player.hpMax, player.hp + dmg * player.effects.lifesteal); if (best.hp <= 0) killMonster(best); } else floatText('No target', player.x, player.z, '#aaa'); }
-  else if (def.kind === 'fanofknives') { const cnt = 10 + 2 * rank; for (let k = 0; k < cnt; k++) { const a = k / cnt * Math.PI * 2; spawnProj(player.x, player.z, { x: Math.sin(a), z: Math.cos(a) }, 1.0, player.dmg * cf * mm, 'phys', 120, def.onHit); } }
+  else if (def.kind === 'fanofknives') { const cnt = 10 + 2 * rank + R.addProj; for (let k = 0; k < cnt; k++) { const a = k / cnt * Math.PI * 2; applyRuneProj(spawnProj(player.x, player.z, { x: Math.sin(a), z: Math.cos(a) }, 1.0, player.dmg * cf * mm, 'phys', 120, def.onHit), R); } }
   else if (def.kind === 'secondwind') { const m0 = player.mp; player.mp = 0; const heal = Math.round(m0 * (0.6 + 0.12 * rank)); player.hp = Math.min(player.hpMax, player.hp + heal); floatText('+' + heal, player.x, player.z, '#7fd07f'); spawnExplosion(player.x, player.z, 0x6ad88a); updateGlobes(); }
   if (!isEcho && player.effects.echo && SPELLKINDS.has(def.kind)) setTimeout(() => castActive(id, aim, true), 90);
+  if (!isEcho && R.flags.has('doubleCast')) setTimeout(() => castActive(id, aim, true), 80);
   renderSkillbar();
 }
 const _orbGeo = new THREE.SphereGeometry(1, 8, 8); const _matCache = {};
@@ -2094,8 +2235,8 @@ function makeOrb(x, y, z, hex, r) { const m = poolMesh(_orbGeo, projMat(hex)); m
 const _SPK = { on: false, thresh: 40, spikes: [], ev: {}, rates: {}, seen: new Set(), lcSeen: new Set(), t0: 0 };
 function _ev(n) { if (!_SPK.on) return; _SPK.ev[n] = (_SPK.ev[n] || 0) + 1; _SPK.rates[n] = (_SPK.rates[n] || 0) + 1; }
 function spawnProj(x, z, dir, sp, dmg, kind, slow, onHit) { const col = kind === 'frost' ? 0x9fe8ff : kind === 'poison' ? 0x8fe07a : (kind === 'phys' ? 0xd8d8e8 : 0xff8a3a); const mesh = makeOrb(x, 2, z, col, 0.5); scene.add(mesh); const pierce = ((kind === 'phys' || kind === 'poison') ? (player.effects.pierce || 0) : 0); const p = { x, z, vx: dir.x * sp, vz: dir.z * sp, dmg, kind, life: 120, mesh, slow: slow || 120, onHit: onHit || null, hit: pierce > 0 ? new Set() : null, pierce }; projectiles.push(p); return p; }
-function castChain(rank, skM) {
-  skM = skM || 1; let dmg = player.dmg * SKILL_COEF.chain.coef(rank) * skM; const jumps = 2 + rank; const hitSet = new Set(); let cur = { x: player.x, z: player.z }; const pts = [new THREE.Vector3(player.x, 2.6, player.z)];
+function castChain(rank, skM, R) {
+  skM = skM || 1; R = R || resolveSkill('chain'); let dmg = player.dmg * SKILL_COEF.chain.coef(rank) * skM * R.dmgMult; const jumps = 2 + rank + R.addProj; const hitSet = new Set(); let cur = { x: player.x, z: player.z }; const pts = [new THREE.Vector3(player.x, 2.6, player.z)];
   for (let j = 0; j <= jumps; j++) { let best = null, bd = 1e9; for (const m of monsters) { if (hitSet.has(m)) continue; const d = Math.hypot(m.x - cur.x, m.z - cur.z); const range = j === 0 ? 40 : 18; if (d < range && d < bd) { bd = d; best = m; } } if (!best) break; hitSet.add(best); pts.push(new THREE.Vector3(best.x, 2.4, best.z)); hitMonsterProj(best, dmg, 'lightning'); dmg *= 0.85; cur = { x: best.x, z: best.z }; }
   if (pts.length > 1) spawnLightning(pts);
 }
@@ -2189,8 +2330,8 @@ function gainXP(n) {
   player.xp += n; let leveled = false;
   while (player.xp >= player.xpNext) {
     player.xp -= player.xpNext; player.level++; character.level = player.level; player.xpNext = Math.round(player.xpNext * 1.45);
-    const gr = (CLASSES[character.class] || CLASSES.warrior).grow; character.base.hpMax += gr.hp; character.base.mpMax += gr.mp; character.base.dmg += gr.dmg; character.skillPoints += 2;
-    recompute(); syncActives(); renderSkillbar(); player.hp = player.hpMax; player.mp = player.mpMax; lvlNum.textContent = String(player.level); showMsg('Level Up!  Lv ' + player.level); sfx('level'); leveled = true;
+    const gr = (CLASSES[character.class] || CLASSES.warrior).grow; character.base.hpMax += gr.hp; character.base.mpMax += gr.mp; character.base.dmg += gr.dmg; character.skillPoints += 2; character.abilityPoints = (character.abilityPoints || 0) + 1;
+    recompute(); syncActives(); renderSkillbar(); player.hp = player.hpMax; player.mp = player.mpMax; setLevelText(player.level); showMsg('Level Up!  Lv ' + player.level); sfx('level'); leveled = true;
   }
   if (leveled) saveProgress(true);
   updateGlobes(); updatePips();
@@ -2391,7 +2532,7 @@ function update(dt) {
   const T = now(); /* Phase 1: one frame timestamp reused for all same-frame sine anims + time-gates below (was ~30-60 performance.now() calls/frame) */
   shake *= 0.85;
   if (running && !busyPanel()) {
-    if (rmbDown && isCombat() && !player.stunned) { const hid = visibleActives[activeSkill], hd = SKILLDEFS[hid]; if (hd && hd.kind !== 'melee' && player.mp >= hd.cost) castActive(hid, { x: mouseWorld.x, z: mouseWorld.z }); }
+    if (rmbDown && isCombat() && !player.stunned) { const hid = character.loadout[1], hd = SKILLDEFS[hid]; if (hd && hd.kind !== 'melee' && player.mp >= hd.cost) castActive(hid, { x: mouseWorld.x, z: mouseWorld.z }); }
     if (lmbDown) {
       const hm = isCombat() ? monsterAt() : null; if (hm) { target = hm; moveTarget = null; }
       else if (Math.hypot(mouseWorld.x - player.x, mouseWorld.z - player.z) > 1.0) { moveTarget = { x: mouseWorld.x, z: mouseWorld.z }; target = null; } else { target = null; }
@@ -2426,9 +2567,10 @@ function update(dt) {
   }
 
   for (const p of projectiles) {
+    if (p.homing && monsters.length) { let hb = null, hd = 1e9; for (const m of monsters) { const d = Math.hypot(m.x - p.x, m.z - p.z); if (d < hd) { hd = d; hb = m; } } if (hb) { const sp = Math.hypot(p.vx, p.vz) || 0.8, ca = Math.atan2(p.vx, p.vz), rel = Math.atan2(hb.x - p.x, hb.z - p.z) - ca, da = Math.atan2(Math.sin(rel), Math.cos(rel)), na = ca + clamp(da, -0.09, 0.09); p.vx = Math.sin(na) * sp; p.vz = Math.cos(na) * sp; } }
     p.x += p.vx * 60 * dt / 1000; p.z += p.vz * 60 * dt / 1000; p.life--; p.mesh.position.set(p.x, 2, p.z);
     if (p.kind === 'enemy') { if (Math.hypot(p.x - player.x, p.z - player.z) < player.r + 0.6) { damagePlayer(p.dmg, p.mods); if (p.chill) applyStatus(player, 'chill', 1400, 0); p.life = 0; } }
-    else { for (const m of monsters) { if (Math.hypot(p.x - m.x, p.z - m.z) < m.r + 0.6) { if (p.hit && p.hit.has(m)) continue; hitMonsterProj(m, p.dmg, p.kind); if (m.hp > 0) { if (p.kind === 'frost') m.slow = p.slow; if (p.onHit) applyOnHit(m, p.onHit, p.dmg); } if (p.hit) p.hit.add(m); if (p.pierce && p.pierce > 0) { p.pierce--; } else { p.life = 0; break; } } } }
+    else { for (const m of monsters) { if (Math.hypot(p.x - m.x, p.z - m.z) < m.r + 0.6) { if (p.hit && p.hit.has(m)) continue; hitMonsterProj(m, p.dmg, p.kind); if (m.hp > 0) { if (p.kind === 'frost') m.slow = p.slow; if (p.onHit) applyOnHit(m, p.onHit, p.dmg); if (p.freeze) applyStatus(m, 'chill', 1500, 0); if (p.knockback) { const a = Math.atan2(m.x - p.x, m.z - p.z); m.x += Math.sin(a) * 2.2; m.z += Math.cos(a) * 2.2; } } if (p.vampiric) player.hp = Math.min(player.hpMax, player.hp + p.dmg * 0.12); projBurst(p); if (p.hit) p.hit.add(m); if (p.pierce && p.pierce > 0) { p.pierce--; } else { p.life = 0; break; } } } }
     if (Math.abs(p.x) > MAP || Math.abs(p.z) > MAP) p.life = 0;
   }
   _compact(projectiles, _deadLife0, _killMesh);
@@ -2547,6 +2689,8 @@ function drawMinimap() {
 const healthFill = document.getElementById('healthFill'), manaFill = document.getElementById('manaFill');
 const hpTxt = document.getElementById('hpTxt'), mpTxt = document.getElementById('mpTxt'), xpfill = document.getElementById('xpfill');
 const lvlNum = document.getElementById('lvlNum'), killsTxt = document.getElementById('killsTxt'), charName = document.getElementById('charName'), goldTxt = document.getElementById('goldTxt'), zoneTxt = document.getElementById('zoneTxt'), townBtn = document.getElementById('townBtn');
+const lvlBadgeNum = document.getElementById('lvlBadgeNum');
+function setLevelText(n) { const s = String(n); lvlNum.textContent = s; if (lvlBadgeNum) lvlBadgeNum.textContent = s; }
 /* Phase 1: HUD dirty-cache — updateGlobes/prompt/boss-bar ran ~8 DOM style+text writes EVERY frame
    (each forces style recalc/layout). Now each write is gated on its value actually changing. Reset on
    zone entry via _resetHudCache() (covers character load) so a fresh char never inherits stale cache. */
@@ -2566,8 +2710,18 @@ function updateGlobes() {
     const pc = document.getElementById('potCount'); if (pc) { pc.textContent = player.hpPotions; const pm = document.getElementById('potCountM'); if (pm) pm.textContent = player.mpPotions; document.getElementById('potionInd').classList.toggle('empty', player.hpPotions <= 0 && player.mpPotions <= 0); }
   }
 }
-function updatePips() { const ip = document.getElementById('invPip'), sp = document.getElementById('skillPip'); if (character) { sp.style.display = character.skillPoints > 0 ? 'flex' : 'none'; sp.textContent = character.skillPoints; ip.style.display = 'none'; } }
-function selectSkill(i) { if (i < 0 || i >= visibleActives.length) return; activeSkill = i; if (character) character.activeSkillId = visibleActives[i] || null; renderSkillbar(); }
+function updatePips() { const ip = document.getElementById('invPip'), sp = document.getElementById('skillPip'); if (character) { const tot = (character.skillPoints || 0) + (character.abilityPoints || 0); sp.style.display = tot > 0 ? 'flex' : 'none'; sp.textContent = tot; ip.style.display = 'none'; } }
+function slotKeyLabel(i) { if (i === 0) return 'LMB'; if (i === 1) return 'RMB'; return (KEYBINDS['skill' + (i - 1)] || []).map(keyLabel)[0] || '—'; }
+function unlockedActives() { return ACTIVE_ORDER.filter(id => id !== 'strike' && character.skills[id] >= 1); }
+// Assign a skill to a bar slot (1..5; slot 0 is the fixed basic attack). Dedupes across slots; RMB (1) drives activeSkillId.
+function setLoadoutSlot(slot, id) {
+  if (slot < 1 || slot > 5) return;
+  if (!Array.isArray(character.loadout) || character.loadout.length !== 6) character.loadout = defaultLoadout(character);
+  if (id) for (let i = 1; i < 6; i++) if (i !== slot && character.loadout[i] === id) character.loadout[i] = null;
+  character.loadout[slot] = id || null;
+  if (slot === 1) character.activeSkillId = character.loadout[1] || null;
+  renderSkillbar(); SAVE.persist();
+}
 // Computes the live damage a skill deals right now, using the SAME inputs castActive uses (player.dmg, the
 // spell/melee multipliers, skM with the active-skill bonus, and SKILL_COEF). Returns null for passives/unknown.
 function skillDamageInfo(id) {
@@ -2575,14 +2729,16 @@ function skillDamageInfo(id) {
   let rank = (character.skills[id] || 0) + ((player.effects && player.effects.allskills) || 0); if (rank < 1) rank = 1;
   const skM = (player.skillMult || 1) * ((id === character.activeSkillId) ? (player.activeSkillDmg || 1) : 1);
   let mult; if (c.school === 'spell') mult = (player.spellMult || 1) * skM; else if (c.school === 'melee') mult = (player.meleeMult || 1) * skM; else if (c.school === 'skill') mult = skM; else mult = 0;
+  const R = resolveSkill(id);
   const coef = c.coef ? c.coef(rank) : 0; const critM = c.critMult ? ((player.effects && player.effects.critdmg) ? 3 : 2) : 1;
-  const dmg = Math.round((player.dmg || 0) * coef * mult * critM);
-  const hits = (typeof c.hits === 'function') ? c.hits(rank) : (c.hits || 1);
+  const dmg = Math.round((player.dmg || 0) * coef * mult * critM * R.dmgMult);
+  const hits = ((typeof c.hits === 'function') ? c.hits(rank) : (c.hits || 1)) + (R.addProj || 0) + (R.addHits || 0);
   return { dmg, school: c.school, hits, perTick: c.perTick, note: c.note, isActive: (id === character.activeSkillId), onHit: def.onHit };
 }
 function skillTip(id) {
-  const def = SKILLDEFS[id]; if (!def) return ''; const rank = character.skills[id] || 0;
-  const meta = []; if (def.cost) meta.push(def.cost + ' mana'); if (def.cd) meta.push((def.cd / 1000).toFixed(def.cd % 1000 ? 1 : 0) + 's cd'); meta.push(def.maxRank > 1 ? ('Rank ' + rank + '/' + def.maxRank) : (rank >= 1 ? 'Learned' : 'Locked'));
+  const def = SKILLDEFS[id]; if (!def) return ''; const rank = character.skills[id] || 0; const R = resolveSkill(id);
+  const rCost = Math.round((def.cost || 0) * R.costMult), rCd = (def.cd || 0) * R.cdrMult;
+  const meta = []; if (def.cost) meta.push(rCost + ' mana'); if (def.cd) meta.push((rCd / 1000).toFixed(rCd % 1000 ? 1 : 0) + 's cd'); meta.push(def.maxRank > 1 ? ('Rank ' + rank + '/' + def.maxRank) : (rank >= 1 ? 'Learned' : 'Locked'));
   let html = `<div class="tname">${def.ico} ${def.name}</div><div class="tslot">${def.type === 'passive' ? 'Passive' : 'Active'}${def.elem ? ' · ' + def.elem : ''} · ${meta.join(' · ')}</div>`;
   html += `<div class="base" style="margin:4px 0">${def.desc}</div>`;
   const info = skillDamageInfo(id);
@@ -2597,20 +2753,38 @@ function skillTip(id) {
     if (info.isActive && info.school !== 'none' && (player.activeSkillDmg > 1)) html += `<div style="color:#7fd07f;font-size:11px">▲ selected-skill bonus applied</div>`;
     if (info.onHit) html += `<div style="color:#ff9a5b;font-size:11px">On hit: ${info.onHit}</div>`;
   }
+  const _al = character.skillRunes && character.skillRunes[id], _tr = SKILL_RUNES[id];
+  if (_al && _tr) { const labels = []; for (const nid in _al) { if (_al[nid] && _tr.nodes[nid]) labels.push(_tr.nodes[nid].label + (_tr.nodes[nid].max > 1 ? ' ' + _al[nid] : '')); } if (labels.length) html += `<div style="color:#9f6aff;font-size:11px;margin-top:3px">✦ Runes: ${labels.join(', ')}</div>`; }
   if (rank < 1 && def.req) html += `<div style="color:#d07f7f;font-size:11px;margin-top:3px">Requires level ${def.req}</div>`;
   return html;
 }
+// D3/D4 action bar: 6 fixed slots from character.loadout — [0]=LMB basic (locked), [1]=RMB, [2..5]=key1..4.
 function renderSkillbar() {
-  visibleActives = ACTIVE_ORDER.filter(id => character.skills[id] >= 1); if (activeSkill >= visibleActives.length) activeSkill = Math.max(0, visibleActives.length - 1);
-  const bar = document.getElementById('skillbar'); bar.innerHTML = ''; visibleActives.forEach((id, i) => {
-    const def = SKILLDEFS[id]; const d = document.createElement('div'); d.className = 'skill' + (i === activeSkill ? ' active' : '');
-    d.innerHTML = `<span class="key">${i === 9 ? '0' : i + 1}</span><span class="ico">${def.ico}</span>${def.cost ? `<span class="cost">${def.cost}mp</span>` : ''}${def.maxRank > 1 ? `<span class="rank">R${character.skills[id]}</span>` : ''}<div class="cd" data-id="${id}"></div>`;
-    d.onmousedown = ev => { ev.stopPropagation(); selectSkill(i); };
-    d.onmouseenter = ev => { tooltip.innerHTML = skillTip(id); tooltip.style.display = 'block'; moveTip(ev); }; d.onmousemove = moveTip; d.onmouseleave = () => tooltip.style.display = 'none';
+  const bar = document.getElementById('skillbar'); if (!bar || !character) return;
+  if (!Array.isArray(character.loadout) || character.loadout.length !== 6) character.loadout = defaultLoadout(character);
+  character.loadout[0] = 'strike';
+  bar.innerHTML = '';
+  for (let i = 0; i < 6; i++) {
+    const id = character.loadout[i], def = id ? SKILLDEFS[id] : null;
+    const d = document.createElement('div');
+    const isActive = (i === 1 && id && id === character.activeSkillId);
+    d.className = 'skill' + (i === 0 ? ' basic' : '') + (isActive ? ' active' : '') + (!def ? ' empty' : '');
+    d.dataset.slot = i;
+    if (def) {
+      d.innerHTML = `<span class="key">${slotKeyLabel(i)}</span><span class="ico">${def.ico}</span>` +
+        (def.cost ? `<span class="cost">${def.cost}mp</span>` : '') +
+        (def.maxRank > 1 ? `<span class="rank">R${character.skills[id] || 1}</span>` : '') +
+        `<div class="cd" data-id="${id}"></div>`;
+      d.onmouseenter = ev => { tooltip.innerHTML = skillTip(id); tooltip.style.display = 'block'; moveTip(ev); };
+      d.onmousemove = moveTip; d.onmouseleave = () => tooltip.style.display = 'none';
+    } else {
+      d.innerHTML = `<span class="key">${slotKeyLabel(i)}</span><span class="ico" style="opacity:.3">＋</span>`;
+    }
+    d.onmousedown = ev => { ev.stopPropagation(); if (i >= 1) openSkillPanel('abilities'); };
     bar.appendChild(d);
-  });
+  }
 }
-function renderSkillCd() { document.querySelectorAll('.cd').forEach(el => { const id = el.dataset.id; const def = SKILLDEFS[id]; const cd = skillCd(def); const rem = cd - (now() - (_cd[id] || -9999)); if (rem > 50) { el.style.display = 'flex'; const prog = clamp(1 - rem / cd, 0, 1) * 360; el.style.background = `conic-gradient(transparent ${prog}deg, rgba(0,0,0,.7) ${prog}deg)`; el.textContent = (rem / 1000).toFixed(1); } else el.style.display = 'none'; }); }
+function renderSkillCd() { document.querySelectorAll('.cd').forEach(el => { const id = el.dataset.id; const def = SKILLDEFS[id]; const cd = skillCd(def, id); const rem = cd - (now() - (_cd[id] || -9999)); if (rem > 50) { el.style.display = 'flex'; const prog = clamp(1 - rem / cd, 0, 1) * 360; el.style.background = `conic-gradient(transparent ${prog}deg, rgba(0,0,0,.7) ${prog}deg)`; el.textContent = (rem / 1000).toFixed(1); } else el.style.display = 'none'; }); }
 function showMsg(t) { const m = document.getElementById('msg'); m.textContent = t; m.style.opacity = 1; clearTimeout(m._t); m._t = setTimeout(() => m.style.opacity = 0, 1400); }
 const floatLayer = document.createElement('div'); floatLayer.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:4;overflow:hidden;'; document.body.appendChild(floatLayer);
 /* Phase 1: pooled labels — was innerHTML='' + createElement per float/elite/remote every 33ms (full DOM
@@ -2641,7 +2815,15 @@ function closeAll() { shopAnchor = null; invOpen = skillOpen = vendorOpen = stas
 function openShopWithInv() { invOpen = true; invPanel.style.display = 'block'; statsPanel.style.display = 'block'; renderInv(); }
 function renderOpenShop() { if (vendorOpen) renderVendor(); else if (smithOpen) renderSmith(); else if (enchantOpen) renderEnchanter(); else if (gambleOpen) renderGamble(); else if (jewelerOpen) renderJeweler(); else if (alchemistOpen) renderAlchemist(); }
 function toggleInv() { const o = !invOpen; closeAll(); if (o) { invOpen = true; invPanel.style.display = 'block'; statsPanel.style.display = 'block'; renderInv(); } }
-function toggleSkill() { const o = !skillOpen; closeAll(); if (o) { skillOpen = true; skillPanel.style.display = 'block'; renderSkillTree(); } }
+let _skTab = 'abilities';
+function setSkillTab(name) {
+  _skTab = name;
+  document.querySelectorAll('#skillTabs .tab').forEach(t => t.classList.toggle('on', t.dataset.sktab === name));
+  document.querySelectorAll('#skillPanel .skPane').forEach(p => p.style.display = (p.dataset.skpane === name) ? 'block' : 'none');
+  if (name === 'forest') renderSkillTree(); else renderAbilities();
+}
+function toggleSkill(tab) { const o = !skillOpen; closeAll(); if (o) { skillOpen = true; skillPanel.style.display = 'block'; setSkillTab(tab || _skTab); } }
+function openSkillPanel(tab) { if (!skillOpen) toggleSkill(tab); else setSkillTab(tab); }
 function openVendor(tier) { closeAll(); openShopWithInv(); vendorTier = tier || 1; vendorOpen = true; vendorPanel.style.display = 'block'; if (!vendorStock.length || vendorStockTier !== vendorTier) refreshVendor(vendorTier); setVendorTab('buy'); }
 function openStash() { closeAll(); stashOpen = true; stashPanel.style.display = 'block'; renderStash(); }
 function openSmith() { closeAll(); openShopWithInv(); smithOpen = true; smithPick = null; smithPanel.style.display = 'block'; setSmithTab('upgrade'); }
@@ -2852,7 +3034,7 @@ function ptNote() { document.getElementById('skillPtsNote').textContent = charac
 function renderSkillTree() {
   ptNote(); const start = PTREE.nodes[PTREE.starts[character.class]]; ptT = { x: -start.x, y: -start.y, s: 1.1 };
   const c = document.getElementById('skillTree');
-  c.innerHTML = `<div id="ptVp" style="position:relative;width:100%;height:calc(100vh - 210px);min-height:360px;overflow:hidden;border:1px solid #2a2218;border-radius:8px;background:radial-gradient(circle at 50% 45%,#161109,#080604);cursor:grab"><svg id="ptSvg" width="100%" height="100%" viewBox="-260 -260 520 520"><defs><filter id="pg" x="-90%" y="-90%" width="280%" height="280%"><feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><g id="ptG"></g></svg></div>`;
+  c.innerHTML = `<div id="ptVp" style="position:relative;width:100%;height:calc(100vh - 250px);min-height:340px;overflow:hidden;border:1px solid #2a2218;border-radius:8px;background:radial-gradient(circle at 50% 45%,#161109,#080604);cursor:grab"><svg id="ptSvg" width="100%" height="100%" viewBox="-260 -260 520 520"><defs><filter id="pg" x="-90%" y="-90%" width="280%" height="280%"><feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><g id="ptG"></g></svg></div>`;
   buildPTreeSvg(); attachPTreeEvents();
 }
 function applyPT() { const g = document.getElementById('ptG'); if (g) g.setAttribute('transform', `scale(${ptT.s}) translate(${ptT.x} ${ptT.y})`); }
@@ -2893,6 +3075,104 @@ function attachPTreeEvents() {
   vp.onwheel = e => { e.preventDefault(); ptT.s = clamp(ptT.s * (e.deltaY < 0 ? 1.12 : 0.89), 0.55, 2.4); applyPT(); };
 }
 document.getElementById('resetSkills').onclick = () => { const start = PTREE.starts[character.class]; const refund = (character.passives || []).filter(x => x !== start).length; character.passives = [start]; character.skillPoints += refund; recompute(); buildPTreeSvg(); renderSkillbar(); updatePips(); ptNote(); saveProgress(false); };
+/* ---------- Abilities tab: loadout assignment + per-skill rune trees ---------- */
+let _abilSlotSel = 1, _runeViewId = null, rT = { x: 0, y: 0, s: 1 };
+function renderAbilities() {
+  const host = document.getElementById('abilTree'); if (!host || !character) return;
+  if (!Array.isArray(character.loadout) || character.loadout.length !== 6) character.loadout = defaultLoadout(character);
+  const owned = unlockedActives();
+  if (!_runeViewId || (_runeViewId !== 'strike' && owned.indexOf(_runeViewId) < 0)) _runeViewId = character.loadout[_abilSlotSel] || owned[0] || 'strike';
+  const ap = character.abilityPoints || 0;
+  const note = document.getElementById('abilNote'); if (note) note.textContent = `${ap} ability point${ap === 1 ? '' : 's'} · click a slot, then a skill to assign it`;
+  const slotLab = ['LMB', 'RMB', slotKeyLabel(2), slotKeyLabel(3), slotKeyLabel(4), slotKeyLabel(5)];
+  let h = '<div class="abilSlots">';
+  for (let i = 0; i < 6; i++) {
+    const id = character.loadout[i], def = id ? SKILLDEFS[id] : null;
+    h += `<div class="abilSlot${i === 0 ? ' basic' : ''}${i === _abilSlotSel ? ' sel' : ''}" data-slot="${i}"><span class="slk">${slotLab[i]}</span>${def ? `<span class="sli">${def.ico}</span>` : '<span class="sle">＋</span>'}</div>`;
+  }
+  h += '</div>';
+  h += `<div class="abilBar"><span class="abilHint">Put a skill into the <b>${slotLab[_abilSlotSel]}</b> slot, or click a slot to view its rune tree.</span><span id="runeReset">↺ Refund all runes (free)</span></div>`;
+  h += '<div class="abilPick">';
+  for (const id of owned) { const def = SKILLDEFS[id]; const on = character.loadout.indexOf(id) >= 0; h += `<div class="abilChip${on ? ' on' : ''}" data-skill="${id}">${def.ico} ${def.name}</div>`; }
+  if (!owned.length) h += `<span class="abilHint">No skills unlocked yet — level up to learn abilities.</span>`;
+  h += '</div><div id="runeWrap"></div>';
+  host.innerHTML = h;
+  host.querySelectorAll('.abilSlot').forEach(el => { const i = +el.dataset.slot; el.onclick = () => { if (i === 0) { _runeViewId = 'strike'; } else { _abilSlotSel = i; if (character.loadout[i]) _runeViewId = character.loadout[i]; } renderAbilities(); }; });
+  host.querySelectorAll('.abilChip').forEach(el => { const id = el.dataset.skill; el.onmouseenter = ev => { tooltip.innerHTML = skillTip(id); tooltip.style.display = 'block'; moveTip(ev); }; el.onmousemove = moveTip; el.onmouseleave = () => tooltip.style.display = 'none'; el.onclick = () => { setLoadoutSlot(_abilSlotSel, id); _runeViewId = id; saveProgress(false); renderAbilities(); }; });
+  const rr = document.getElementById('runeReset'); if (rr) rr.onclick = refundRunes;
+  renderRuneView();
+}
+function renderRuneView() {
+  const wrap = document.getElementById('runeWrap'); if (!wrap) return; const id = _runeViewId, tree = id && SKILL_RUNES[id];
+  if (!tree) { wrap.innerHTML = `<div class="abilHint" style="text-align:center;padding:20px">${id === 'strike' ? 'Basic attack — always on Left-click, no runes to spend.' : 'Select a skill to view its rune tree.'}</div>`; return; }
+  const def = SKILLDEFS[id]; rT = { x: 0, y: -20, s: 1 };
+  wrap.innerHTML = `<div class="ptsNote" style="margin:8px 0 4px">${def.ico} ${def.name} — rune tree</div><div id="rVp" style="position:relative;width:100%;height:calc(100vh - 400px);min-height:240px;overflow:hidden;border:1px solid #2a2218;border-radius:8px;background:radial-gradient(circle at 50% 45%,#161109,#080604);cursor:grab"><svg id="rSvg" width="100%" height="100%" viewBox="-200 -150 400 380"><defs><filter id="rg" x="-90%" y="-90%" width="280%" height="280%"><feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><g id="rG"></g></svg></div>`;
+  buildRuneSvg(id); attachRuneEvents();
+}
+function applyR() { const g = document.getElementById('rG'); if (g) g.setAttribute('transform', `scale(${rT.s}) translate(${rT.x} ${rT.y})`); }
+function attachRuneEvents() {
+  const vp = document.getElementById('rVp'); if (!vp) return; let drag = false, lx = 0, ly = 0;
+  vp.onmousedown = e => { drag = true; lx = e.clientX; ly = e.clientY; vp.style.cursor = 'grabbing'; };
+  vp.onmousemove = e => { if (!drag) return; const dx = e.clientX - lx, dy = e.clientY - ly; lx = e.clientX; ly = e.clientY; const r = vp.getBoundingClientRect(); rT.x += dx / r.width * 400 / rT.s; rT.y += dy / r.height * 380 / rT.s; applyR(); };
+  vp.onmouseup = () => { drag = false; vp.style.cursor = 'grab'; }; vp.onmouseleave = () => { drag = false; vp.style.cursor = 'grab'; };
+  vp.onwheel = e => { e.preventDefault(); rT.s = clamp(rT.s * (e.deltaY < 0 ? 1.12 : 0.89), 0.6, 2.2); applyR(); };
+}
+function canAllocRune(id, nid) {
+  const tree = SKILL_RUNES[id]; if (!tree) return false; const node = tree.nodes[nid]; const alloc = (character.skillRunes && character.skillRunes[id]) || {};
+  if ((alloc[nid] || 0) >= node.max) return false;
+  if ((character.abilityPoints || 0) < node.cost) return false;
+  if (player.level < (node.lvlreq || 0)) return false;
+  if (nid !== tree.root && !tree.adj[nid].some(x => (alloc[x] || 0) > 0)) return false;
+  if (node.excl) for (const o in tree.nodes) { if (o !== nid && tree.nodes[o].excl === node.excl && (alloc[o] || 0) > 0) return false; }
+  return true;
+}
+function buildRuneSvg(id) {
+  const g = document.getElementById('rG'); if (!g) return; const tree = SKILL_RUNES[id]; const alloc = (character.skillRunes && character.skillRunes[id]) || {};
+  let edges = '', circles = '', drawn = new Set();
+  for (const a in tree.adj) for (const b of tree.adj[a]) { const key = a < b ? a + '|' + b : b + '|' + a; if (drawn.has(key)) continue; drawn.add(key); const na = tree.nodes[a], nb = tree.nodes[b]; if (!na || !nb) continue; const on = (alloc[a] > 0) && (alloc[b] > 0); edges += `<line x1="${na.x}" y1="${na.y}" x2="${nb.x}" y2="${nb.y}" stroke="${on ? '#c4a060' : '#2a241c'}" stroke-width="${on ? 3 : 2}"/>`; }
+  for (const nid in tree.nodes) {
+    const n = tree.nodes[nid]; const ranks = alloc[nid] || 0; const allocated = ranks > 0; const can = canAllocRune(id, nid);
+    const r = n.type === 'keystone' ? 14 : n.type === 'notable' ? 11 : 7;
+    const fill = allocated ? (n.type === 'keystone' ? '#ffcf3a' : n.type === 'notable' ? '#e6b84d' : '#c8ad7a') : '#16110a';
+    const stroke = allocated ? '#ffe9a8' : can ? '#e6b84d' : '#352c20';
+    circles += `<circle data-rn="${nid}" cx="${n.x}" cy="${n.y}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="${can ? 3 : 2}" ${can ? 'filter="url(#rg)"' : ''} style="cursor:pointer"/>`;
+    circles += `<text x="${n.x}" y="${n.y - r - 3}" text-anchor="middle" fill="#cdb084" font-size="8.5" font-family="Georgia" style="pointer-events:none">${n.label}${n.max > 1 ? ' ' + ranks + '/' + n.max : ''}</text>`;
+  }
+  g.innerHTML = edges + circles; applyR();
+  g.querySelectorAll('[data-rn]').forEach(el => { const nid = el.getAttribute('data-rn'), n = tree.nodes[nid]; el.onmouseenter = e => { tooltip.innerHTML = runeTip(n, id, nid); tooltip.style.display = 'block'; moveTip(e); }; el.onmousemove = moveTip; el.onmouseleave = () => tooltip.style.display = 'none'; el.onclick = ev => { ev.stopPropagation(); runeClick(id, nid); }; });
+}
+function runeTip(node, id, nid) {
+  const ranks = (character.skillRunes && character.skillRunes[id] && character.skillRunes[id][nid]) || 0; const m = node.mod || {};
+  const t = node.type === 'keystone' ? 'Keystone' : node.type === 'notable' ? 'Notable Rune' : 'Rune'; const per = node.max > 1 ? ' / rank' : '';
+  let lines = '';
+  if (m.dmgMult) lines += `<div style="color:#b8a888">+${Math.round(m.dmgMult * 100)}% damage${per}</div>`;
+  if (m.cdrMult) lines += `<div style="color:#b8a888">${Math.round(m.cdrMult * 100)}% cooldown${per}</div>`;
+  if (m.costMult) lines += `<div style="color:#b8a888">${Math.round(m.costMult * 100)}% mana cost${per}</div>`;
+  if (m.addProj) lines += `<div style="color:#b8a888">+${m.addProj} projectile/jump${per}</div>`;
+  if (m.addHits) lines += `<div style="color:#b8a888">+${m.addHits} hits${per}</div>`;
+  if (m.addRadius) lines += `<div style="color:#b8a888">+${m.addRadius} area${per}</div>`;
+  if (m.addSlow) lines += `<div style="color:#b8a888">stronger slow${per}</div>`;
+  if (m.addDuration) lines += `<div style="color:#b8a888">+${(m.addDuration / 1000).toFixed(1)}s duration${per}</div>`;
+  if (m.pierce) lines += `<div style="color:#b8a888">+${m.pierce} pierce${per}</div>`;
+  if (node.flags) for (const f of node.flags) { const fi = RUNE_FLAG_INFO[f]; if (fi) lines += `<div style="color:#9f6aff">${fi[1]}</div>`; }
+  let foot = '';
+  if (player.level < (node.lvlreq || 0)) foot = `<div style="color:#d07f7f;font-size:11px;margin-top:3px">Requires level ${node.lvlreq}</div>`;
+  else if (node.excl) foot = `<div style="color:#8a7a5a;font-size:11px;margin-top:3px">Exclusive — only one of this set</div>`;
+  return `<div class="tname" style="color:${node.type === 'keystone' ? '#ffcf3a' : '#e6b84d'}">${node.label}</div><div class="tslot">${t} · ${node.cost} pt${node.cost > 1 ? 's' : ''}${node.max > 1 ? ' · ' + ranks + '/' + node.max : ''}</div>${lines || '<div style="color:#8a7a5a">Pathway node</div>'}${foot}`;
+}
+function runeClick(id, nid) {
+  const tree = SKILL_RUNES[id]; if (!tree) return; const node = tree.nodes[nid];
+  if (!canAllocRune(id, nid)) { if (player.level < (node.lvlreq || 0)) showMsg('Requires level ' + node.lvlreq); else if ((character.abilityPoints || 0) < node.cost) showMsg('Not enough ability points'); else if (node.excl) showMsg('Already chose a rune in this slot'); return; }
+  if (!character.skillRunes[id]) character.skillRunes[id] = {};
+  character.skillRunes[id][nid] = (character.skillRunes[id][nid] || 0) + 1; character.abilityPoints -= node.cost;
+  invalidateRunes(); buildRuneSvg(id); renderSkillbar(); updatePips();
+  const ap = character.abilityPoints || 0, note = document.getElementById('abilNote'); if (note) note.textContent = `${ap} ability point${ap === 1 ? '' : 's'} · click a slot, then a skill to assign it`;
+  sfx('potion'); saveProgress(false);
+}
+function refundRunes() {
+  let refunded = 0; for (const sid in (character.skillRunes || {})) { const tree = SKILL_RUNES[sid]; if (!tree) continue; for (const nid in character.skillRunes[sid]) { const node = tree.nodes[nid]; if (node) refunded += (character.skillRunes[sid][nid] || 0) * node.cost; } }
+  character.skillRunes = {}; character.abilityPoints = (character.abilityPoints || 0) + refunded; invalidateRunes(); renderSkillbar(); updatePips(); renderAbilities(); showMsg('Refunded ' + refunded + ' ability point' + (refunded === 1 ? '' : 's')); saveProgress(false);
+}
 let vendorStock = [], vendorTab = 'buy', vendorTier = 1, vendorStockTier = 1;
 function refreshVendor(tier) { tier = tier || 1; vendorStockTier = tier; vendorStock = []; const bump = (tier - 1) * 7, q = tier >= 2 ? 0.35 : 0; for (let i = 0; i < 6; i++) vendorStock.push(rollItem(Math.max(1, player.level + randi(-1, 2)) + bump, null, q)); }
 function renderVendor() {
@@ -3024,10 +3304,13 @@ function setHud(on) { document.getElementById('hud').style.display = on ? 'block
 function enterGame() {
   stopMenu(); Object.assign(player, { level: character.level, xp: character.xp, xpNext: character.xpNext, gold: character.gold, kills: character.kills, potions: character.hpPotions, hpPotions: character.hpPotions, mpPotions: character.mpPotions, attackCd: 0, bob: 0 });
   recompute(); syncActives(); player.hp = player.hpMax; player.mp = player.mpMax;
-  charName.textContent = character.name; lvlNum.textContent = String(player.level); killsTxt.textContent = 'Slain: ' + player.kills; goldTxt.textContent = player.gold + ' g';
+  charName.textContent = character.name; setLevelText(player.level); killsTxt.textContent = 'Slain: ' + player.kills; goldTxt.textContent = player.gold + ' g';
   hero.userData.cloak.material.color.setHex((CLASSES[character.class] || CLASSES.warrior).col);
   swapHeroToGLB(); /* re-pick hero mesh by class — roster loaded on the title screen before a class was chosen, so the per-class swap must fire again here */
-  show(null); setHud(true); renderSkillbar(); const _si = character.activeSkillId ? visibleActives.indexOf(character.activeSkillId) : -1; activeSkill = _si >= 0 ? _si : 0; renderSkillbar(); updateGlobes(); updatePips(); saveTimer = 8000; enterTown(); applyGraphics(); running = true; last = now(); loop();
+  show(null); setHud(true);
+  if (!Array.isArray(character.loadout) || character.loadout.length !== 6) character.loadout = defaultLoadout(character);
+  if (!character.activeSkillId && character.loadout[1]) character.activeSkillId = character.loadout[1];
+  renderSkillbar(); updateGlobes(); updatePips(); saveTimer = 8000; enterTown(); applyGraphics(); running = true; last = now(); loop();
   Audio2.init(); Audio2.muted = SAVE._data.settings.muted; applySettings(); document.getElementById('soundBtn').textContent = Audio2.muted ? '🔇' : '🔊'; if (!Audio2.muted) MUSIC.start();
   try { if (!localStorage.getItem('sanctuary_helpseen')) { openHelp(); localStorage.setItem('sanctuary_helpseen', '1'); } } catch (_) { }
 }
@@ -3053,6 +3336,7 @@ document.getElementById('quitBtn').onclick = () => { renderSlots(); show('select
 document.getElementById('saveBtn').onclick = () => { saveProgress(true); running = false; setHud(false); renderSlots(); show('selectScreen'); startMenu(); };
 document.getElementById('invBtn').onclick = () => toggleInv(); document.getElementById('invClose').onclick = () => toggleInv();
 document.getElementById('skillBtn').onclick = () => toggleSkill(); document.getElementById('skillClose').onclick = () => toggleSkill();
+document.querySelectorAll('#skillTabs .tab').forEach(t => t.onclick = () => setSkillTab(t.dataset.sktab));
 document.getElementById('vendorClose').onclick = () => closeAll(); document.getElementById('stashClose').onclick = () => closeAll(); document.getElementById('smithClose').onclick = () => closeAll(); document.getElementById('enchantClose').onclick = () => closeAll(); document.getElementById('gambleClose').onclick = () => closeAll(); document.getElementById('jewelerClose').onclick = () => closeAll(); document.getElementById('alchemistClose').onclick = () => closeAll();
 document.getElementById('townBtn').onclick = () => { if (zone !== 'town') enterTown(); };
 document.getElementById('diffBtn').onclick = () => { const order = DIFF_ORDER; difficulty = order[(order.indexOf(difficulty) + 1) % order.length]; SAVE._data.settings.difficulty = difficulty; SAVE.persist(); document.getElementById('diffBtn').textContent = difficulty; setScale(); showMsg('Difficulty: ' + difficulty); };
@@ -3161,9 +3445,8 @@ function kbChips(a) { return (KEYBINDS[a] || []).map(k => `<span class="kbd">${k
 function renderControls() {
   capturingAction = null; captureCb = null; const host = document.getElementById('ctrlList'); if (!host) return; let h = '';
   KEYBIND_ORDER.forEach(a => { h += `<div class="setRow"><label>${KEYBIND_LABELS[a]}</label><span class="ctrlKeys">${kbChips(a)}<button class="rbtn ctrlEdit" data-act="${a}">✎</button></span></div>`; });
-  h += `<div class="setRow"><label style="color:#9a8a6a">Skill Slots</label><span class="ctrlKeys"><span class="kbd">1 – 9</span><span class="kbd">0</span></span></div>`;
-  h += `<div class="setRow"><label style="color:#9a8a6a">Move / Attack</label><span class="ctrlKeys"><span class="kbd">Left-click</span></span></div>`;
-  h += `<div class="setRow"><label style="color:#9a8a6a">Cast Skill</label><span class="ctrlKeys"><span class="kbd">Right-click</span></span></div>`;
+  h += `<div class="setRow"><label style="color:#9a8a6a">Move / Basic Attack</label><span class="ctrlKeys"><span class="kbd">Left-click</span></span></div>`;
+  h += `<div class="setRow"><label style="color:#9a8a6a">Cast (Right slot)</label><span class="ctrlKeys"><span class="kbd">Right-click</span></span></div>`;
   h += `<div class="setRow"><label style="color:#9a8a6a">Close / Cancel</label><span class="ctrlKeys"><span class="kbd">Esc</span></span></div>`;
   host.innerHTML = h; host.querySelectorAll('.ctrlEdit').forEach(b => { b.onclick = () => startCapture(b.dataset.act, b); });
 }
@@ -3171,13 +3454,12 @@ function startCapture(a, btn) { if (capturingAction === a) { capturingAction = n
 function onCaptureKey(e) {
   const k = normalizeKey(e); const a = capturingAction; capturingAction = null; captureCb = null;
   if (k === 'Escape') { renderControls(); return; }
-  if (RESERVED_KEYS.indexOf(k) >= 0) { showMsg('"' + keyLabel(k) + '" is reserved for skill slots'); renderControls(); return; }
   for (const b in KEYBINDS) { if (b !== a && KEYBINDS[b].indexOf(k) >= 0) { showMsg('"' + keyLabel(k) + '" already bound to ' + KEYBIND_LABELS[b]); renderControls(); return; } }
-  if (!SAVE._data.settings.keybinds) SAVE._data.settings.keybinds = {}; SAVE._data.settings.keybinds[a] = [k]; buildKeybinds(); SAVE.persist(); renderControls(); renderHelpKeys(); updatePotionHint(); showMsg(KEYBIND_LABELS[a] + ' → ' + keyLabel(k));
+  if (!SAVE._data.settings.keybinds) SAVE._data.settings.keybinds = {}; SAVE._data.settings.keybinds[a] = [k]; buildKeybinds(); SAVE.persist(); renderControls(); renderHelpKeys(); updatePotionHint(); if (typeof renderSkillbar === 'function' && character) renderSkillbar(); showMsg(KEYBIND_LABELS[a] + ' → ' + keyLabel(k));
 }
 document.getElementById('ctrlReset').onclick = () => { SAVE._data.settings.keybinds = {}; buildKeybinds(); SAVE.persist(); renderControls(); renderHelpKeys(); updatePotionHint(); showMsg('Keybinds reset to defaults'); };
 const HELP_KEY_MAP = { hkHp: 'hpPotion', hkMana: 'manaPotion', hkInteract: 'interact', hkTown: 'enterTown', hkMap: 'toggleMap', hkInv: 'toggleInv', hkSkill: 'toggleSkill', hkSound: 'toggleSound', hkClose: 'close' };
-function renderHelpKeys() { for (const id in HELP_KEY_MAP) { const el = document.getElementById(id); if (el) el.textContent = (KEYBINDS[HELP_KEY_MAP[id]] || []).map(keyLabel).join(' / '); } }
+function renderHelpKeys() { for (const id in HELP_KEY_MAP) { const el = document.getElementById(id); if (el) el.textContent = (KEYBINDS[HELP_KEY_MAP[id]] || []).map(keyLabel).join(' / '); } const hs = document.getElementById('hkSkills'); if (hs) hs.textContent = ['skill1', 'skill2', 'skill3', 'skill4'].map(a => (KEYBINDS[a] || []).map(keyLabel)[0] || '—').join(' '); }
 function updatePotionHint() { const el = document.getElementById('potKeys'); if (el) el.textContent = (KEYBINDS.hpPotion || []).map(keyLabel).join('/') + ' · ' + (KEYBINDS.manaPotion || []).map(keyLabel).join('/'); }
 renderHelpKeys(); updatePotionHint();
 
