@@ -197,10 +197,8 @@
   .ptLegend .dot{width:13px;height:13px;border-radius:50%;border:2px solid;display:inline-block;}
   .ptLegend .recenter{margin-left:auto;cursor:pointer;color:#c4a878;border:1px solid #4a3a28;border-radius:4px;padding:3px 9px;background:#241b12;}
   .ptLegend .recenter:hover{background:#3a2c1c;border-color:#6a4a28;}
-  .panel::-webkit-scrollbar,.modal::-webkit-scrollbar{width:10px;}
-  .panel::-webkit-scrollbar-track,.modal::-webkit-scrollbar-track{background:#0d0905;}
-  .panel::-webkit-scrollbar-thumb,.modal::-webkit-scrollbar-thumb{background:#3a2e22;border-radius:5px;}
-  .panel::-webkit-scrollbar-thumb:hover,.modal::-webkit-scrollbar-thumb:hover{background:#5a4632;}
+  ::-webkit-scrollbar{width:0;height:0;display:none;}        /* ponytail: hide scrollbar chrome everywhere; scroll still works via wheel/drag */
+  *{scrollbar-width:none;}
   #tooltip{animation:ttIn .1s ease-out;}@keyframes ttIn{from{opacity:0;transform:translateY(3px);}to{opacity:1;transform:none;}}
   .panel,.modal{animation:panIn .15s ease-out;}@keyframes panIn{from{opacity:0;}to{opacity:1;}}
   #backdrop{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:29;display:none;animation:panIn .12s ease-out;}
@@ -438,7 +436,7 @@
 
 <div id="jewelerPanel" class="modal dockL">
   <h3>💍 The Jeweler</h3><span class="close" id="jewelerClose">✕</span>
-  <div class="invHint" style="margin-bottom:8px">Specialist in rings &amp; amulets. Buy fresh jewelry or reroll the values on an accessory you own.</div>
+  <div class="tabs"><div class="tab on" id="jewelerTabBuy">Buy</div><div class="tab" id="jewelerTabReroll">Reroll</div><div class="tab" id="jewelerTabSocket">Socket</div><div class="tab" id="jewelerTabCombine">Combine</div></div>
   <div id="jewelerBody"></div>
 </div>
 
