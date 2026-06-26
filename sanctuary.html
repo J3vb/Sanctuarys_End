@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Sanctuary's End — 3D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
   *{margin:0;padding:0;box-sizing:border-box;}
   :root{--bg:#1a130c;--panel:#0d0905;--border:#3a2e22;--border-lit:#6a4a28;--gold:#e6b84d;--gold-bright:#ffe27a;--text:#d8c4a0;--muted:#8a7a5a;--accent:#3a2418;--accent-hover:#4a3020;}
@@ -193,6 +196,87 @@
   .wprow .winfo{flex:1;}.wprow .wn{color:#e6d8a0;font-size:16px;}.wprow .ws{color:#8a9ab0;font-size:12px;}
   .wprow .wbtn{cursor:pointer;background:#1d2a3a;border:1px solid #3a5a7a;color:#9fd0ff;border-radius:5px;padding:5px 14px;font-size:13px;transition:background .12s;}
   .wprow .wbtn:hover{background:#2a3e54;}
+
+  /* ================= Diablo-style dark gothic theme (visual only — layout untouched) ================= */
+  :root{
+    --gold:#e6b84d;--gold-bright:#ffe27a;--bronze:#9c6f2e;--bronze-lit:#e8c878;
+    --text:#dcc9a2;--muted:#9a8466;--crimson:#a8262a;
+  }
+  body{background:#000;}
+  /* Forged, beveled metal frame (border-image: double bevel lines + corner studs + edge rivets + corner scrolls),
+     warm dark stone/leather interior with grain, rough dark stone ring behind, and a warm ambient glow. */
+  .panel,.modal,#helpModal,#settingsModal,#mpModal,#wpModal{
+    border:22px solid transparent;border-radius:3px;
+    border-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cdefs%3E%3ClinearGradient id='b' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%23e8c878'/%3E%3Cstop offset='.5' stop-color='%239c6f2e'/%3E%3Cstop offset='1' stop-color='%235a3a16'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='3' y='3' width='114' height='114' rx='6' fill='none' stroke='%230c0805' stroke-width='6'/%3E%3Crect x='7' y='7' width='106' height='106' rx='5' fill='none' stroke='url(%23b)' stroke-width='5'/%3E%3Crect x='14' y='14' width='92' height='92' rx='3' fill='none' stroke='%231a1009' stroke-width='3'/%3E%3Crect x='18' y='18' width='84' height='84' rx='2' fill='none' stroke='url(%23b)' stroke-width='2'/%3E%3Cg fill='url(%23b)' stroke='%230c0805' stroke-width='1.4'%3E%3Ccircle cx='10' cy='10' r='5'/%3E%3Ccircle cx='110' cy='10' r='5'/%3E%3Ccircle cx='10' cy='110' r='5'/%3E%3Ccircle cx='110' cy='110' r='5'/%3E%3C/g%3E%3Cg fill='%23caa04a' stroke='%230c0805' stroke-width='1'%3E%3Ccircle cx='60' cy='10' r='3'/%3E%3Ccircle cx='10' cy='60' r='3'/%3E%3Ccircle cx='110' cy='60' r='3'/%3E%3Ccircle cx='60' cy='110' r='3'/%3E%3C/g%3E%3Cg fill='none' stroke='url(%23b)' stroke-width='2'%3E%3Cpath d='M24 14 q-10 0 -10 10'/%3E%3Cpath d='M96 14 q10 0 10 10'/%3E%3Cpath d='M24 106 q-10 0 -10 -10'/%3E%3Cpath d='M96 106 q10 0 10 -10'/%3E%3C/g%3E%3C/svg%3E") 30 round;
+    background:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),
+      radial-gradient(130% 60% at 50% -8%, rgba(150,30,22,.22), transparent 52%),
+      radial-gradient(120% 130% at 50% 35%, rgba(122,92,52,.14), transparent 72%),
+      linear-gradient(180deg,#261b10,#130c06);
+    background-size:170px 170px,auto,auto,auto;background-blend-mode:soft-light,normal,normal,normal;
+    box-shadow:0 0 0 3px #0a0706,0 16px 55px rgba(0,0,0,.85),0 0 70px rgba(130,45,22,.22),inset 0 0 70px rgba(0,0,0,.55);
+    color:var(--text);
+  }
+  /* Header: stained-glass emblem with a magical glow behind, engraved gold serif title + bronze underline. */
+  .panel h3,.modal h3,#helpModal h3,#settingsModal h3,#mpModal h3,#wpModal h3{
+    position:relative;text-align:center;font-family:'Cinzel',Georgia,serif;font-weight:700;letter-spacing:3px;text-transform:uppercase;
+    color:var(--gold-bright);font-size:18px;padding:60px 0 14px;margin-bottom:14px;border-bottom:none;
+    text-shadow:0 1px 0 #3a2410,0 2px 3px #000,0 0 14px rgba(230,150,60,.5);
+  }
+  .panel h3::before,.modal h3::before,#helpModal h3::before,#settingsModal h3::before,#mpModal h3::before,#wpModal h3::before{
+    content:'';position:absolute;top:-4px;left:50%;transform:translateX(-50%);width:150px;height:60px;pointer-events:none;
+    background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Cdefs%3E%3ClinearGradient id='b' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%23e8c878'/%3E%3Cstop offset='1' stop-color='%235a3a16'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='40' cy='40' r='30' fill='%231a0f08' stroke='url(%23b)' stroke-width='4'/%3E%3Cg stroke='%230c0805' stroke-width='2'%3E%3Cpath d='M40 13 L58 40 L40 40 Z' fill='%23a8323a'/%3E%3Cpath d='M40 13 L22 40 L40 40 Z' fill='%235a1018'/%3E%3Cpath d='M40 67 L58 40 L40 40 Z' fill='%233a4a8a'/%3E%3Cpath d='M40 67 L22 40 L40 40 Z' fill='%2327306a'/%3E%3Ccircle cx='40' cy='40' r='6' fill='%23ffd86a'/%3E%3C/g%3E%3C/svg%3E") center 2px/52px 52px no-repeat,
+      radial-gradient(circle at 50% 44%, rgba(150,40,30,.55), rgba(70,40,120,.22) 46%, transparent 70%);
+    filter:drop-shadow(0 0 7px rgba(170,45,40,.6));
+  }
+  .panel h3::after,.modal h3::after,#helpModal h3::after,#settingsModal h3::after,#mpModal h3::after,#wpModal h3::after{
+    content:'';position:absolute;left:9%;right:9%;bottom:5px;height:2px;
+    background:linear-gradient(90deg,transparent,var(--bronze-lit),var(--bronze),var(--bronze-lit),transparent);
+  }
+  .close{color:var(--bronze-lit);text-shadow:0 1px 2px #000;z-index:2;}.close:hover{color:var(--gold-bright);}
+  /* Item slots: carved square, inner shadow, rarity border + glow, corner rarity star. */
+  .cell{border:2px solid #4a3a26;border-radius:4px;background:radial-gradient(circle at 50% 32%,#34271a,#170e07);
+    box-shadow:inset 0 2px 7px rgba(0,0,0,.78),inset 0 0 0 1px rgba(255,220,160,.05);}
+  .cell:hover{border-color:#b8893f;box-shadow:inset 0 2px 7px rgba(0,0,0,.7),0 0 10px rgba(184,137,63,.5);}
+  .cell.r-common{border-color:#cdc4b2;box-shadow:inset 0 2px 7px rgba(0,0,0,.78),0 0 5px rgba(205,196,178,.3);}
+  .cell.r-magic{border-color:#5a82ff;box-shadow:inset 0 2px 7px rgba(0,0,0,.78),0 0 9px rgba(90,130,255,.55);}
+  .cell.r-rare{border-color:#ffe35a;box-shadow:inset 0 2px 7px rgba(0,0,0,.78),0 0 9px rgba(255,227,90,.5);}
+  .cell.r-set{border-color:#5ad65a;box-shadow:inset 0 2px 7px rgba(0,0,0,.78),0 0 11px rgba(90,214,90,.6);}
+  .cell.r-unique{border-color:#ff9a3a;box-shadow:inset 0 2px 7px rgba(0,0,0,.78),0 0 13px rgba(255,140,40,.72);}
+  .cell.r-common::after,.cell.r-magic::after,.cell.r-rare::after,.cell.r-set::after,.cell.r-unique::after{
+    content:'✦';position:absolute;right:3px;bottom:1px;font-size:9px;line-height:1;pointer-events:none;text-shadow:0 0 3px #000,0 1px 1px #000;}
+  .cell.r-common::after{color:#cdc4b2;}.cell.r-magic::after{color:#7fa8ff;}.cell.r-rare::after{color:#ffe35a;}.cell.r-set::after{color:#5ad65a;}.cell.r-unique::after{color:#ff9a3a;}
+  /* equipped gear: faint magical pulse */
+  .equipGrid .cell.r-magic,.equipGrid .cell.r-rare,.equipGrid .cell.r-set,.equipGrid .cell.r-unique{animation:gemPulse 2.8s ease-in-out infinite;}
+  @keyframes gemPulse{0%,100%{filter:brightness(1);}50%{filter:brightness(1.16) drop-shadow(0 0 6px rgba(255,200,120,.45));}}
+  /* Forged-metal buttons */
+  .btn,.tbtn,.row .rbtn,.rbtn,.tab,.node .nbtn,.plus,.seg button,.wprow .wbtn{
+    font-family:'Cinzel',Georgia,serif;letter-spacing:.5px;background:linear-gradient(180deg,#3a2a16,#22160c);
+    border:1px solid #6a4a28;border-top-color:#a8803c;color:var(--gold);text-shadow:0 1px 1px #000;
+    box-shadow:inset 0 1px 0 rgba(255,220,150,.18),inset 0 -2px 4px rgba(0,0,0,.5),0 1px 2px rgba(0,0,0,.55);}
+  .btn:hover,.tbtn:hover,.row .rbtn:hover,.rbtn:hover,.node .nbtn:hover,.plus:hover,.wprow .wbtn:hover{
+    background:linear-gradient(180deg,#4e3a1f,#2c1d10);border-color:#b8893f;color:var(--gold-bright);
+    box-shadow:inset 0 1px 0 rgba(255,220,150,.25),0 0 12px rgba(184,137,63,.55);}
+  .tab.on,.seg button.on{background:linear-gradient(180deg,#5a3a1c,#3a2410);border-color:#b8893f;color:var(--gold-bright);box-shadow:inset 0 0 10px rgba(230,150,60,.3),0 0 10px rgba(184,137,63,.4);}
+  /* Rows, stat box, tooltip, labels — aged & engraved */
+  .row{background:linear-gradient(180deg,rgba(34,24,14,.5),rgba(12,8,4,.5));border:1px solid #4a3826;box-shadow:inset 0 1px 0 rgba(255,220,150,.05),0 1px 3px rgba(0,0,0,.4);}
+  .charStats,.node,.ptLegend,.wprow{background:linear-gradient(180deg,rgba(40,30,18,.5),rgba(14,9,5,.5));border:1px solid #5a4226;box-shadow:inset 0 0 18px rgba(0,0,0,.45);}
+  .charStats b{color:var(--gold-bright);text-shadow:0 0 6px rgba(230,150,60,.4);}
+  .tier{font-family:'Cinzel',Georgia,serif;color:var(--bronze-lit);letter-spacing:2px;text-shadow:0 1px 1px #000;}
+  .slot,.classCard{background:linear-gradient(180deg,rgba(38,28,17,.85),rgba(16,11,6,.9));border:1px solid #5a4226;box-shadow:inset 0 0 18px rgba(0,0,0,.4);}
+  .slot .cname,.classCard .cn,.node .nname,.wprow .wn{font-family:'Cinzel',Georgia,serif;}
+  .screen h1,.screen h2{font-family:'Cinzel',Georgia,serif;}
+  #goldTxt,.row .rprice,#topbar .name{color:var(--gold-bright);font-weight:bold;text-shadow:0 1px 1px #000,0 0 6px rgba(230,150,60,.3);}
+  #tooltip{background:linear-gradient(180deg,#1a120a,#0b0704);border:1px solid #6a4a28;box-shadow:0 0 0 1px #000,0 6px 22px rgba(0,0,0,.85),0 0 16px rgba(120,40,20,.2);}
+  #tooltip .tname{font-family:'Cinzel',Georgia,serif;text-shadow:0 1px 2px #000;}
+  .tbtn{background:linear-gradient(180deg,#2c1f13,#1a1109);border:1px solid #5a4226;}
+  /* Currency bar pinned to the bottom of the inventory (gold + dust) */
+  #invCurrency{position:sticky;bottom:-18px;margin:18px -18px -18px;padding:13px 22px;display:flex;justify-content:space-between;align-items:center;gap:14px;
+    background:linear-gradient(180deg,#1c130b,#0a0604);border-top:2px solid #6a4a28;
+    box-shadow:0 -9px 22px rgba(0,0,0,.7),inset 0 2px 0 rgba(255,220,150,.1);}
+  #invCurrency .cur{display:flex;align-items:center;gap:9px;font-family:'Cinzel',Georgia,serif;font-weight:bold;font-size:17px;color:var(--gold-bright);text-shadow:0 1px 1px #000,0 0 7px rgba(230,150,60,.35);}
+  #invCurrency .curIco{font-size:19px;filter:drop-shadow(0 0 4px rgba(230,150,60,.5));}
+  #invCurrency .curDust{color:#b9a6ff;filter:drop-shadow(0 0 5px rgba(150,110,255,.6));}
 </style>
 </head>
 <body>
@@ -206,7 +290,6 @@
   <div id="killsTxt">Slain: 0</div>
   <div class="right">
     <span id="zoneTxt">Town</span>
-    <span id="goldTxt">0 g</span>
     <button class="tbtn" id="diffBtn">Normal</button>
     <button class="tbtn" id="soundBtn">🔊</button>
     <button class="tbtn" id="setBtn">⚙</button>
@@ -240,6 +323,10 @@
   <h3 style="font-size:16px;border:none;margin:0 0 8px">Backpack</h3>
   <div class="invGrid" id="invGrid"></div>
   <div class="invHint">Click a backpack item to equip • Click equipped item to remove • Hover to compare</div>
+  <div id="invCurrency">
+    <span class="cur"><span class="curIco">🪙</span><span id="goldTxt">0 g</span></span>
+    <span class="cur"><span class="curIco curDust">✦</span><span id="dustTxt">0 Dust</span></span>
+  </div>
 </div>
 
 <div id="skillPanel" class="panel">

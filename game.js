@@ -149,6 +149,25 @@ function itemScore(it) { if (!it) return 0; let s = it.baseStat * (it.slot === '
 const upgradeCost = it => Math.round(itemScore(it) * (1 + ((it.upgrade) || 0)) * 0.5) + 15;
 const enchantAffixes = it => Object.keys(it.affixes || {}).filter(k => AFFIXES[k]);
 const enchantCost = it => Math.round(itemScore(it) * 0.35) + 25;
+/* ---- Crafting: salvage → Dust, and Reforge (reroll an item's rolled affixes, small chance to bump rarity) ----
+   Reforge only touches common/magic/rare gear: set/unique affixes are hand-tuned identity, not rerollable. */
+const DUST_VALUE = { common: 1, magic: 3, rare: 8, set: 15, unique: 25 };
+const dustValue = it => DUST_VALUE[it.rarity] || 1;
+const REFORGE_RARITY_UP = 0.15; /* chance a reforge promotes one tier first (common→magic→rare, capped at rare = more affix slots) */
+const reforgeable = it => !!it && (it.rarity === 'common' || it.rarity === 'magic' || it.rarity === 'rare');
+const reforgeCost = it => ({ dust: 4 + (RTIER[it.rarity] || 1) * 4, gold: Math.round(itemScore(it) * 0.15) + 15 });
+function reforgeName(it) { const base = it.base || it.name; if (it.rarity === 'rare') return choice(PREFIX) + ' ' + base + ' ' + choice(SUFFIX); if (it.rarity === 'magic') { let n = (Math.random() < 0.5 ? choice(PREFIX) + ' ' : '') + base; if (n === base) n = base + ' ' + choice(SUFFIX); return n; } return base; }
+/** Reroll it.affixes in place (fresh random set per the item's rarity), with REFORGE_RARITY_UP chance to bump one
+ *  tier first. Preserves id/slot/ilvl/base/upgrade/enchant; rerolls baseStat to match (possibly new) rarity. */
+function reforgeItem(it) {
+  if (it.rarity !== 'rare' && Math.random() < REFORGE_RARITY_UP) it.rarity = bumpRarity(it.rarity, 1);
+  it.baseStat = baseStatRoll(it.slot, it.ilvl, it.rarity);
+  it.affixes = {};
+  const [lo, hi] = RARITY_AFFIX[it.rarity]; const cnt = randi(lo, hi); const pool = [...AFFIX_KEYS];
+  for (let i = 0; i < cnt; i++) { if (!pool.length) break; const k = pool.splice(randi(0, pool.length - 1), 1)[0]; it.affixes[k] = affixRoll(k, it.ilvl, it.rarity); }
+  it.name = reforgeName(it);
+  return it;
+}
 /** @param {Item} it @returns {number} */
 function sellValue(it) { return Math.max(2, Math.round(itemScore(it) * 0.5)); }
 /** @param {Item} it @returns {number} */
@@ -277,7 +296,7 @@ const SAVE = {
     if (ch.potions == null) ch.potions = 4;
     if (ch.hpPotions == null) ch.hpPotions = (ch.potions != null ? ch.potions : 4); if (ch.mpPotions == null) ch.mpPotions = 2;
     if (ch.potionTier == null) ch.potionTier = 0; if (ch.potionCap == null) ch.potionCap = 10;
-    if (ch.invMax == null) ch.invMax = 40; if (ch.stashMax == null) ch.stashMax = 40; if (ch.activeSkillId === undefined) ch.activeSkillId = null;
+    if (ch.invMax == null) ch.invMax = 40; if (ch.stashMax == null) ch.stashMax = 40; if (ch.activeSkillId === undefined) ch.activeSkillId = null; if (ch.materials == null) ch.materials = 0;
     if (ch.xpNext == null) ch.xpNext = 30; if (ch.maxDepth == null) ch.maxDepth = 0; if (!ch.class) ch.class = 'warrior'; if (!ch.passives || !ch.passives.length) ch.passives = [PTREE.starts[ch.class] || 'start_str']; if (ch.statPoints > 0) { ch.skillPoints = (ch.skillPoints || 0) + ch.statPoints; ch.statPoints = 0; }
     if (ch.discovered == null) ch.discovered = { town: true, highreach: false, emberhold: false }; return ch;
   },
@@ -286,7 +305,7 @@ const SAVE = {
   newCharacter(name, cls) {
     cls = CLASSES[cls] ? cls : 'warrior'; const c = CLASSES[cls]; const skills = {}; for (const id in SKILLDEFS) skills[id] = 0;
     return {
-      name, class: cls, version: this.VERSION, created: Date.now(), lastPlayed: Date.now(), level: 1, xp: 0, xpNext: 30, gold: 0, kills: 0, potions: 4, hpPotions: 4, mpPotions: 2, potionTier: 0, potionCap: 10, invMax: 40, stashMax: 40, maxDepth: 0, activeSkillId: null, discovered: { town: true, highreach: false, emberhold: false },
+      name, class: cls, version: this.VERSION, created: Date.now(), lastPlayed: Date.now(), level: 1, xp: 0, xpNext: 30, gold: 0, materials: 0, kills: 0, potions: 4, hpPotions: 4, mpPotions: 2, potionTier: 0, potionCap: 10, invMax: 40, stashMax: 40, maxDepth: 0, activeSkillId: null, discovered: { town: true, highreach: false, emberhold: false },
       base: { hpMax: 100, mpMax: 50, dmg: 10 }, stats: { str: c.base.str, dex: c.base.dex, vit: c.base.vit, eng: c.base.eng }, statPoints: 0, skillPoints: 0,
       inventory: [], stash: [], equipment: { weapon: null, helm: null, armor: null, gloves: null, boots: null, ring: null, amulet: null }, skills, passives: [PTREE.starts[cls]]
     };
@@ -2361,7 +2380,7 @@ function update(dt) {
       if (l.kind === 'gold') { player.gold += l.payload; goldTxt.textContent = player.gold + ' g'; floatText(l.payload + 'g', player.x, player.z, '#ffe27a'); sfx('gold'); l.dead = true; }
       else if (l.kind === 'potion') { player.hpPotions = Math.min(character.potionCap, player.hpPotions + 1); floatText('+Potion', player.x, player.z, '#ff6b5b'); l.dead = true; }
       else if (l.kind === 'manapotion') { player.mpPotions = Math.min(character.potionCap, player.mpPotions + 1); floatText('+Mana', player.x, player.z, '#5a9bff'); l.dead = true; }
-      else { const lf = SAVE._data && SAVE._data.settings && SAVE._data.settings.lootFilter; if (lf && !lootPasses(lf, l.payload)) { const g = sellValue(l.payload); player.gold += g; goldTxt.textContent = player.gold + ' g'; floatText('+' + g + 'g', player.x, player.z, '#caa84a'); l.dead = true; } else if (character.inventory.length < character.invMax) { character.inventory.push(l.payload); floatText(l.payload.name, player.x, player.z, '#' + RCOL[l.payload.rarity].toString(16).padStart(6, '0')); l.dead = true; if (invOpen) renderInv(); updatePips(); } else if (T - _bagFullAt > 2500) { _bagFullAt = T; floatText('Bag full!', player.x, player.z, '#ff8'); } }
+      else { const lf = SAVE._data && SAVE._data.settings && SAVE._data.settings.lootFilter; if (lf && !lootPasses(lf, l.payload)) { const g = sellValue(l.payload), du = dustValue(l.payload); player.gold += g; character.materials = (character.materials || 0) + du; goldTxt.textContent = player.gold + ' g'; floatText('+' + g + 'g · +' + du + '✦', player.x, player.z, '#caa84a'); l.dead = true; } else if (character.inventory.length < character.invMax) { character.inventory.push(l.payload); floatText(l.payload.name, player.x, player.z, '#' + RCOL[l.payload.rarity].toString(16).padStart(6, '0')); l.dead = true; if (invOpen) renderInv(); updatePips(); } else if (T - _bagFullAt > 2500) { _bagFullAt = T; floatText('Bag full!', player.x, player.z, '#ff8'); } }
     }
   }
   _compact(loots, _deadFlag, _killMesh);
@@ -2614,18 +2633,33 @@ function renderJeweler() {
 const POTION_TIER_MAX = 8, POTION_CAP_MAX = 30;
 function renderSmith() {
   const body = document.getElementById('smithBody');
-  let html = `<div style="color:#ffe27a;margin-bottom:10px">Your gold: ${player.gold}</div>`;
+  let html = `<div style="color:#ffe27a;margin-bottom:6px">Your gold: ${player.gold} <span style="color:#b9a6ff">· ✦ ${character.materials || 0} Dust</span></div>`;
+  html += `<div style="color:#8a7a5a;font-size:12px;margin-bottom:10px">Upgrade adds raw power (gold). Reforge rerolls affixes (chance to raise rarity) for ✦ Dust. Salvage breaks backpack gear into ✦ Dust — no gold.</div>`;
   html += `<div class="tier">Equipment &amp; Backpack</div>`;
   const list = []; for (const s of SLOTS) { if (character.equipment[s]) list.push({ it: character.equipment[s], where: 'eq' }); } character.inventory.forEach(it => list.push({ it, where: 'inv' }));
-  if (!list.length) html += `<div style="color:#6a5a44">No gear to upgrade — equip or loot some.</div>`;
+  if (!list.length) html += `<div style="color:#6a5a44">No gear to work — equip or loot some.</div>`;
   body.innerHTML = html;
+  const junkInv = character.inventory.filter(it => it.rarity === 'common' || it.rarity === 'magic');
+  if (junkInv.length) {
+    const jd = junkInv.reduce((s, it) => s + dustValue(it), 0);
+    const bar = document.createElement('div'); bar.className = 'row'; bar.style.background = 'rgba(40,30,16,.55)';
+    bar.innerHTML = `<div class="rname" style="flex:1">Backpack junk <span style="color:#8a7a5a;font-size:11px">(${junkInv.length} common/magic → ✦ Dust)</span></div><div class="rbtn" id="smithSalvageJunk" style="border-color:#6a4aa0">Salvage Junk +${jd}✦</div>`;
+    body.appendChild(bar);
+  }
   list.forEach((e, i) => {
     const it = e.it, lvl = it.upgrade || 0, max = upgradeMax(it), atMax = lvl >= max, cost = upgradeCost(it), cur = Math.round((upFactor(it) - 1) * 100), nxt = Math.round((upFactor({ upgrade: lvl + 1 }) - 1) * 100);
+    const upCtrl = atMax ? `<div class="rprice">MAX (${max})</div>` : `<div class="rprice">${cost} g</div><div class="rbtn${player.gold >= cost ? '' : ' dis'}" data-up="${i}">Upgrade</div>`;
+    const rc = reforgeCost(it), canRf = reforgeable(it) && player.gold >= rc.gold && (character.materials || 0) >= rc.dust;
+    const rfCtrl = reforgeable(it) ? `<div class="rbtn${canRf ? '' : ' dis'}" data-rf="${i}" title="Reroll all affixes · ${Math.round(REFORGE_RARITY_UP * 100)}% chance to raise rarity" style="margin-left:6px;border-color:#6a4aa0">Reforge ${rc.gold}g·${rc.dust}✦</div>` : '';
+    const svCtrl = e.where === 'inv' ? `<div class="rbtn" data-sv="${i}" title="Break this item down into ✦ Dust (no gold)" style="margin-left:6px;border-color:#7a3a28">Salvage +${dustValue(it)}✦</div>` : '';
     const row = document.createElement('div'); row.className = 'row';
-    row.innerHTML = `<div class="ric">${SLOT_ICON[it.slot]}</div><div class="rname rc-${it.rarity}">${it.name} <span style="color:#ffcf6a">+${lvl}</span><span style="color:#8a7a5a;font-size:11px"> ${e.where === 'eq' ? '· equipped' : ''} · ${atMax ? '+' + cur + '% MAX' : '+' + cur + '% → +' + nxt + '%'}</span></div>${atMax ? `<div class="rprice">MAX (${max})</div>` : `<div class="rprice">${cost} g</div><div class="rbtn${player.gold >= cost ? '' : ' dis'}" data-up="${i}">Upgrade</div>`}`;
+    row.innerHTML = `<div class="ric">${SLOT_ICON[it.slot]}</div><div class="rname rc-${it.rarity}">${it.name} <span style="color:#ffcf6a">+${lvl}</span><span style="color:#8a7a5a;font-size:11px"> ${e.where === 'eq' ? '· equipped' : ''} · ${atMax ? '+' + cur + '% MAX' : '+' + cur + '% → +' + nxt + '%'}</span></div>${upCtrl}${rfCtrl}${svCtrl}`;
     bindTip(row.querySelector('.rname'), it); body.appendChild(row);
   });
   body.querySelectorAll('[data-up]').forEach(b => b.onclick = () => { const e = list[+b.dataset.up], it = e.it; if ((it.upgrade || 0) >= upgradeMax(it)) return; const cost = upgradeCost(it); if (player.gold < cost) return; player.gold -= cost; it.upgrade = (it.upgrade || 0) + 1; goldTxt.textContent = player.gold + ' g'; if (e.where === 'eq') recompute(); sfx('level'); showMsg(it.name + ' → +' + it.upgrade); renderSmith(); saveProgress(false); });
+  body.querySelectorAll('[data-rf]').forEach(b => b.onclick = () => { const e = list[+b.dataset.rf], it = e.it; if (!reforgeable(it)) return; const rc = reforgeCost(it); if (player.gold < rc.gold || (character.materials || 0) < rc.dust) return; player.gold -= rc.gold; character.materials = (character.materials || 0) - rc.dust; const before = it.rarity; reforgeItem(it); goldTxt.textContent = player.gold + ' g'; if (e.where === 'eq') { recompute(); attachHeroWeapon(); } sfx('level'); showMsg(it.rarity !== before ? (it.name + ' → ' + (RARITY_NAME[it.rarity] || it.rarity) + '!') : ('Reforged: ' + it.name)); renderSmith(); updatePips(); saveProgress(false); });
+  body.querySelectorAll('[data-sv]').forEach(b => b.onclick = () => { const e = list[+b.dataset.sv], it = e.it; if (e.where !== 'inv') return; const du = dustValue(it); if ((RTIER[it.rarity] || 1) >= 3 && !confirm('Salvage ' + it.name + ' (' + (RARITY_NAME[it.rarity] || it.rarity) + ') into ' + du + ' Dust? This destroys the item.')) return; const idx = character.inventory.indexOf(it); if (idx < 0) return; character.materials = (character.materials || 0) + du; character.inventory.splice(idx, 1); sfx('potion'); showMsg('Salvaged: +' + du + '✦'); renderSmith(); updatePips(); saveProgress(false); });
+  const ssj = document.getElementById('smithSalvageJunk'); if (ssj) ssj.onclick = () => { const junk = character.inventory.filter(it => it.rarity === 'common' || it.rarity === 'magic'); if (!junk.length) return; const jd = junk.reduce((s, it) => s + dustValue(it), 0); character.materials = (character.materials || 0) + jd; character.inventory = character.inventory.filter(it => !(it.rarity === 'common' || it.rarity === 'magic')); sfx('potion'); showMsg('Salvaged junk: +' + jd + '✦'); renderSmith(); updatePips(); saveProgress(false); };
 }
 function affixLines(it) { let s = ''; if (it.slot === 'weapon' && it.baseStat) s += `<div class="base">${it.baseStat} Damage</div>`; else if (it.baseStat) s += `<div class="base">${it.baseStat} Armor</div>`; for (const k in it.affixes) s += `<div class="aff">+${it.affixes[k]} ${AFFIXES[k].label}</div>`; if (it.enchant && it.enchant.key && AFFIXES[it.enchant.key]) s += `<div class="aff" style="color:#9f6aff">✦ +${it.enchant.val} ${AFFIXES[it.enchant.key].label} (enchant)</div>`; return s; }
 function statBundle(it) { const b = {}; if (it.baseStat) b[it.slot === 'weapon' ? 'Damage' : 'Armor'] = (b[it.slot === 'weapon' ? 'Damage' : 'Armor'] || 0) + it.baseStat; for (const k in it.affixes) { const l = AFFIXES[k] ? AFFIXES[k].label : k; b[l] = (b[l] || 0) + it.affixes[k]; } if (it.enchant && it.enchant.key && AFFIXES[it.enchant.key]) { const l = AFFIXES[it.enchant.key].label; b[l] = (b[l] || 0) + (it.enchant.val || 0); } return b; }
@@ -2654,6 +2688,7 @@ function renderInv() {
   const sline = (k, lbl) => `<div class="statline">${lbl} <b>${player[k]}</b></div>`;
   document.getElementById('charStats').innerHTML = `<b>${character.name}</b> · Level ${player.level}<br>Damage <b>${player.dmg}</b> &nbsp; Crit <b>${(player.crit * 100).toFixed(0)}%</b> &nbsp; Atk Spd <b>${(1000 / player.attackRate).toFixed(2)}/s</b><br>Life <b>${player.hpMax}</b> &nbsp; Mana <b>${player.mpMax}</b> &nbsp; Armor <b>${player.armor}</b><br>${sline('str', 'STR')} ${sline('dex', 'DEX')} ${sline('vit', 'VIT')} ${sline('eng', 'ENG')}<span style="color:#8a7a5a">All stats now come from the skill forest (K)</span>`;
   const ig = document.getElementById('invGrid'); ig.innerHTML = ''; for (let i = 0; i < character.invMax; i++) { const it = character.inventory[i]; const c = document.createElement('div'); c.className = 'cell' + (it ? ' r-' + it.rarity : ''); if (it) { const up = itemScore(it) > itemScore(character.equipment[it.slot]); c.innerHTML = (up ? '<span class="upg">▲</span>' : '') + SLOT_ICON[it.slot]; if (up) c.classList.add('isupg'); bindTip(c, it); c.onclick = () => equipFromInv(i); } ig.appendChild(c); }
+  goldTxt.textContent = player.gold + ' g'; const _dt = document.getElementById('dustTxt'); if (_dt) _dt.textContent = (character.materials || 0) + ' Dust'; /* currency bar lives at the bottom of the inventory now */
 }
 function equipFromInv(i) { const it = character.inventory[i]; if (!it) return; const prev = character.equipment[it.slot]; character.equipment[it.slot] = it; character.inventory.splice(i, 1); if (prev) character.inventory.push(prev); recompute(); attachHeroWeapon(); renderInv(); tooltip.style.display = 'none'; saveProgress(false); }
 function unequip(s) { const it = character.equipment[s]; if (!it) return; if (character.inventory.length >= character.invMax) { showMsg('Bag full'); return; } character.inventory.push(it); character.equipment[s] = null; recompute(); attachHeroWeapon(); renderInv(); tooltip.style.display = 'none'; saveProgress(false); }
@@ -2707,7 +2742,7 @@ document.getElementById('resetSkills').onclick = () => { const start = PTREE.sta
 let vendorStock = [], vendorTab = 'buy', vendorTier = 1, vendorStockTier = 1;
 function refreshVendor(tier) { tier = tier || 1; vendorStockTier = tier; vendorStock = []; const bump = (tier - 1) * 7, q = tier >= 2 ? 0.35 : 0; for (let i = 0; i < 6; i++) vendorStock.push(rollItem(Math.max(1, player.level + randi(-1, 2)) + bump, null, q)); }
 function renderVendor() {
-  const body = document.getElementById('vendorBody'); body.innerHTML = `<div style="color:#ffe27a;margin-bottom:10px">Your gold: ${player.gold}</div>`;
+  const body = document.getElementById('vendorBody'); body.innerHTML = `<div style="color:#ffe27a;margin-bottom:10px">Your gold: ${player.gold} <span style="color:#b9a6ff">· ✦ ${character.materials || 0} Dust</span></div>`;
   if (vendorTier >= 2) body.innerHTML += `<div style="color:#ff6ad0;margin-bottom:8px;font-size:13px">✦ Exotic wares — rarer, higher item level, premium prices.</div>`;
   if (vendorTab === 'buy') {
     body.innerHTML += `<div style="color:#9a8a6a;margin-bottom:8px;font-size:13px">Need potions? Visit the 🔥 cauldron in town to refill for free.</div>`;
@@ -2718,14 +2753,15 @@ function renderVendor() {
   } else if (vendorTab === 'sell') {
     if (!character.inventory.length) body.innerHTML += `<div style="color:#6a5a44">Your backpack is empty.</div>`;
     const isJunk = it => it.rarity === 'common' || it.rarity === 'magic'; const junkTotal = character.inventory.filter(isJunk).reduce((s, it) => s + sellValue(it), 0), allTotal = character.inventory.reduce((s, it) => s + sellValue(it), 0), junkCnt = character.inventory.filter(isJunk).length;
+    const junkDust = character.inventory.filter(isJunk).reduce((s, it) => s + dustValue(it), 0), allDust = character.inventory.reduce((s, it) => s + dustValue(it), 0);
     if (character.inventory.length) {
       const bar = document.createElement('div'); bar.className = 'row'; bar.style.background = 'rgba(40,30,16,.55)';
-      bar.innerHTML = `<div class="rname" style="flex:1">Bulk sell</div><div class="rbtn${junkCnt ? '' : ' dis'}" id="sellJunk">Sell Junk (${junkTotal}g)</div><div class="rbtn${allTotal ? '' : ' dis'}" id="sellAll" style="margin-left:6px;border-color:#7a3a28">Sell All (${allTotal}g)</div>`; body.appendChild(bar);
-      const sj = document.getElementById('sellJunk'); if (sj) sj.onclick = () => { if (!junkCnt) return; player.gold += junkTotal; character.inventory = character.inventory.filter(it => !isJunk(it)); goldTxt.textContent = player.gold + ' g'; showMsg('Sold junk: +' + junkTotal + 'g'); renderVendor(); updatePips(); saveProgress(false); };
-      const sa = document.getElementById('sellAll'); if (sa) sa.onclick = () => { if (!allTotal) return; if (!confirm('Sell ALL ' + character.inventory.length + ' backpack items for ' + allTotal + 'g?\nThis includes rare, set and unique gear.')) return; player.gold += allTotal; character.inventory = []; goldTxt.textContent = player.gold + ' g'; showMsg('Sold all: +' + allTotal + 'g'); renderVendor(); updatePips(); saveProgress(false); };
+      bar.innerHTML = `<div class="rname" style="flex:1">Bulk sell <span style="color:#8a7a5a;font-size:11px">(also salvages into ✦ Dust)</span></div><div class="rbtn${junkCnt ? '' : ' dis'}" id="sellJunk">Sell Junk (${junkTotal}g · ${junkDust}✦)</div><div class="rbtn${allTotal ? '' : ' dis'}" id="sellAll" style="margin-left:6px;border-color:#7a3a28">Sell All (${allTotal}g · ${allDust}✦)</div>`; body.appendChild(bar);
+      const sj = document.getElementById('sellJunk'); if (sj) sj.onclick = () => { if (!junkCnt) return; player.gold += junkTotal; character.materials = (character.materials || 0) + junkDust; character.inventory = character.inventory.filter(it => !isJunk(it)); goldTxt.textContent = player.gold + ' g'; showMsg('Salvaged junk: +' + junkTotal + 'g · +' + junkDust + '✦'); renderVendor(); updatePips(); saveProgress(false); };
+      const sa = document.getElementById('sellAll'); if (sa) sa.onclick = () => { if (!allTotal) return; if (!confirm('Sell ALL ' + character.inventory.length + ' backpack items for ' + allTotal + 'g + ' + allDust + ' Dust?\nThis includes rare, set and unique gear.')) return; player.gold += allTotal; character.materials = (character.materials || 0) + allDust; character.inventory = []; goldTxt.textContent = player.gold + ' g'; showMsg('Salvaged all: +' + allTotal + 'g · +' + allDust + '✦'); renderVendor(); updatePips(); saveProgress(false); };
     }
-    character.inventory.forEach((it, idx) => { const price = sellValue(it); const row = document.createElement('div'); row.className = 'row'; row.innerHTML = `<div class="ric">${SLOT_ICON[it.slot]}</div><div class="rname rc-${it.rarity}">${it.name}</div><div class="rprice">${price} g</div><div class="rbtn" data-sell="${idx}">Sell</div>`; bindTip(row.querySelector('.rname'), it); body.appendChild(row); });
-    body.querySelectorAll('[data-sell]').forEach(b => b.onclick = () => { const idx = +b.dataset.sell; const it = character.inventory[idx]; player.gold += sellValue(it); character.inventory.splice(idx, 1); goldTxt.textContent = player.gold + ' g'; renderVendor(); updatePips(); saveProgress(false); });
+    character.inventory.forEach((it, idx) => { const price = sellValue(it); const row = document.createElement('div'); row.className = 'row'; row.innerHTML = `<div class="ric">${SLOT_ICON[it.slot]}</div><div class="rname rc-${it.rarity}">${it.name}</div><div class="rprice">${price} g · ${dustValue(it)}✦</div><div class="rbtn" data-sell="${idx}">Sell</div>`; bindTip(row.querySelector('.rname'), it); body.appendChild(row); });
+    body.querySelectorAll('[data-sell]').forEach(b => b.onclick = () => { const idx = +b.dataset.sell; const it = character.inventory[idx]; player.gold += sellValue(it); character.materials = (character.materials || 0) + dustValue(it); character.inventory.splice(idx, 1); goldTxt.textContent = player.gold + ' g'; renderVendor(); updatePips(); saveProgress(false); });
   }
 }
 function setVendorTab(t) { if (t !== 'sell') t = 'buy'; vendorTab = t;['Buy', 'Sell'].forEach(n => document.getElementById('tab' + n).classList.toggle('on', t === n.toLowerCase())); renderVendor(); }
