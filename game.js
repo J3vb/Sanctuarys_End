@@ -49,6 +49,21 @@ let shake = 0;
 
 /* ================= ITEMS ================= */
 const SLOTS = ['weapon', 'helm', 'armor', 'gloves', 'boots', 'ring', 'amulet'];
+
+/* ---- floor bounties: optional per-floor goal that pays a bonus (soft gate; portal stays open) ----
+   Pure (no THREE/DOM) so tests/objectives.test.js can load them from the browser-free prefix. */
+function rollFloorObjective(depth) {
+  if (depth <= 1 || depth % 5 === 0 || depth === 666) return null; // boss floors + the opening floor get no bounty
+  if (Math.random() < 0.5) return { kind: 'champion', done: false };
+  return { kind: 'slay', target: clamp(6 + (depth >> 1), 6, 18), count: 0, done: false };
+}
+// Advance a bounty by one kill of `kind` ('kill' | 'champion'); returns true on the transition to complete (once).
+function bountyProgress(obj, kind) {
+  if (!obj || obj.done) return false;
+  if (obj.kind === 'slay' && kind === 'kill') { if (++obj.count >= obj.target) { obj.done = true; return true; } return false; }
+  if (obj.kind === 'champion' && kind === 'champion') { obj.done = true; return true; }
+  return false;
+}
 const SLOT_ICON = { weapon: '⚔️', helm: '🪖', armor: '🛡️', gloves: '🧤', boots: '🥾', ring: '💍', amulet: '📿' };
 const BASE_NAMES = { weapon: ['Sword', 'Axe', 'Mace', 'Dagger', 'Blade', 'War Hammer', 'Cleaver', 'Scimitar', 'Flail', 'Glaive'], helm: ['Cap', 'Helm', 'Hood', 'Crown', 'Visor', 'Barbute', 'Sallet'], armor: ['Tunic', 'Mail', 'Plate', 'Robe', 'Cuirass', 'Brigandine', 'Hauberk'], gloves: ['Gloves', 'Gauntlets', 'Grips', 'Vambraces'], boots: ['Boots', 'Greaves', 'Sabatons', 'Treads'], ring: ['Ring', 'Band', 'Signet', 'Loop'], amulet: ['Amulet', 'Pendant', 'Talisman', 'Charm'] };
 /* Class-flavored weapon base names (cosmetic only — base does not affect stats; baseStat comes from ilvl/rarity).
@@ -1695,7 +1710,8 @@ function buildHero() {
 const hero = buildHero(); scene.add(hero);
 loadRoster();
 
-const player = { x: 0, z: 0, r: 1.4, speed: 0.32, hp: 100, hpMax: 100, mp: 50, mpMax: 50, level: 1, xp: 0, xpNext: 30, gold: 0, kills: 0, dmg: 14, attackCd: 0, attackRate: 420, range: 3.2, potions: 4, dir: 0, swing: 0, bob: 0, armor: 0, crit: 0.05, mpRegen: 0.004, chillUntil: 0, effects: { lifesteal: 0, thorns: 0, allskills: 0, movespeed: 0, critdmg: false, pierce: 0, dodge: 0, flatDR: 0, lifeOnHit: 0 }, goldFind: 0, cdr: 0, meleeMult: 1, spellMult: 1, buffs: { cryUntil: 0, cryMul: 1, cryDR: 0 } };
+const player = { x: 0, z: 0, r: 1.4, speed: 0.32, hp: 100, hpMax: 100, mp: 50, mpMax: 50, level: 1, xp: 0, xpNext: 30, gold: 0, kills: 0, dmg: 14, attackCd: 0, attackRate: 420, range: 3.2, potions: 4, dir: 0, swing: 0, bob: 0, armor: 0, crit: 0.05, mpRegen: 0.004, chillUntil: 0, effects: { lifesteal: 0, thorns: 0, allskills: 0, movespeed: 0, critdmg: false, pierce: 0, dodge: 0, flatDR: 0, lifeOnHit: 0 }, goldFind: 0, cdr: 0, meleeMult: 1, spellMult: 1, buffs: { cryUntil: 0, cryMul: 1, cryDR: 0, empUntil: 0, empMul: 1, fleetUntil: 0, fleetMul: 1 } };
+const empowerMul = () => (player.buffs.empUntil > now() ? player.buffs.empMul : 1); // shrine "Empowered" damage buff (timer-read, like War Cry)
 // Effective skill cooldown after Cooldown Reduction. MUST be used by both the cast gate and the cooldown
 // swirl render, or the on-screen timer desyncs from when the skill actually re-fires.
 const skillCd = (def, id) => def.cd * (1 - (player.cdr || 0)) * (id ? resolveSkill(id).cdrMult : 1);
@@ -1876,6 +1892,7 @@ function spawnMonster(t, eliteMods, pos) {
   const hp = Math.round(base.hp * hpM);
   resist = deepenResist(resist, depth, !!eliteMods || empowered);  // bake depth/elite into this instance's clone
   monsters.push(Object.assign({}, base, { type: t, x, z, hp, hpMax: hp, dmg: base.dmg * dmgM, xp: Math.round(base.xp * xpM), atkCd: 0, slow: 0, flash: 0, mesh, bob: rand(0, 6), r: base.r * (eliteMods ? 1.3 : 1), elite: eliteMods || null, empowered, speedMult, resist, name, arcaneCd: randi(0, 90) }));
+  return monsters[monsters.length - 1];
 }
 function spawnPack() {
   const t = choice(biomePool()); const ang = rand(0, 6.28), d = rand(45, 65);
@@ -1883,7 +1900,30 @@ function spawnPack() {
   const cnt = depth > 3 ? 2 : 1; const p2 = Object.keys(ELITE_MODS); const mods = []; for (let i = 0; i < cnt; i++) mods.push(p2.splice(randi(0, p2.length - 1), 1)[0]);
   spawnMonster(t, mods, { x: cx, z: cz });
   for (let i = 0; i < 3; i++) { const a = rand(0, 6.28); const mp = { x: cx + Math.cos(a) * 5, z: cz + Math.sin(a) * 5 }; clampEntToZone(mp); spawnMonster(t, null, { x: mp.x, z: mp.z }); }
-  cullLights(); showMsg('A champion appears!');
+  cullLights(); showMsg('An elite pack appears!');
+}
+/* Named Champion: a single beefed elite that (on champion-bounty floors) gates the floor bonus and drops big.
+   Reuses spawnMonster's elite path (aura+light+nameplate); we just tag the returned instance. */
+const CHAMP_NAMES = ['Gorehowl the Render', 'Vexna, Spite of the Deep', 'Karthok Bonecrown', 'The Sallow Warden', 'Ymira Frostfang', 'Drazzel the Unmaker', 'Old Scorn', 'Maluk, Ash-Touched'];
+function spawnChampion(depth) {
+  const t = choice(biomePool()); const mod = choice(Object.keys(ELITE_MODS));
+  const ang = rand(0, 6.28), d = rand(40, 60); const p = { x: player.x + Math.cos(ang) * d, z: player.z + Math.sin(ang) * d }; clampEntToZone(p);
+  const m = spawnMonster(t, [mod], { x: p.x, z: p.z }); if (!m) return null;
+  m.champion = true; m.hp = m.hpMax = Math.round(m.hpMax * 2); m.dmg = Math.round(m.dmg * 1.25); m.name = choice(CHAMP_NAMES); m.nameCol = 0xffd24d;
+  cullLights(); return m;
+}
+/* Treasure Goblin: rare, fast, harmless, flees — drops a hoard only if you catch it (escape = nothing).
+   Reuses the small 'imp' mesh, gold-tinted; no bespoke model. */
+function spawnGoblin() {
+  const ang = rand(0, 6.28), d = rand(34, 55); const p = { x: player.x + Math.cos(ang) * d, z: player.z + Math.sin(ang) * d }; clampEntToZone(p);
+  const m = spawnMonster('imp', null, { x: p.x, z: p.z }); if (!m) return null;
+  m.flee = true; m.treasure = true; m.showName = true; m.name = 'Treasure Goblin'; m.nameCol = 0xffd24d;
+  m.dmg = 0; m.speed = 0.34; m.ttl = 18000; m.hp = m.hpMax = Math.round(30 + depth * 4); m.xp = Math.round(m.xp * 3);
+  if (m.mesh.userData.bodyMat) m.mesh.userData.bodyMat.color.setHex(0xffd24d);
+  // golden glow shell (additive, no PointLight -> no shader-recompile risk); userData.aura makes the monster loop pulse it
+  const glow = new THREE.Mesh(_mGeo('goblinGlow', () => new THREE.SphereGeometry(1.3, 12, 10)), _mMat('goblinGlow', () => new THREE.MeshBasicMaterial({ color: 0xffd24d, transparent: true, opacity: 0.32, blending: THREE.AdditiveBlending, depthWrite: false })));
+  glow.position.y = 1.0; m.mesh.add(glow); m.mesh.userData.aura = glow;
+  sfx('gold'); showMsg('A Treasure Goblin scurries by!'); return m;
 }
 /* Distinct named bosses: each maps a model + a FIXED AI variant (reusing bossAI's brute/caster/summoner kits) +
    a signature color/aura. pickBossDef rotates by depth tier so weaker forms front-load and _Evolved forms gate deep. */
@@ -1976,6 +2016,7 @@ let _spawnQueue = [], _spawnCd = 0;
 const MOB_CAP = 30; /* ponytail: flat concurrent-monster ceiling. Normal play (killing) rarely reaches it; it only bites the pathological case (walking past mobs without clearing) where the uncapped spawner piled 1000+. Make depth-scaled if a zone needs denser packs. */
 function spawnWave() {
   const eliteChance = zone === 'dungeon' ? 0.10 + depth * 0.02 : 0.04; if (Math.random() < eliteChance) _spawnQueue.push({ pack: true });
+  if (zone === 'dungeon' && Math.random() < 0.03) _spawnQueue.push({ goblin: true }); // rare treasure goblin
   const extra = zone === 'dungeon' ? 1 : 0; const pool = biomePool(); for (let i = 0; i < rand(2, 5) + extra; i++) _spawnQueue.push({ type: choice(pool) });
 }
 // Amortize first-render: release one queued spawn per cadence so each frame compiles at most one new GPU
@@ -1986,7 +2027,7 @@ function drainSpawns(dt) {
   if (monsters.length >= MOB_CAP) { _spawnQueue.length = 0; return; }   /* at the field cap: drop the queue rather than overflow it */
   _spawnCd -= dt; if (_spawnCd > 0) return;
   const job = _spawnQueue.shift();
-  if (job.pack) spawnPack(); else spawnMonster(job.type);
+  if (job.pack) spawnPack(); else if (job.goblin) spawnGoblin(); else spawnMonster(job.type);
   _spawnCd = 140;
 }
 
@@ -2195,7 +2236,7 @@ function spawnLingerField(x, z, dmg, kind, onHit) { for (let i = 0; i < 5; i++) 
 function castActive(id, aim, isEcho) {
   const def = SKILLDEFS[id]; let rank = character.skills[id]; if (!def || rank < 1) return; if (_SPK.on) _ev('cast:' + id); rank += (player.effects.allskills || 0); const R = resolveSkill(id);
   const t = now(); const cost = Math.round(def.cost * R.costMult); if (!isEcho) { if (t - (_cd[id] || -9999) < skillCd(def, id)) return; if (player.mp < cost) { floatText('No mana', player.x, player.z, '#88aaff'); return; } _cd[id] = t; player.mp -= cost; updateGlobes(); sfx(SFX_FOR[def.kind] || def.kind); }
-  const ang = Math.atan2(aim.x - player.x, aim.z - player.z) + (isEcho ? rand(-0.12, 0.12) : 0); player.dir = ang; player.swing = now(); const fwd = { x: Math.sin(ang), z: Math.cos(ang) }; const skM = (player.skillMult || 1) * ((id === character.activeSkillId) ? (player.activeSkillDmg || 1) : 1); const sm = player.spellMult * skM, mm = player.meleeMult * skM;
+  const ang = Math.atan2(aim.x - player.x, aim.z - player.z) + (isEcho ? rand(-0.12, 0.12) : 0); player.dir = ang; player.swing = now(); const fwd = { x: Math.sin(ang), z: Math.cos(ang) }; const skM = (player.skillMult || 1) * ((id === character.activeSkillId) ? (player.activeSkillDmg || 1) : 1); const eb = empowerMul(); const sm = player.spellMult * skM * eb, mm = player.meleeMult * skM * eb;
   const _C = SKILL_COEF[def.kind]; const cf = ((_C && _C.coef) ? _C.coef(rank) : 1) * R.dmgMult;
   if (def.kind === 'fire') applyRuneProj(spawnProj(player.x, player.z, fwd, 0.9, player.dmg * cf * sm, 'fire', 120, def.onHit), R);
   else if (def.kind === 'frost') { applyRuneProj(spawnProj(player.x, player.z, fwd, 0.8, player.dmg * cf * sm, 'frost', 80 + 30 * rank + R.addSlow, def.onHit), R); }
@@ -2264,7 +2305,7 @@ function cleanseDots() { if (!player.statuses) return false; const i = player.st
 function drinkPotion() { if (player.hpPotions <= 0) { floatText('No potions', player.x, player.z, '#ff8'); return; } const hasDot = player.statuses && player.statuses.some(s => s.type === 'burn' || s.type === 'poison' || s.type === 'bleed'); if (player.hp >= player.hpMax && !hasDot) { floatText('Full HP', player.x, player.z, '#ff8'); return; } player.hpPotions--; cleanseDots(); const amt = potionHealAmt(); player.hp = Math.min(player.hpMax, player.hp + amt); updateGlobes(); floatText('+' + amt, player.x, player.z, '#ff6b5b'); sfx('potion'); }
 function drinkManaPotion() { if (player.mpPotions <= 0) { floatText('No mana potions', player.x, player.z, '#9cf'); return; } if (player.mp >= player.mpMax) { floatText('Full MP', player.x, player.z, '#9cf'); return; } player.mpPotions--; const amt = potionManaAmt(); player.mp = Math.min(player.mpMax, player.mp + amt); updateGlobes(); floatText('+' + amt, player.x, player.z, '#5a9bff'); sfx('potion'); }
 function rollDamage() { let d = player.dmg * player.meleeMult + rand(-3, 3); const crit = Math.random() < player.crit; if (crit) d *= ((player.effects.critdmg ? 3 : 2) + (player.effects.critDmgPct || 0) / 100); return { d, crit }; }
-function meleeDamage(m, mult, from) { const cb = player.buffs.cryUntil > now() ? player.buffs.cryMul : 1; let d = (player.dmg * player.meleeMult * mult * cb) + rand(-3, 3); const crit = Math.random() < player.crit; if (crit) d *= ((player.effects.critdmg ? 3 : 2) + (player.effects.critDmgPct || 0) / 100); const rm = monsterResistMult(m, 'phys'); if (rm < 1) floatText('resist', m.x, m.z + 1, '#9aa'); d *= rm; m.hp -= d; m.flash = 8; spawnSparks(m.x, m.z, crit ? 0xffe27a : 0xffb060, crit ? 7 : 5); if (crit) impactFlash(m.x, m.z, 0xffd24d); floatText((crit ? '✸' : '') + Math.round(d), m.x, m.z, crit ? '#ffd24d' : (rm > 1 ? '#ff8a6a' : '#ffe')); if (player.effects.lifesteal > 0) player.hp = Math.min(player.hpMax, player.hp + d * player.effects.lifesteal); if (player.effects.manaleech > 0) player.mp = Math.min(player.mpMax, player.mp + d * player.effects.manaleech); if (from) { const a = Math.atan2(m.x - from.x, m.z - from.z); m.x += Math.sin(a) * 0.6; m.z += Math.cos(a) * 0.6; } procOnHit(m, d); if (m.hp <= 0) killMonster(m); }
+function meleeDamage(m, mult, from) { const cb = (player.buffs.cryUntil > now() ? player.buffs.cryMul : 1) * empowerMul(); let d = (player.dmg * player.meleeMult * mult * cb) + rand(-3, 3); const crit = Math.random() < player.crit; if (crit) d *= ((player.effects.critdmg ? 3 : 2) + (player.effects.critDmgPct || 0) / 100); const rm = monsterResistMult(m, 'phys'); if (rm < 1) floatText('resist', m.x, m.z + 1, '#9aa'); d *= rm; m.hp -= d; m.flash = 8; spawnSparks(m.x, m.z, crit ? 0xffe27a : 0xffb060, crit ? 7 : 5); if (crit) impactFlash(m.x, m.z, 0xffd24d); floatText((crit ? '✸' : '') + Math.round(d), m.x, m.z, crit ? '#ffd24d' : (rm > 1 ? '#ff8a6a' : '#ffe')); if (player.effects.lifesteal > 0) player.hp = Math.min(player.hpMax, player.hp + d * player.effects.lifesteal); if (player.effects.manaleech > 0) player.mp = Math.min(player.mpMax, player.mp + d * player.effects.manaleech); if (from) { const a = Math.atan2(m.x - from.x, m.z - from.z); m.x += Math.sin(a) * 0.6; m.z += Math.cos(a) * 0.6; } procOnHit(m, d); if (m.hp <= 0) killMonster(m); }
 // unit 4: roll equipped on-hit proc affixes against a live monster (call before killMonster)
 function procOnHit(m, dmg) { if (!m || m.hp <= 0) return; const e = player.effects; if (e.burnProc > 0 && Math.random() * 100 < e.burnProc) applyOnHit(m, 'burn', dmg); if (m.hp > 0 && e.bleedProc > 0 && Math.random() * 100 < e.bleedProc) applyOnHit(m, 'bleed', dmg); if (e.lifeOnHit > 0) player.hp = Math.min(player.hpMax, player.hp + e.lifeOnHit); }
 /* ---------- status-effect core (foundational; reused by later units) ---------- */
@@ -2309,12 +2350,22 @@ function hitMonster(m, from) { sfx('melee'); meleeDamage(m, 1, from); }
 function hitMonsterProj(m, dmg, kind) { const rm = monsterResistMult(m, kind); if (rm < 1) { floatText('resist', m.x, m.z + 1, '#9aa'); } dmg *= rm; if (player.elemMult && player.elemMult[kind]) dmg *= player.elemMult[kind]; m.hp -= dmg; m.flash = 8; if (!m._nova) spawnSparks(m.x, m.z, kind === 'frost' ? 0x9fe8ff : kind === 'poison' ? 0x8fe07a : kind === 'lightning' ? 0xcfe8ff : kind === 'phys' ? 0xd8d8e8 : 0xff8a3a, 5); floatText(Math.round(dmg), m.x, m.z, rm > 1 ? '#ff8a6a' : '#ffe'); if (player.effects.lifesteal > 0) player.hp = Math.min(player.hpMax, player.hp + dmg * player.effects.lifesteal); if (player.effects.manaleech > 0) player.mp = Math.min(player.mpMax, player.mp + dmg * player.effects.manaleech); if (m._nova !== true) procOnHit(m, dmg); if (m.hp <= 0) killMonster(m); }
 function killMonster(m) {
   _ev(m.boss ? 'killBoss' : m.elite ? 'killElite' : 'kill');
-  gainXP(m.xp); player.kills++; killsTxt.textContent = 'Slain: ' + player.kills; sfx(m.boss ? 'bossdie' : 'death'); spawnSparks(m.x, m.z, 0xff7a3a, m.boss ? 8 : 7); impactFlash(m.x, m.z, m.boss ? 0xff5030 : 0xffb060);
+  gainXP(m.xp); player.kills++; killsTxt.textContent = 'Slain: ' + player.kills;
+  if (zone === 'dungeon') { if (floorObj && !floorObj.done && bountyProgress(floorObj, m.champion ? 'champion' : 'kill')) payBounty(); renderObjective(); }
+  sfx(m.boss ? 'bossdie' : 'death'); spawnSparks(m.x, m.z, 0xff7a3a, m.boss ? 8 : 7); impactFlash(m.x, m.z, m.boss ? 0xff5030 : 0xffb060);
   if (m.empowered && !m.boss) { spawnExplosion(m.x, m.z, 0xff6a2a); if (Math.hypot(m.x - player.x, m.z - player.z) < 7) damagePlayer(Math.round(m.dmg * 0.8), []); }
   if (m.boss) {
     bossActive = false; boss = null; if (d_deeperPortal) d_deeperPortal.group.visible = true; spawnExplosion(m.x, m.z, 0xff3020); showMsg('The way down opens!');
     for (let i = 0; i < 5; i++) { const ang = i / 5 * 6.28; let best = rollItem(curScale.ilvl + 4, null, 0.35); for (let k = 0; k < 3; k++) { const c = rollItem(curScale.ilvl + 4, null, 0.35); if (itemScore(c) > itemScore(best)) best = c; } dropLoot(m.x + Math.cos(ang) * 3, m.z + Math.sin(ang) * 3, 'item', best); }
     dropLoot(m.x, m.z, 'gold', Math.round(rand(150, 300) + depth * 20)); for (let i = 0; i < 2; i++) dropLoot(m.x + rand(-3, 3), m.z + rand(-3, 3), 'potion', 1); for (let i = 0; i < 2; i++) dropLoot(m.x + rand(-3, 3), m.z + rand(-3, 3), 'manapotion', 1);
+  } else if (m.champion) {
+    spawnExplosion(m.x, m.z, 0xffd24d);
+    for (let i = 0; i < 5; i++) { const ang = i / 5 * 6.28; let best = rollItem(curScale.ilvl + 3, null, 0.30); for (let k = 0; k < 2; k++) { const c = rollItem(curScale.ilvl + 3, null, 0.30); if (itemScore(c) > itemScore(best)) best = c; } dropLoot(m.x + Math.cos(ang) * 3, m.z + Math.sin(ang) * 3, 'item', best); }
+    dropLoot(m.x, m.z, 'gold', Math.round(rand(80, 160) + depth * 14)); for (let i = 0; i < 2; i++) dropLoot(m.x + rand(-2, 2), m.z + rand(-2, 2), 'potion', 1); if (Math.random() < 0.5) dropLoot(m.x, m.z + 1, 'gem', { t: choice(GEM_KEYS), q: Math.random() < 0.6 ? 0 : 1 });
+  } else if (m.treasure) {
+    spawnExplosion(m.x, m.z, 0xffd24d); showMsg('The hoard spills open!');
+    const ng = randi(3, 4); for (let i = 0; i < ng; i++) { const ang = i / ng * 6.28; dropLoot(m.x + Math.cos(ang) * 3, m.z + Math.sin(ang) * 3, 'item', rollItem(curScale.ilvl + 1)); }
+    dropLoot(m.x, m.z, 'gold', Math.round(rand(120, 240) + depth * 18)); if (Math.random() < 0.6) dropLoot(m.x + 1, m.z, 'gem', { t: choice(GEM_KEYS), q: Math.random() < 0.5 ? 0 : 1 });
   } else if (m.elite) {
     if (m.elite.includes('fiery')) { if (Math.hypot(m.x - player.x, m.z - player.z) < 7) damagePlayer(m.dmg * 1.4, []); spawnExplosion(m.x, m.z, 0xff7a2a); }
     let best = rollItem(curScale.ilvl + 2, null, 0.18); for (let k = 0; k < 2; k++) { const c = rollItem(curScale.ilvl + 2, null, 0.18); if (itemScore(c) > itemScore(best)) best = c; }
@@ -2362,6 +2413,7 @@ function resolveCircles(e, r, arr, iters) { for (let it = 0; it < iters; it++) {
 
 /* ================= ZONES ================= */
 let zone = 'town', depth = 0;
+let floorObj = null, shrines = [], shrineGroup = null; // per-floor bounty + dungeon shrines (ephemeral, rebuilt each enterDungeon)
 function isCombat() { return zone === 'wild' || zone === 'dungeon'; }
 function clearField() { for (const d of _dying) removeMesh(d.g); _dying.length = 0; for (const m of monsters) removeMob(m.mesh); for (const p of projectiles) removeMesh(p.mesh); for (const l of loots) removeMesh(l.mesh); for (const e of fx) removeMesh(e.mesh); monsters = []; projectiles = []; loots = []; fx = []; _spawnQueue.length = 0; _spawnCd = 0; target = null; moveTarget = null; boss = null; bossActive = false; _resetHudCache(); }
 function setZoneVisuals() {
@@ -2474,11 +2526,55 @@ function enterWild(regionId, spawn) {
   zoneTxt.textContent = r.name + ' · Lv ' + r.lvl; townBtn.style.display = 'inline-block'; placeCamera(player); showMsg(r.name); saveProgress(false);
   warmScene(r.name + ' · Lv ' + r.lvl);
 }
+/* ---- shrines: individually-addressable, single-use buff altars, rebuilt each floor (outside the biome cache) ---- */
+const SHRINE_COL = { empowered: 0xff5040, fleet: 0x6affa0, blessed: 0xffd24d, cursed: 0xb060ff };
+function buildShrineMesh(type) {
+  const col = SHRINE_COL[type] || 0xffffff; const g = new THREE.Group();
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.5, 0.5, 8), new THREE.MeshPhongMaterial({ specular: 0x111111, color: 0x33303a, flatShading: true })); base.position.y = 0.25; base.castShadow = true; g.add(base);
+  const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(0.85, 0), new THREE.MeshPhongMaterial({ color: col, emissive: col, emissiveIntensity: 0.9, flatShading: true })); crystal.position.y = 1.7; g.add(crystal); g.userData.crystal = crystal;
+  return g; // emissive-only (no per-shrine PointLight) — avoids light-set-swap shader recompiles; player aura lights it
+}
+function placeShrines() {
+  if (!shrineGroup) { shrineGroup = new THREE.Group(); dungeonGroup.add(shrineGroup); }
+  for (const s of shrines) { shrineGroup.remove(s.mesh); disposeObj(s.mesh); }
+  shrines.length = 0; if (zone !== 'dungeon') return;
+  const cnt = randi(2, 3);
+  for (let i = 0; i < cnt; i++) {
+    let x = 0, z = 0, tries = 0;
+    do { const ang = rand(0, 6.28), dd = rand(22, DUNG_HALF - 12); x = Math.cos(ang) * dd; z = Math.sin(ang) * dd; tries++; } while (tries < 12 && (Math.hypot(x, z) < 14 || Math.hypot(x, z + 50) < 12)); // keep clear of spawn (0,0) and portal (0,-50)
+    const type = (Math.random() < 0.25) ? 'cursed' : choice(['empowered', 'fleet', 'blessed']);
+    const mesh = buildShrineMesh(type); mesh.position.set(x, 0, z); shrineGroup.add(mesh);
+    shrines.push({ x, z, type, used: false, mesh });
+  }
+}
+function activateShrine(s) {
+  if (!s || s.used) return; s.used = true;
+  const cr = s.mesh.userData.crystal; if (cr) { cr.material.color.setHex(0x555555); cr.material.emissive.setHex(0x222222); cr.material.emissiveIntensity = 0.05; }
+  spawnExplosion(s.x, s.z, SHRINE_COL[s.type] || 0xffffff); sfx('level');
+  if (s.type === 'empowered') { player.buffs.empUntil = now() + 30000; player.buffs.empMul = 1.25; floatText('Empowered!', player.x, player.z - 1, '#ff8a6a'); showMsg('Shrine of Power — +25% damage (30s)'); }
+  else if (s.type === 'fleet') { player.buffs.fleetUntil = now() + 30000; player.buffs.fleetMul = 1.3; floatText('Fleet!', player.x, player.z - 1, '#6affa0'); showMsg('Shrine of Haste — +30% speed (30s)'); }
+  else if (s.type === 'blessed') { const amt = Math.round(player.hpMax * 0.4); player.hp = Math.min(player.hpMax, player.hp + amt); if (player.statuses) player.statuses = player.statuses.filter(x => x.type !== 'burn' && x.type !== 'poison' && x.type !== 'bleed'); player.chillUntil = 0; updateGlobes(); floatText('+' + amt, player.x, player.z, '#ff6b5b'); showMsg('Blessed Shrine — restored & cleansed'); }
+  else { showMsg('Cursed Shrine — they come!'); spawnPack(); let best = rollItem(curScale.ilvl + 3, null, 0.3); for (let k = 0; k < 2; k++) { const c = rollItem(curScale.ilvl + 3, null, 0.3); if (itemScore(c) > itemScore(best)) best = c; } dropLoot(s.x, s.z, 'item', best); dropLoot(s.x + 1, s.z, 'gold', Math.round(rand(100, 200) + depth * 16)); }
+}
+/* ---- floor bounty payout + HUD ---- */
+function payBounty() {
+  for (let i = 0; i < 2; i++) { const ang = i / 2 * 6.28 + 0.6; let best = rollItem(curScale.ilvl + 2, null, 0.25); for (let k = 0; k < 2; k++) { const c = rollItem(curScale.ilvl + 2, null, 0.25); if (itemScore(c) > itemScore(best)) best = c; } dropLoot(player.x + Math.cos(ang) * 3, player.z + Math.sin(ang) * 3, 'item', best); }
+  dropLoot(player.x, player.z, 'gold', Math.round(rand(60, 120) + depth * 10)); dropLoot(player.x + rand(-2, 2), player.z + rand(-2, 2), 'potion', 1);
+  gainXP(Math.round(player.xpNext * 0.15)); showMsg('Bounty complete!'); sfx('level');
+}
+let _objTxt = null;
+function renderObjective() {
+  if (!_objTxt) _objTxt = document.getElementById('objTxt'); if (!_objTxt) return;
+  let s = '';
+  if (zone === 'dungeon' && floorObj && !floorObj.done) s = floorObj.kind === 'champion' ? 'Bounty — Slay the Champion' : ('Bounty — Slay foes ' + floorObj.count + '/' + floorObj.target);
+  if (s !== _objTxt._s) { _objTxt._s = s; _objTxt.textContent = s; _objTxt.style.display = s ? 'block' : 'none'; }
+}
 function enterDungeon(d) {
   zone = 'dungeon'; depth = d; if (d > character.maxDepth) { character.maxDepth = d; } buildDungeon(d); clearField(); setZoneVisuals(); setScale(); player.x = 0; player.z = 0; waveTimer = 0; zoneTxt.textContent = (curTheme ? curTheme.name : 'Dungeon') + ' — Depth ' + d; townBtn.style.display = 'inline-block'; placeCamera(player); showMsg((curTheme ? curTheme.name + ' · ' : '') + 'Depth ' + d);
-  if (depth === 666) { if (d_deeperPortal) d_deeperPortal.group.visible = false; spawnDevil(depth); bossActive = true; setTimeout(() => showMsg('The Devil of the Inferno bars the way…'), 900); }
-  else if (depth % 5 === 0) { if (d_deeperPortal) d_deeperPortal.group.visible = false; spawnBoss(depth); bossActive = true; setTimeout(() => showMsg('A guardian blocks the way down…'), 900); }
-  else if (d_deeperPortal) d_deeperPortal.group.visible = true;
+  if (depth === 666) { floorObj = null; if (d_deeperPortal) d_deeperPortal.group.visible = false; spawnDevil(depth); bossActive = true; setTimeout(() => showMsg('The Devil of the Inferno bars the way…'), 900); }
+  else if (depth % 5 === 0) { floorObj = null; if (d_deeperPortal) d_deeperPortal.group.visible = false; spawnBoss(depth); bossActive = true; setTimeout(() => showMsg('A guardian blocks the way down…'), 900); }
+  else { if (d_deeperPortal) d_deeperPortal.group.visible = true; floorObj = rollFloorObjective(depth); if (floorObj && floorObj.kind === 'champion') { spawnChampion(depth); setTimeout(() => showMsg('A Champion stalks this floor…'), 900); } }
+  placeShrines(); renderObjective();
   saveProgress(false);
   warmScene((curTheme ? curTheme.name : 'Dungeon') + ' — Depth ' + depth);
 }
@@ -2498,7 +2594,10 @@ function interactables() {
     if (r.prev) arr.push({ kind: 'wildprev', x: wpPrev.x, z: wpPrev.z, to: r.prev });
     return arr;
   }
-  return bossActive ? [] : [{ kind: 'deeper', x: d_deeperPortal.x, z: d_deeperPortal.z }];
+  if (bossActive) return [];
+  const arr = [{ kind: 'deeper', x: d_deeperPortal.x, z: d_deeperPortal.z }];
+  for (const s of shrines) if (!s.used) arr.push({ kind: 'shrine', x: s.x, z: s.z, ref: s });
+  return arr;
 }
 function markDiscovered(id) { if (character && character.discovered && !character.discovered[id]) { character.discovered[id] = true; showMsg('Discovered ' + ((AREAS.find(a => a.id === id) || {}).name || id) + '!'); saveProgress(false); } }
 function wildForTown(townId) { const w = REGIONS.find(r => r.town === townId); return w ? w.id : REGIONS[0].id; }
@@ -2509,7 +2608,7 @@ function interact() {
   if (o.kind === 'vendor') openVendor(); else if (o.kind === 'stash') openStash(); else if (o.kind === 'smith') openSmith(); else if (o.kind === 'alchemist') openAlchemist();
   else if (o.kind === 'enchanter') openEnchanter(); else if (o.kind === 'gambler') openGambler(); else if (o.kind === 'jeweler') openJeweler(); else if (o.kind === 'premiumVendor') openVendor(2);
   else if (o.kind === 'wild') enterWild(wildForTown(curTownArea.id)); else if (o.kind === 'towngate') { markDiscovered(o.area); enterTown(AREAS.find(a => a.id === o.area)); }
-  else if (o.kind === 'cave') enterDungeon(1); else if (o.kind === 'deeper') enterDungeon(depth + 1);
+  else if (o.kind === 'cave') enterDungeon(1); else if (o.kind === 'deeper') enterDungeon(depth + 1); else if (o.kind === 'shrine') activateShrine(o.ref);
   else if (o.kind === 'wildnext') { const w = wildById(o.to); if (curRegion && curRegion.nextGate && ((character && character.maxDepth) || 0) < curRegion.nextGate) showMsg('Reach Depth ' + curRegion.nextGate + ' in the Descent to breach ' + (w ? w.name : 'the way') + '…'); else enterWild(o.to); }
   else if (o.kind === 'wildprev') enterWild(o.to);
   else if (o.kind === 'waypoint') openWaypoints(); else if (o.kind === 'cauldron') refillPotions();
@@ -2557,9 +2656,10 @@ function update(dt) {
 
   if (isCombat()) for (const m of monsters) {
     if (m.hp <= 0) continue; if (m.flash > 0) m.flash--; tickStatuses(m, dt, false); if (m.hp <= 0) continue; if (player.effects.chillaura && Math.hypot(m.x - player.x, m.z - player.z) < 14 && m.slow < 12) m.slow = 12; const sp = m.speed * (m.speedMult || 1) * Math.min(m.slow > 0 ? 0.45 : 1, m.chilled ? 0.5 : 1) * 60 * dt / 1000; if (m.slow > 0) m.slow--; const d = Math.hypot(m.x - player.x, m.z - player.z);
+    if (m.flee) { m.ttl -= dt; if (m.ttl <= 0) { removeMob(m.mesh); monsters = monsters.filter(x => x !== m); if (target === m) target = null; showMsg('The goblin escaped!'); continue; } } // escape: clean vanish (no death anim), drops NOTHING (must not route through killMonster)
     if (!m.stunned) {
       if (m.elite && m.elite.includes('arcane')) { m.arcaneCd--; if (m.arcaneCd <= 0 && d < 55) { m.arcaneCd = 90; const a = Math.atan2(player.x - m.x, player.z - m.z); const pm = makeOrb(m.x, 2, m.z, 0xc06aff, 0.5); scene.add(pm); projectiles.push({ x: m.x, z: m.z, vx: Math.sin(a) * 0.5, vz: Math.cos(a) * 0.5, dmg: m.dmg, kind: 'enemy', life: 150, mesh: pm, mods: m.elite }); } }
-      if (m.boss) { bossAI(m, dt, d, sp); } else if (m.ranged) {
+      if (m.flee) { stepEnt(m, 2 * m.x - player.x, 2 * m.z - player.z, sp); } else if (m.boss) { bossAI(m, dt, d, sp); } else if (m.ranged) {
         if (d > 34) stepEnt(m, player.x, player.z, sp); else if (d < 20) stepEnt(m, m.x - (player.x - m.x), m.z - (player.z - m.z), sp);
         m.atkCd--; if (d < 42 && m.atkCd <= 0) { m.atkCd = 110; const a = Math.atan2(player.x - m.x, player.z - m.z); const mesh = makeOrb(m.x, 2, m.z, 0xb06aff, 0.45); scene.add(mesh); projectiles.push({ x: m.x, z: m.z, vx: Math.sin(a) * 0.55, vz: Math.cos(a) * 0.55, dmg: m.dmg, kind: 'enemy', life: 150, mesh }); }
       }
@@ -2624,6 +2724,7 @@ function update(dt) {
     if (boss.name !== _bbName) { _bbName = boss.name; document.getElementById('bossName').textContent = boss.name; }
     const pct = clamp(boss.hp / boss.hpMax * 100, 0, 100); if (pct !== _bbPct) { _bbPct = pct; document.getElementById('bossFill').style.width = pct + '%'; }
   } else if (_bbShown !== false) { _bbShown = false; bb.style.display = 'none'; }
+  renderObjective();
 
   placeCamera(player); updateGlobes();
   _floatAcc -= dt; if (_floatAcc <= 0) { _floatAcc = 33; renderFloats(); }
@@ -2652,7 +2753,7 @@ function updateDebug() {
 function clampEntToZone(e) { if (zone === 'town') { const d = Math.hypot(e.x, e.z); if (d > TOWN_R) { e.x = e.x / d * TOWN_R; e.z = e.z / d * TOWN_R; } } else if (zone === 'dungeon') { if (e.x > DUNG_HALF) e.x = DUNG_HALF; else if (e.x < -DUNG_HALF) e.x = -DUNG_HALF; if (e.z > DUNG_HALF) e.z = DUNG_HALF; else if (e.z < -DUNG_HALF) e.z = -DUNG_HALF; } else { const d = Math.hypot(e.x, e.z); if (d > WILD_R) { e.x = e.x / d * WILD_R; e.z = e.z / d * WILD_R; } } }
 function clampToZone() { clampEntToZone(player); }
 function moveToward(tx, tz, dt) {
-  const a = Math.atan2(tx - player.x, tz - player.z); const fr = Math.min(dt || 16.667, 50) / 16.667; const sp = player.speed * 0.96 * fr * (now() < player.chillUntil ? 0.5 : 1); player.x += Math.sin(a) * sp; player.z += Math.cos(a) * sp; player.dir = a; player.bob += 0.3;
+  const a = Math.atan2(tx - player.x, tz - player.z); const fr = Math.min(dt || 16.667, 50) / 16.667; const sp = player.speed * 0.96 * fr * (now() < player.chillUntil ? 0.5 : 1) * (player.buffs.fleetUntil > now() ? player.buffs.fleetMul : 1); player.x += Math.sin(a) * sp; player.z += Math.cos(a) * sp; player.dir = a; player.bob += 0.3;
   resolveCircles(player, player.r, activeColliders(), 2);
   if (isCombat()) resolveCircles(player, player.r, monsters, 1);
   clampEntToZone(player);
@@ -2701,7 +2802,7 @@ let _gHpPct = NaN, _gHpN = -1, _gHpMax = -1, _gMpPct = NaN, _gMpN = -1, _gMpMax 
 let _promptHtml = null, _bbShown = null, _bbName = '', _bbPct = -1;
 function _resetHudCache() { _gHpPct = NaN; _gHpN = -1; _gHpMax = -1; _gMpPct = NaN; _gMpN = -1; _gMpMax = -1; _gXpPct = NaN; _gHpP = -1; _gMpP = -1; _promptHtml = null; _bbShown = null; _bbName = ''; _bbPct = -1; }
 /* Phase 1: hoisted out of the per-frame prompt block (was a ~13-key object literal allocated every frame while near an interactable). Dynamic labels (deeper/towngate) computed inline. */
-const PROMPT_LABELS = { vendor: 'trade with the Merchant', stash: 'open your Stash', smith: 'upgrade gear at the Smith', enchanter: 'enchant gear at the Enchanter', gambler: 'gamble with the Gambler', jeweler: 'visit the Jeweler', premiumVendor: 'trade with the Exotic Merchant', wild: 'enter the Wilderness', town: 'return to Town', cave: 'descend into the Dungeon', waypoint: 'use the Waypoint (fast travel)', cauldron: 'refill Health & Mana potions' };
+const PROMPT_LABELS = { vendor: 'trade with the Merchant', stash: 'open your Stash', smith: 'upgrade gear at the Smith', enchanter: 'enchant gear at the Enchanter', gambler: 'gamble with the Gambler', jeweler: 'visit the Jeweler', premiumVendor: 'trade with the Exotic Merchant', wild: 'enter the Wilderness', town: 'return to Town', cave: 'descend into the Dungeon', waypoint: 'use the Waypoint (fast travel)', cauldron: 'refill Health & Mana potions', shrine: 'commune with the Shrine' };
 function updateGlobes() {
   const hpPct = player.hp / player.hpMax * 100; if (hpPct !== _gHpPct) { _gHpPct = hpPct; healthFill.style.height = hpPct + '%'; }
   const hpN = Math.round(player.hp); if (hpN !== _gHpN || player.hpMax !== _gHpMax) { _gHpN = hpN; _gHpMax = player.hpMax; hpTxt.textContent = hpN + '/' + player.hpMax; }
@@ -2815,7 +2916,7 @@ function renderFloats() {
       const el = _floatEl(n++); el.className = 'float'; el.textContent = f.txt; el.style.cssText = `left:${sx}px;top:${sy}px;transform:translate(-50%,-50%) translate(${f.dx * age / 55}px,${-rise}px) scale(${sc.toFixed(2)});color:${f.col};font-size:${crit ? 22 : 15}px;opacity:${op};text-shadow:0 0 5px #000,0 1px 2px #000${crit ? ',0 0 12px ' + f.col : ''};`;
     }
   }
-  for (const m of monsters) { if (!m.elite) continue; tmpV.set(m.x, m.r * 2.6 + 1.6, m.z); tmpV.project(camera); if (tmpV.z > 1) continue; const sx = (tmpV.x * 0.5 + 0.5) * innerWidth, sy = (-tmpV.y * 0.5 + 0.5) * innerHeight; const col = '#' + ELITE_MODS[m.elite[0]].col.toString(16).padStart(6, '0'); const lab = _floatEl(n++); lab.className = ''; lab.textContent = m.name; lab.style.cssText = `position:absolute;left:${sx}px;top:${sy}px;transform:translate(-50%,-50%);color:${col};font:bold 12px Georgia;text-shadow:0 0 4px #000,0 0 4px #000;white-space:nowrap;`; }
+  for (const m of monsters) { if (!m.elite && !m.showName) continue; tmpV.set(m.x, m.r * 2.6 + 1.6, m.z); tmpV.project(camera); if (tmpV.z > 1) continue; const sx = (tmpV.x * 0.5 + 0.5) * innerWidth, sy = (-tmpV.y * 0.5 + 0.5) * innerHeight; const col = '#' + (m.nameCol != null ? m.nameCol : ELITE_MODS[m.elite[0]].col).toString(16).padStart(6, '0'); const lab = _floatEl(n++); lab.className = ''; lab.textContent = m.name; lab.style.cssText = `position:absolute;left:${sx}px;top:${sy}px;transform:translate(-50%,-50%);color:${col};font:bold 12px Georgia;text-shadow:0 0 4px #000,0 0 4px #000;white-space:nowrap;`; }
   if (typeof NET !== 'undefined' && NET.connected) { for (const [, r] of NET.remotes) { if (!r.mesh.visible) continue; tmpV.set(r.x, 5.4, r.z); tmpV.project(camera); if (tmpV.z > 1) continue; const sx = (tmpV.x * 0.5 + 0.5) * innerWidth, sy = (-tmpV.y * 0.5 + 0.5) * innerHeight; const lab = _floatEl(n++); lab.className = ''; lab.textContent = (r.name || 'Player') + ' · Lv' + (r.level || 1); lab.style.cssText = `position:absolute;left:${sx}px;top:${sy}px;transform:translate(-50%,-50%);color:#9fd8ff;font:bold 12px Georgia;text-shadow:0 0 4px #000,0 0 5px #000;white-space:nowrap;`; } }
   for (let i = n; i < _floatPool.length; i++) { if (_floatPool[i].style.display !== 'none') _floatPool[i].style.display = 'none'; }
 }
