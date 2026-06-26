@@ -2928,9 +2928,9 @@ function closeAll() { shopAnchor = null; invOpen = skillOpen = vendorOpen = stas
 /* Diablo-3 dual-pane: shops dock left and open the inventory on the right so gear + trading sit side by side.
    Only one shop is open at a time, so renderOpenShop() refreshes whichever it is — call it after any
    inventory mutation from the right pane to keep the shop's item indices fresh (see equipFromInv/unequip). */
-function openShopWithInv() { invOpen = true; invPanel.style.display = 'block'; statsPanel.style.display = 'block'; renderInv(); }
+function openShopWithInv() { invOpen = true; invPanel.style.display = 'block'; statsPanel.style.display = 'block'; setInvTab('items'); }
 function renderOpenShop() { if (vendorOpen) renderVendor(); else if (smithOpen) renderSmith(); else if (enchantOpen) renderEnchanter(); else if (gambleOpen) renderGamble(); else if (jewelerOpen) renderJeweler(); else if (alchemistOpen) renderAlchemist(); }
-function toggleInv() { const o = !invOpen; closeAll(); if (o) { invOpen = true; invPanel.style.display = 'block'; statsPanel.style.display = 'block'; renderInv(); } }
+function toggleInv() { const o = !invOpen; closeAll(); if (o) { invOpen = true; invPanel.style.display = 'block'; statsPanel.style.display = 'block'; setInvTab('items'); } }
 let _skTab = 'abilities';
 function setSkillTab(name) {
   _skTab = name;
@@ -3142,11 +3142,36 @@ function charSheetHTML() {
   util += row('STR', player.str) + row('DEX', player.dex) + row('VIT', player.vit) + row('ENG', player.eng);
   return `<div class="statname"><b>${character.name}</b> · Level ${player.level}</div>` + sec('Offense', off) + sec('Defense', def) + sec('Resistances', res) + sec('Utility', util);
 }
+let invTab = 'items';
+function setInvTab(t) {
+  invTab = t === 'gems' ? 'gems' : 'items';
+  document.querySelectorAll('#invTabs .tab').forEach(el => el.classList.toggle('on', el.dataset.invtab === invTab));
+  const ig = document.getElementById('invGrid'), gg = document.getElementById('gemGrid'), hint = document.getElementById('invHint');
+  if (ig) ig.style.display = invTab === 'items' ? 'grid' : 'none';
+  if (gg) gg.style.display = invTab === 'gems' ? 'grid' : 'none';
+  if (hint) hint.textContent = invTab === 'gems' ? 'Gems stack with no limit — hover to see their stats. Socket them into gear at the Jeweler.' : 'Click a backpack item to equip • Click equipped item to remove • Hover to compare';
+  renderInv();
+}
+/* Gems aren't equippable — they show their effect for each socket category (a gem grants a different stat in a
+   weapon vs armor vs jewelry), so the tooltip lists all three at the gem's quality. */
+function gemTipHTML(t, q, n) {
+  const G = GEMS[t]; if (!G) return '';
+  const qn = ['Chipped', 'Flawed', 'Normal', 'Flawless', 'Perfect'][q] || 'Normal';
+  let rows = '';
+  for (const [c, lbl] of [['weapon', 'In a Weapon'], ['gear', 'In Armor / Gear'], ['jewelry', 'In a Ring / Amulet']]) { const e = G[c]; if (!e) continue; const a = AFFIXES[e.key]; rows += `<div class="aff aff-util">${lbl}: <b>+${e.vals[q]}</b> ${a ? a.label : e.key}</div>`; }
+  return `<div class="tname" style="color:#9fe8ff">${G.ico} ${gemName({ t, q })}</div><div class="tslot">Gem · ${qn} quality · ×${n} held</div>${rows}`;
+}
 function renderInv() {
   const eg = document.getElementById('equipGrid'); eg.innerHTML = '';
   for (const s of SLOTS) { const it = character.equipment[s]; const c = document.createElement('div'); c.className = 'cell' + (it ? ' r-' + it.rarity : ''); c.style.gridArea = s; c.innerHTML = `<span class="lbl">${s}</span>${it ? SLOT_ICON[s] : '<span style="opacity:.25">' + SLOT_ICON[s] + '</span>'}`; if (it) { bindTip(c, it); c.onclick = () => smithOpen ? selectSmithItem(it) : enchantOpen ? selectEnchantItem(it) : jewelerOpen && jewelerTab === 'socket' ? selectSocketItem(it) : unequip(s); if ((smithOpen && smithPick === it) || (enchantOpen && enchantPick === it) || (jewelerOpen && jewelerTab === 'socket' && socketPick === it)) c.classList.add('smithSel'); } eg.appendChild(c); }
   document.getElementById('charStats').innerHTML = charSheetHTML();
   const ig = document.getElementById('invGrid'); ig.innerHTML = ''; for (let i = 0; i < character.invMax; i++) { const it = character.inventory[i]; const c = document.createElement('div'); c.className = 'cell' + (it ? ' r-' + it.rarity : ''); if (it) { const up = itemScore(it) > itemScore(character.equipment[it.slot]); c.innerHTML = (up ? '<span class="upg">▲</span>' : '') + SLOT_ICON[it.slot]; if (up) c.classList.add('isupg'); bindTip(c, it); c.onclick = () => smithOpen ? selectSmithItem(it) : enchantOpen ? selectEnchantItem(it) : jewelerOpen && jewelerTab === 'socket' ? selectSocketItem(it) : equipFromInv(i); if ((smithOpen && smithPick === it) || (enchantOpen && enchantPick === it) || (jewelerOpen && jewelerTab === 'socket' && socketPick === it)) c.classList.add('smithSel'); } ig.appendChild(c); }
+  const gg = document.getElementById('gemGrid');
+  if (gg) {
+    gg.innerHTML = ''; const gems = character.gems || {}; const keys = Object.keys(gems).filter(k => gems[k] > 0).sort();
+    if (!keys.length) gg.innerHTML = '<div class="invHint" style="grid-column:1/-1;text-align:center;padding:10px 0">No gems yet — slain foes drop them.</div>';
+    else for (const k of keys) { const t = k.split(':')[0], q = +k.split(':')[1], n = gems[k]; if (!GEMS[t]) continue; const c = document.createElement('div'); c.className = 'cell'; c.style.cursor = 'default'; c.innerHTML = `${GEMS[t].ico}<span class="gcount">${n}</span>`; const html = gemTipHTML(t, q, n); c.onmouseenter = e => { tooltip.innerHTML = html; tooltip.style.display = 'block'; moveTip(e); }; c.onmousemove = moveTip; c.onmouseleave = () => tooltip.style.display = 'none'; gg.appendChild(c); }
+  }
   goldTxt.textContent = player.gold + ' g'; const _dt = document.getElementById('dustTxt'); if (_dt) _dt.textContent = (character.materials || 0) + ' Dust'; /* currency bar lives at the bottom of the inventory now */
 }
 function equipFromInv(i) { const it = character.inventory[i]; if (!it) return; const prev = character.equipment[it.slot]; character.equipment[it.slot] = it; character.inventory.splice(i, 1); if (prev) character.inventory.push(prev); recompute(); attachHeroWeapon(); renderInv(); renderOpenShop(); tooltip.style.display = 'none'; saveProgress(false); }
@@ -3345,6 +3370,7 @@ document.getElementById('jewelerTabBuy').onclick = () => setJewelerTab('buy');
 document.getElementById('jewelerTabReroll').onclick = () => setJewelerTab('reroll');
 document.getElementById('jewelerTabSocket').onclick = () => setJewelerTab('socket');
 document.getElementById('jewelerTabCombine').onclick = () => setJewelerTab('combine');
+document.querySelectorAll('#invTabs .tab').forEach(el => el.onclick = () => setInvTab(el.dataset.invtab));
 function renderStash() {
   const bp = document.getElementById('bpGrid'), st = document.getElementById('stGrid'); bp.innerHTML = ''; st.innerHTML = '';
   for (let i = 0; i < character.invMax; i++) { const it = character.inventory[i]; const c = document.createElement('div'); c.className = 'cell' + (it ? ' r-' + it.rarity : ''); c.innerHTML = it ? SLOT_ICON[it.slot] : ''; if (it) { bindTip(c, it); c.onclick = () => { if (character.stash.length >= character.stashMax) { showMsg('Stash full'); return; } character.stash.push(it); character.inventory.splice(i, 1); renderStash(); saveProgress(false); }; } bp.appendChild(c); }
