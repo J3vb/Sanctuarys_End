@@ -2284,6 +2284,9 @@ function enterDungeon(d) {
 }
 
 /* ---------- interaction ---------- */
+/* shops stay walkable: opening one records the NPC spot, and update() closes it once the player wanders off. */
+const SHOP_KINDS = new Set(['vendor', 'stash', 'smith', 'alchemist', 'enchanter', 'gambler', 'jeweler', 'premiumVendor']);
+let shopAnchor = null;
 /** @returns {Interactable[]} */
 function interactables() {
   if (zone === 'town') return [...npcs.filter(n => !n.towns || (curTownArea && n.towns.includes(curTownArea.id))).map(n => ({ kind: n.kind, x: n.x, z: n.z })), { kind: 'wild', x: t_wildPortal.x, z: t_wildPortal.z }, { kind: 'waypoint', x: t_waypoint.x, z: t_waypoint.z }, { kind: 'cauldron', x: t_cauldron.x, z: t_cauldron.z }];
@@ -2310,6 +2313,8 @@ function interact() {
   else if (o.kind === 'wildnext') { const w = wildById(o.to); if (curRegion && curRegion.nextGate && ((character && character.maxDepth) || 0) < curRegion.nextGate) showMsg('Reach Depth ' + curRegion.nextGate + ' in the Descent to breach ' + (w ? w.name : 'the way') + '…'); else enterWild(o.to); }
   else if (o.kind === 'wildprev') enterWild(o.to);
   else if (o.kind === 'waypoint') openWaypoints(); else if (o.kind === 'cauldron') refillPotions();
+  // set AFTER opening — each open*() calls closeAll(), which clears shopAnchor
+  if (SHOP_KINDS.has(o.kind)) { shopAnchor = { x: o.x, z: o.z }; moveTarget = target = null; }
 }
 function travelTo(id, mode, depthArg) {
   closeAll(); closeWaypoints();
@@ -2321,10 +2326,9 @@ function travelTo(id, mode, depthArg) {
 
 let last = now(), waveTimer = 0, running = false, saveTimer = 0, invOpen = false, skillOpen = false, vendorOpen = false, stashOpen = false, smithOpen = false, enchantOpen = false, gambleOpen = false, jewelerOpen = false, alchemistOpen = false;
 function anyPanel() { return invOpen || skillOpen || vendorOpen || stashOpen || smithOpen || enchantOpen || gambleOpen || jewelerOpen || alchemistOpen; }
-/* The inventory is a right-side panel — keep move/fight live when it's the ONLY thing open. Any other panel
-   (incl. a shop, which now opens the inventory alongside itself) pauses input, so list them explicitly
-   rather than `anyPanel() && !invOpen` (which would wrongly go live when a shop + inventory are both up). */
-function busyPanel() { return skillOpen || vendorOpen || stashOpen || smithOpen || enchantOpen || gambleOpen || jewelerOpen || alchemistOpen; }
+/* Move/fight stay live with the inventory OR any shop open, so the player can walk away (update() auto-closes
+   a shop once they leave shopAnchor). Only the full-screen skill forest pauses input. */
+function busyPanel() { return skillOpen; }
 function anyModal() { try { return (wpModal && wpModal.style.display === 'block') || (mpModal && mpModal.style.display === 'block') || (settingsModal && settingsModal.style.display === 'block') || (helpModal && helpModal.style.display === 'block'); } catch (_) { return false; } }
 function syncBackdrop() { const b = document.getElementById('backdrop'); if (b) b.style.display = anyModal() ? 'block' : 'none'; }
 function update(dt) {
@@ -2345,6 +2349,7 @@ function update(dt) {
     }
     else if (moveTarget) { moveToward(moveTarget.x, moveTarget.z, dt); if (Math.hypot(moveTarget.x - player.x, moveTarget.z - player.z) < 0.5) moveTarget = null; }
   } else { if (moveTarget) { moveToward(moveTarget.x, moveTarget.z, dt); if (Math.hypot(moveTarget.x - player.x, moveTarget.z - player.z) < 0.5) moveTarget = null; } }
+  if (running && shopAnchor && Math.hypot(player.x - shopAnchor.x, player.z - shopAnchor.z) > 7) closeAll();
   player.mp = Math.min(player.mpMax, player.mp + dt * player.mpRegen);
   if (player.hpRegen > 0 && player.hp > 0 && player.hp < player.hpMax) player.hp = Math.min(player.hpMax, player.hp + dt * player.hpRegen);
   if (running) tickStatuses(player, dt, true);
@@ -2474,7 +2479,7 @@ function drawMinimap() {
   // monsters
   for (const m of monsters) mmDot(m.x, m.z, m.boss ? '#ff3020' : (m.elite ? '#ff9a3a' : '#e05040'), m.boss ? 6 : (m.elite ? 4 : 2.5));
   // player arrow
-  mctx.fillStyle = '#ffe6a0'; mctx.save(); mctx.translate(MMR, MMR); mctx.rotate(-player.dir);
+  mctx.fillStyle = '#ffe6a0'; mctx.save(); mctx.translate(MMR, MMR); mctx.rotate(-player.dir + Math.PI);
   mctx.beginPath(); mctx.moveTo(0, -5); mctx.lineTo(4, 4); mctx.lineTo(-4, 4); mctx.closePath(); mctx.fill(); mctx.restore();
   mctx.restore();
 }
@@ -2570,7 +2575,7 @@ function renderFloats() {
 
 /* ---------- panels (inventory/skills/vendor/stash) ---------- */
 const invPanel = document.getElementById('invPanel'), skillPanel = document.getElementById('skillPanel'), vendorPanel = document.getElementById('vendorPanel'), stashPanel = document.getElementById('stashPanel'), smithPanel = document.getElementById('smithPanel'), enchantPanel = document.getElementById('enchantPanel'), gamblePanel = document.getElementById('gamblePanel'), jewelerPanel = document.getElementById('jewelerPanel'), alchemistPanel = document.getElementById('alchemistPanel'), tooltip = document.getElementById('tooltip');
-function closeAll() { invOpen = skillOpen = vendorOpen = stashOpen = smithOpen = enchantOpen = gambleOpen = jewelerOpen = alchemistOpen = false;[invPanel, skillPanel, vendorPanel, stashPanel, smithPanel, enchantPanel, gamblePanel, jewelerPanel, alchemistPanel].forEach(p => p.style.display = 'none'); tooltip.style.display = 'none'; }
+function closeAll() { shopAnchor = null; invOpen = skillOpen = vendorOpen = stashOpen = smithOpen = enchantOpen = gambleOpen = jewelerOpen = alchemistOpen = false;[invPanel, skillPanel, vendorPanel, stashPanel, smithPanel, enchantPanel, gamblePanel, jewelerPanel, alchemistPanel].forEach(p => p.style.display = 'none'); tooltip.style.display = 'none'; }
 /* Diablo-3 dual-pane: shops dock left and open the inventory on the right so gear + trading sit side by side.
    Only one shop is open at a time, so renderOpenShop() refreshes whichever it is — call it after any
    inventory mutation from the right pane to keep the shop's item indices fresh (see equipFromInv/unequip). */
@@ -2594,29 +2599,29 @@ function renderAlchemist() {
   const upc = document.getElementById('upPotCap'); if (upc) upc.onclick = () => { if (player.gold < pcCost || (character.potionCap || 10) >= POTION_CAP_MAX) return; player.gold -= pcCost; character.potionCap = (character.potionCap || 10) + 2; goldTxt.textContent = player.gold + ' g'; renderAlchemist(); saveProgress(false); };
 }
 const ENCHANT_POOL = ['dmg', 'hp', 'mp', 'armor', 'str', 'dex', 'vit', 'eng', 'crit', 'ias', 'ms', 'allstats', 'allRes', 'critDmg', 'leech', 'manaLeech', 'skillranks', 'skilldmg', 'activeskill', 'fireDmg', 'coldDmg', 'lightDmg', 'poisonDmg', 'hpregen', 'mpregen'];
-let _enchantPick = null;
-function enchantGearList() { const list = []; for (const s of SLOTS) { if (character.equipment[s]) list.push({ it: character.equipment[s], where: 'eq' }); } character.inventory.forEach(it => list.push({ it, where: 'inv' })); return list; }
-function openEnchanter() { closeAll(); openShopWithInv(); enchantOpen = true; enchantPanel.style.display = 'block'; _enchantPick = null; renderEnchanter(); }
+/* Anvil pattern (same as the Smith): no gear list — click a piece in the inventory pane (renderInv routes
+   clicks here while enchantOpen) and the Enchanter acts on that one selection. enchantPickWhere() doubles as a
+   liveness check: if the picked item was dropped/equipped-away it returns null and we drop the selection. */
+let enchantPick = null;
+function openEnchanter() { closeAll(); openShopWithInv(); enchantOpen = true; enchantPanel.style.display = 'block'; enchantPick = null; renderEnchanter(); }
+function enchantPickWhere() { if (!enchantPick) return null; for (const s of SLOTS) { if (character.equipment[s] === enchantPick) return 'eq'; } return character.inventory.indexOf(enchantPick) >= 0 ? 'inv' : null; }
+function selectEnchantItem(it) { enchantPick = it; renderEnchanter(); }
 function renderEnchanter() {
-  const body = document.getElementById('enchantBody'); const list = enchantGearList();
-  let html = `<div style="color:#ffe27a;margin-bottom:10px">Your gold: ${player.gold}</div>`;
-  if (!list.length) { body.innerHTML = html + `<div style="color:#6a5a44">No gear to enchant — equip or loot some.</div>`; return; }
-  if (_enchantPick && !list.some(e => e.it === _enchantPick.it)) _enchantPick = null;
-  html += `<div class="tier">Choose an item</div>`;
-  list.forEach((e, i) => {
-    const it = e.it, sel = _enchantPick && _enchantPick.it === it; const cur = it.enchant && AFFIXES[it.enchant.key] ? ` <span style="color:#9f6aff">✦ +${it.enchant.val} ${AFFIXES[it.enchant.key].label}</span>` : '';
-    html += `<div class="row" data-pick="${i}" style="cursor:pointer${sel ? ';outline:1px solid #9f6aff' : ''}"><div class="ric">${SLOT_ICON[it.slot]}</div><div class="rname rc-${it.rarity}">${it.name}${cur}<span style="color:#8a7a5a;font-size:11px"> ${e.where === 'eq' ? '· equipped' : ''}</span></div></div>`;
-  });
-  if (_enchantPick) {
-    const it = _enchantPick.it, ecost = enchantCost(it);
-    html += `<div class="tier" style="margin-top:12px">Imbue a stat${it.enchant ? ' (overwrites current)' : ''} — ${ecost} g</div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">`;
-    ENCHANT_POOL.forEach(k => { if (!AFFIXES[k]) return; html += `<div class="rbtn${player.gold >= ecost ? '' : ' dis'}" data-aff="${k}" style="flex:0 0 auto">${AFFIXES[k].label}</div>`; });
+  if (invOpen) renderInv(); /* paired inventory pane: refresh contents + selection highlight */
+  const body = document.getElementById('enchantBody'), where = enchantPickWhere(); if (!where) enchantPick = null; const it = enchantPick;
+  let html = `<div style="color:#ffe27a;margin-bottom:8px">Your gold: ${player.gold}</div>`;
+  if (!it) { html += `<div class="smithSlot empty">Click an item in your inventory →</div>`; }
+  else {
+    const ecost = enchantCost(it), cur = it.enchant && AFFIXES[it.enchant.key] ? `<div class="aff" style="color:#9f6aff">✦ +${it.enchant.val} ${AFFIXES[it.enchant.key].label} (current)</div>` : '';
+    html += `<div class="smithSlot"><div class="ric" style="font-size:30px">${SLOT_ICON[it.slot]}</div><div style="flex:1"><div class="rname rc-${it.rarity}">${it.name}</div><div style="color:#8a7a5a;font-size:11px;text-transform:capitalize">${RARITY_NAME[it.rarity] || it.rarity} · ${it.slot}${where === 'eq' ? ' · equipped' : ''}</div>${cur}</div></div>`;
+    html += `<div class="smithAct"><span>Imbue a stat${it.enchant ? ' (overwrites current)' : ''}</span><span class="rprice">${ecost} g</span></div>`;
+    html += `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">`;
+    ENCHANT_POOL.forEach(k => { if (!AFFIXES[k]) return; html += `<div class="rbtn${player.gold >= ecost ? '' : ' dis'}" data-aff="${k}" style="flex:0 0 auto;border-color:#6a4aa0">${AFFIXES[k].label}</div>`; });
     html += `</div>`;
   }
   body.innerHTML = html;
-  body.querySelectorAll('[data-pick]').forEach(el => el.onclick = () => { _enchantPick = list[+el.dataset.pick]; renderEnchanter(); });
-  list.forEach((e, i) => { const r = body.querySelector(`[data-pick="${i}"] .rname`); if (r) bindTip(r, e.it); });
-  body.querySelectorAll('[data-aff]').forEach(b => b.onclick = () => { if (!_enchantPick) return; const it = _enchantPick.it, k = b.dataset.aff, ecost = enchantCost(it); if (player.gold < ecost) return; player.gold -= ecost; it.enchant = { key: k, val: affixRoll(k, it.ilvl, it.rarity) }; goldTxt.textContent = player.gold + ' g'; if (_enchantPick.where === 'eq') recompute(); sfx('potion'); showMsg(it.name + ' · enchanted: +' + it.enchant.val + ' ' + AFFIXES[k].label); renderEnchanter(); saveProgress(false); });
+  if (it) { const rn = body.querySelector('.smithSlot .rname'); if (rn) bindTip(rn, it); }
+  body.querySelectorAll('[data-aff]').forEach(b => b.onclick = () => { const tgt = enchantPick; if (!tgt) return; const k = b.dataset.aff, ecost = enchantCost(tgt); if (player.gold < ecost) return; player.gold -= ecost; tgt.enchant = { key: k, val: affixRoll(k, tgt.ilvl, tgt.rarity) }; goldTxt.textContent = player.gold + ' g'; if (enchantPickWhere() === 'eq') recompute(); sfx('potion'); showMsg(tgt.name + ' · enchanted: +' + tgt.enchant.val + ' ' + AFFIXES[k].label); renderEnchanter(); saveProgress(false); });
 }
 let jewelerStock = [];
 function openGambler() { closeAll(); openShopWithInv(); gambleOpen = true; gamblePanel.style.display = 'block'; renderGamble(); }
@@ -2710,10 +2715,10 @@ function bindTip(el, it) { el.onmouseenter = e => { tooltip.innerHTML = tooltipH
 function moveTip(e) { const pad = 14; let x = e.clientX - tooltip.offsetWidth - pad; if (x < 8) x = e.clientX + pad; x = clamp(x, 8, Math.max(8, innerWidth - tooltip.offsetWidth - 8)); tooltip.style.left = x + 'px'; tooltip.style.top = clamp(e.clientY - 20, 8, Math.max(8, innerHeight - tooltip.offsetHeight - 8)) + 'px'; }
 function renderInv() {
   const eg = document.getElementById('equipGrid'); eg.innerHTML = '';
-  for (const s of SLOTS) { const it = character.equipment[s]; const c = document.createElement('div'); c.className = 'cell' + (it ? ' r-' + it.rarity : ''); c.innerHTML = `<span class="lbl">${s}</span>${it ? SLOT_ICON[s] : '<span style="opacity:.25">' + SLOT_ICON[s] + '</span>'}`; if (it) { bindTip(c, it); c.onclick = () => smithOpen ? selectSmithItem(it) : unequip(s); if (smithOpen && smithPick === it) c.classList.add('smithSel'); } eg.appendChild(c); }
+  for (const s of SLOTS) { const it = character.equipment[s]; const c = document.createElement('div'); c.className = 'cell' + (it ? ' r-' + it.rarity : ''); c.innerHTML = `<span class="lbl">${s}</span>${it ? SLOT_ICON[s] : '<span style="opacity:.25">' + SLOT_ICON[s] + '</span>'}`; if (it) { bindTip(c, it); c.onclick = () => smithOpen ? selectSmithItem(it) : enchantOpen ? selectEnchantItem(it) : unequip(s); if ((smithOpen && smithPick === it) || (enchantOpen && enchantPick === it)) c.classList.add('smithSel'); } eg.appendChild(c); }
   const sline = (k, lbl) => `<div class="statline">${lbl} <b>${player[k]}</b></div>`;
   document.getElementById('charStats').innerHTML = `<b>${character.name}</b> · Level ${player.level}<br>Damage <b>${player.dmg}</b> &nbsp; Crit <b>${(player.crit * 100).toFixed(0)}%</b> &nbsp; Atk Spd <b>${(1000 / player.attackRate).toFixed(2)}/s</b><br>Life <b>${player.hpMax}</b> &nbsp; Mana <b>${player.mpMax}</b> &nbsp; Armor <b>${player.armor}</b><br>${sline('str', 'STR')} ${sline('dex', 'DEX')} ${sline('vit', 'VIT')} ${sline('eng', 'ENG')}<span style="color:#8a7a5a">All stats now come from the skill forest (K)</span>`;
-  const ig = document.getElementById('invGrid'); ig.innerHTML = ''; for (let i = 0; i < character.invMax; i++) { const it = character.inventory[i]; const c = document.createElement('div'); c.className = 'cell' + (it ? ' r-' + it.rarity : ''); if (it) { const up = itemScore(it) > itemScore(character.equipment[it.slot]); c.innerHTML = (up ? '<span class="upg">▲</span>' : '') + SLOT_ICON[it.slot]; if (up) c.classList.add('isupg'); bindTip(c, it); c.onclick = () => smithOpen ? selectSmithItem(it) : equipFromInv(i); if (smithOpen && smithPick === it) c.classList.add('smithSel'); } ig.appendChild(c); }
+  const ig = document.getElementById('invGrid'); ig.innerHTML = ''; for (let i = 0; i < character.invMax; i++) { const it = character.inventory[i]; const c = document.createElement('div'); c.className = 'cell' + (it ? ' r-' + it.rarity : ''); if (it) { const up = itemScore(it) > itemScore(character.equipment[it.slot]); c.innerHTML = (up ? '<span class="upg">▲</span>' : '') + SLOT_ICON[it.slot]; if (up) c.classList.add('isupg'); bindTip(c, it); c.onclick = () => smithOpen ? selectSmithItem(it) : enchantOpen ? selectEnchantItem(it) : equipFromInv(i); if ((smithOpen && smithPick === it) || (enchantOpen && enchantPick === it)) c.classList.add('smithSel'); } ig.appendChild(c); }
   goldTxt.textContent = player.gold + ' g'; const _dt = document.getElementById('dustTxt'); if (_dt) _dt.textContent = (character.materials || 0) + ' Dust'; /* currency bar lives at the bottom of the inventory now */
 }
 function equipFromInv(i) { const it = character.inventory[i]; if (!it) return; const prev = character.equipment[it.slot]; character.equipment[it.slot] = it; character.inventory.splice(i, 1); if (prev) character.inventory.push(prev); recompute(); attachHeroWeapon(); renderInv(); renderOpenShop(); tooltip.style.display = 'none'; saveProgress(false); }
