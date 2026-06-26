@@ -801,7 +801,31 @@ function updateAmbient(dt) {
 const wildGroup = new THREE.Group(); wildGroup.visible = false; scene.add(wildGroup);
 const wildSceneryGroup = new THREE.Group(); wildGroup.add(wildSceneryGroup);
 const wildFires = [];
+/* Resident region scenery cache (mirrors the dungeon biome cache): each wild region's scenery is built once into
+   its own sub-group and kept resident; portal re-entry toggles .visible + re-randomizes the instanced props (no
+   dispose → pipelines stay warm, ~tens of ms vs a ~2.7s rebuild-recompile). Rebuilt (not toggled) if the cached
+   version was the pre-kit procedural fallback, so real models swap in once nature.glb loads. */
+const wildRegionCache = new Map(); // region.id -> sub group (userData.scatterIMs, userData.kit)
+function _wildScatterPoint() { for (let t = 0; t < 8; t++) { const ang = rand(0, 6.283), d = Math.sqrt(rand(144, (WILD_R - 8) ** 2)), x = Math.cos(ang) * d, z = Math.sin(ang) * d; if ((x - WILD_SPAWN.x) ** 2 + (z - WILD_SPAWN.z) ** 2 < 256) continue; return { x, z }; } return { x: 0, z: 0 }; }
+function _rescatterWild(sub) {
+  for (const im of sub.userData.scatterIMs) {
+    const tf = [];
+    for (const m of im.userData.scatterMeta) { const p = _wildScatterPoint(); tf.push({ x: p.x, z: p.z, ry: rand(0, 6), sx: m.s, sy: m.s, sz: m.s, cr: m.cr }); }
+    _imSetTF(im, tf);
+    for (const t of tf) if (t.cr != null) wildColliders.push({ x: t.x, z: t.z, r: t.cr });
+  }
+}
 function buildWildScenery(region) {
+  region = region || curRegion || REGIONS[0];
+  for (const s of wildRegionCache.values()) s.visible = false;
+  let sub = wildRegionCache.get(region.id);
+  if (sub && sub.userData.kit && PROPS_READY) { sub.visible = true; _rescatterWild(sub); return; } /* cached kit version: toggle + fresh scatter, no recompile */
+  if (sub) clearGroup(sub); else { sub = new THREE.Group(); sub.name = 'wregion:' + region.id; wildSceneryGroup.add(sub); wildRegionCache.set(region.id, sub); }
+  sub.visible = true; sub.userData.scatterIMs = []; sub.userData.kit = PROPS_READY;
+  _fillWildScenery(sub, region);
+  if (sub.userData.kit) _rescatterWild(sub); /* kit path owns its scatter colliders (built fresh here); fallback pushes them inline */
+}
+function _fillWildScenery(sub, region) {
   region = region || curRegion || REGIONS[0];
   const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), E = new THREE.Euler(), V = new THREE.Vector3(), S = new THREE.Vector3();
   const rid = region.id, tint = WILD_TINT[rid];
@@ -812,7 +836,9 @@ function buildWildScenery(region) {
     if (!tf.length) return;
     const im = new THREE.InstancedMesh(geo, mat, tf.length); im.castShadow = !!(opts && opts.cast); im.receiveShadow = !!(opts && opts.recv);
     for (let i = 0; i < tf.length; i++) { const t = tf[i]; E.set(t.rx || 0, t.ry || 0, t.rz || 0); Q.setFromEuler(E); V.set(t.x, t.y || 0, t.z); S.set(t.sx || 1, t.sy || 1, t.sz || 1); M.compose(V, Q, S); im.setMatrixAt(i, M); }
-    im.instanceMatrix.needsUpdate = true; im.frustumCulled = false; wildSceneryGroup.add(im);
+    im.instanceMatrix.needsUpdate = true; im.frustumCulled = false;
+    if (opts && opts.scatter) { im.userData.scatterMeta = tf.map(t => ({ s: t.sx != null ? t.sx : 1, cr: t.cr != null ? t.cr : null })); sub.userData.scatterIMs.push(im); } /* tagged for _rescatterWild */
+    sub.add(im);
   };
   // scatter n points across the playable disc, kept clear of the spawn apron
   const scatter = n => { const a = []; let tries = 0; const cap = n * 4; while (a.length < n && tries < cap) { tries++; const ang = rand(0, 6.283), d = Math.sqrt(rand(12 * 12, (WILD_R - 8) * (WILD_R - 8))), x = Math.cos(ang) * d, z = Math.sin(ang) * d; if ((x - WILD_SPAWN.x) ** 2 + (z - WILD_SPAWN.z) ** 2 < 16 * 16) continue; a.push({ x, z }); } return a; };
@@ -822,8 +848,8 @@ function buildWildScenery(region) {
     const pts = scatter(dn.rock || 50);
     if (kitRocks.length) {
       const bk = {}; for (const v of kitRocks) bk[v] = [];
-      for (let i = 0; i < pts.length; i++) { const p = pts[i], v = kitRocks[i % kitRocks.length], ts = rand(0.9, 2.8), s = ts / PROP_PROTO[v].base; bk[v].push({ x: p.x, y: 0, z: p.z, ry: rand(0, 6), rx: rand(-0.22, 0.22), rz: rand(-0.22, 0.22), sx: s, sy: s, sz: s }); wildColliders.push({ x: p.x, z: p.z, r: Math.max(PROP_PROTO[v].size.x, PROP_PROTO[v].size.z) * s * 0.5 }); }
-      for (const v of kitRocks) build(PROP_PROTO[v].geo, natMat(v), bk[v], { recv: true });
+      for (let i = 0; i < pts.length; i++) { const p = pts[i], v = kitRocks[i % kitRocks.length], ts = rand(0.9, 2.8), s = ts / PROP_PROTO[v].base; bk[v].push({ x: p.x, y: 0, z: p.z, ry: rand(0, 6), sx: s, sy: s, sz: s, cr: Math.max(PROP_PROTO[v].size.x, PROP_PROTO[v].size.z) * s * 0.5 }); }
+      for (const v of kitRocks) build(PROP_PROTO[v].geo, natMat(v), bk[v], { recv: true, scatter: true });
     } else {
       const T = []; for (const p of pts) { const s = rand(0.8, 2.6); T.push({ x: p.x, y: s * 0.5, z: p.z, rx: rand(0, 6), ry: rand(0, 6), rz: rand(0, 6), sx: s, sy: s, sz: s }); wildColliders.push({ x: p.x, z: p.z, r: s * 0.9 }); }
       build(new THREE.DodecahedronGeometry(1, 0), new THREE.MeshPhongMaterial({ specular: 0x000000, color: dc.rock, flatShading: true, map: texStone(2, 2) }), T, { recv: true });
@@ -834,8 +860,8 @@ function buildWildScenery(region) {
     const pts = scatter(dn.tree || 50);
     if (kitTrees.length) {
       const bk = {}; for (const v of kitTrees) bk[v] = [];
-      for (let i = 0; i < pts.length; i++) { const p = pts[i], v = kitTrees[i % kitTrees.length], h = rand(7, 12), s = h / PROP_PROTO[v].base; bk[v].push({ x: p.x, y: 0, z: p.z, ry: rand(0, 6), sx: s, sy: s, sz: s }); wildColliders.push({ x: p.x, z: p.z, r: 1.3 }); }
-      for (const v of kitTrees) build(PROP_PROTO[v].geo, natMat(v), bk[v], { cast: true });
+      for (let i = 0; i < pts.length; i++) { const p = pts[i], v = kitTrees[i % kitTrees.length], h = rand(7, 12), s = h / PROP_PROTO[v].base; bk[v].push({ x: p.x, y: 0, z: p.z, ry: rand(0, 6), sx: s, sy: s, sz: s, cr: 1.3 }); }
+      for (const v of kitTrees) build(PROP_PROTO[v].geo, natMat(v), bk[v], { cast: true, scatter: true });
     } else {
       const TR = [], BR = [], FO = [];
       for (const p of pts) {
@@ -855,7 +881,7 @@ function buildWildScenery(region) {
     if (kitBushes.length) {
       const bk = {}; for (const v of kitBushes) bk[v] = [];
       for (let i = 0; i < pts.length; i++) { const p = pts[i], v = kitBushes[i % kitBushes.length], hgt = rand(0.8, 1.7), s = hgt / PROP_PROTO[v].base; bk[v].push({ x: p.x, y: 0, z: p.z, ry: rand(0, 6), sx: s, sy: s, sz: s }); }
-      for (const v of kitBushes) build(PROP_PROTO[v].geo, natMat(v), bk[v], { cast: true });
+      for (const v of kitBushes) build(PROP_PROTO[v].geo, natMat(v), bk[v], { cast: true, scatter: true });
     } else {
       const B = [];
       for (const p of pts) { const n = 2 + randi(0, 1), s0 = rand(0.5, 0.95); for (let k = 0; k < n; k++) { const s = s0 * (1 - k * 0.2); B.push({ x: p.x + rand(-0.4, 0.4), y: 0.4 + k * 0.34 * s0, z: p.z + rand(-0.4, 0.4), ry: rand(0, 6), sx: s, sy: s, sz: s }); } }
@@ -868,7 +894,7 @@ function buildWildScenery(region) {
     if (kitGrass.length) {
       const bk = {}; for (const v of kitGrass) bk[v] = [];
       for (let i = 0; i < pts.length; i++) { const p = pts[i], v = kitGrass[i % kitGrass.length], hgt = rand(0.5, 1.1), s = hgt / PROP_PROTO[v].base; bk[v].push({ x: p.x, y: 0, z: p.z, ry: rand(0, 6), sx: s, sy: s, sz: s }); }
-      for (const v of kitGrass) build(PROP_PROTO[v].geo, natMat(v), bk[v], {});
+      for (const v of kitGrass) build(PROP_PROTO[v].geo, natMat(v), bk[v], { scatter: true });
     } else {
       const T = []; for (const p of pts) T.push({ x: p.x, y: 0.5, z: p.z, ry: rand(0, 6) });
       build(new THREE.ConeGeometry(0.32, 1.1, 4), new THREE.MeshPhongMaterial({ specular: 0x000000, color: dc.grass, flatShading: true }), T, {});
@@ -908,7 +934,7 @@ const wpPrev = _placePortal(makePortal(-124, 6, 0x9ad86a));  // back to the prev
 const w_waypoint = makeWaypoint(-24, 18, wildGroup, null); w_waypoint.group.position.y = groundH(w_waypoint.x, w_waypoint.z);  // fast-travel hub; collider re-added per entry
 function buildWild(region) {
   region = region || curRegion || REGIONS[0];
-  clearGroup(wildSceneryGroup); wildColliders.length = 0;
+  wildColliders.length = 0; /* region scenery persists in wildRegionCache; buildWildScenery toggles + re-scatters */
   wildColliders.push({ x: w_waypoint.x, z: w_waypoint.z, r: 1.6 });
   for (const s of WILD_FIRE_SPOTS) wildColliders.push({ x: s.x, z: s.z, r: 0.9 });
   wpNext.group.visible = !!region.next; wpPrev.group.visible = !!region.prev;
@@ -1234,29 +1260,69 @@ function makePropInst(geo, mat, tf, group, opts) { /* tf items: {x,z,ry?,rx?,rz?
   for (let i = 0; i < tf.length; i++) { const t = tf[i], s = t.s || 1; E.set(t.rx || 0, t.ry || 0, t.rz || 0); Q.setFromEuler(E); V.set(t.x, t.y || 0, t.z); Sc.set(t.sx || s, t.sy || s, t.sz || s); M.compose(V, Q, Sc); im.setMatrixAt(i, M); }
   im.instanceMatrix.needsUpdate = true; if (group) group.add(im); return im;
 }
+/* Resident biome cache: each dungeon biome is BUILT ONCE into its own sub-group and kept in the scene; re-entry
+   toggles .visible + re-scatters the instanced props (no dispose) so GPU pipelines stay warm — re-entry compiles
+   in ~6ms vs the ~950ms recompile a teardown+rebuild evicts into. Bounded at the 7 BIOMES. */
+const dungeonBiomeCache = new Map(); // biome.name -> { sub, scatterIMs, fixedColliders, fires }
+const _dM4 = new THREE.Matrix4(), _dQ = new THREE.Quaternion(), _dE = new THREE.Euler(), _dV = new THREE.Vector3(), _dSc = new THREE.Vector3();
+function _imSetTF(im, tf) { for (let i = 0; i < tf.length; i++) { const t = tf[i], s = t.s || 1; _dE.set(t.rx || 0, t.ry || 0, t.rz || 0); _dQ.setFromEuler(_dE); _dV.set(t.x, t.y || 0, t.z); _dSc.set(t.sx || s, t.sy || s, t.sz || s); _dM4.compose(_dV, _dQ, _dSc); im.setMatrixAt(i, _dM4); } im.instanceMatrix.needsUpdate = true; }
+/* Fresh layout on (re-)entry: re-randomize each tagged InstancedMesh's instance positions/rotations within the
+   playable disc (keeping each instance's authored scale + collider radius) and rebuild the dynamic collider set.
+   No object is created or disposed → pipelines stay warm. ponytail: the non-instanced deco (merged) + fires stay
+   frozen across re-entries — a minor visual subset; moving them + their lights isn't worth the risk. The instanced
+   pillars/rubble/furniture carry the layout variety. Upgrade path: reposition deco groups + their lights too. */
+function _rescatterDungeon(c) {
+  dungeonColliders.length = 0;
+  for (const col of c.fixedColliders) dungeonColliders.push(col);
+  const R = DUNG_HALF - 6;
+  for (const im of c.scatterIMs) {
+    const tf = [];
+    for (const m of im.userData.scatterMeta) { const ang = rand(0, 6.28), d = rand(8, R); tf.push({ x: Math.cos(ang) * d, z: Math.sin(ang) * d, ry: rand(0, 6), s: m.s, cr: m.cr }); }
+    _imSetTF(im, tf);
+    for (const t of tf) if (t.cr != null) dungeonColliders.push({ x: t.x, z: t.z, r: t.cr });
+  }
+}
+function _buildDungeonBiome(depth, th) {
+  const sub = new THREE.Group(); sub.name = 'dbiome:' + th.name; dungeonGroup.add(sub);
+  _lightBucket = 'dungeon'; /* per-biome lights live under this sub; cullLights' parent-visibility skip excludes inactive biomes, so the visible point-light count stays constant (no biome-switch recompile) */
+  const fires = [], fixedColliders = [], scatterIMs = [];
+  _fillDungeonBiome(sub, depth, th, fires, fixedColliders, scatterIMs);
+  _lightBucket = 'static';
+  const cache = { sub, scatterIMs, fixedColliders, fires };
+  dungeonBiomeCache.set(th.name, cache);
+  dungeonFires = fires;
+  _rescatterDungeon(cache); /* place scatter + build dungeonColliders (fixed + fresh scatter) */
+}
 function buildDungeon(depth) {
-  clearGroup(dungeonGroup); clearLightBucket('dungeon'); _lightBucket = 'dungeon'; dungeonFires = []; dungeonColliders.length = 0; const th = curTheme = pickBiome(depth);
+  const th = curTheme = pickBiome(depth);
+  for (const c of dungeonBiomeCache.values()) c.sub.visible = false;
+  const cached = dungeonBiomeCache.get(th.name);
+  if (cached) { cached.sub.visible = true; dungeonFires = cached.fires; _rescatterDungeon(cached); }
+  else _buildDungeonBiome(depth, th);
+  if (!d_deeperPortal) { _lightBucket = 'static'; d_deeperPortal = makePortal(0, -50, 0xc04aff); dungeonGroup.add(d_deeperPortal.group); } /* singleton biome-agnostic deeper-descent portal, created once, kept resident */
+}
+/* `dungeonGroup` here is the per-biome sub-group (param shadows the module group): every add below targets it. */
+function _fillDungeonBiome(dungeonGroup, depth, th, fires, fixedColliders, scatterIMs) {
   const R = DUNG_HALF - 6; /* interior scatter stays inside the rectangular hall (kit walls sit at ±(DUNG_HALF+2)) */
+  const addScatter = (geo, mat, metas, opts) => { const im = new THREE.InstancedMesh(geo, mat, metas.length); im.frustumCulled = false; im.castShadow = !!(opts && opts.cast); im.receiveShadow = !!(opts && opts.recv); im.userData.scatterMeta = metas; dungeonGroup.add(im); scatterIMs.push(im); return im; }; /* tagged scatter: positioned + re-randomized by _rescatterDungeon */
   const useProps = PROPS_READY && PROP_PROTO['pillar'] && PROP_PROTO['rubble_large'];
   if (useProps) {
     // pillars: KayKit pillar + pillar_decorated (full-height pieces), height-targeted, tinted to biome stone
-    const pK = ['pillar', 'pillar_decorated'], pB = { pillar: [], pillar_decorated: [] };
-    for (let i = 0; i < 60; i++) { const ang = rand(0, 6.28), d = rand(10, R), x = Math.cos(ang) * d, z = Math.sin(ang) * d, h = rand(7, 13), k = pK[i % 2]; pB[k].push({ x, z, ry: rand(0, 6), s: h / PROP_PROTO[k].base }); dungeonColliders.push({ x, z, r: 1.7 }); }
-    for (const k of pK) if (pB[k].length) makePropInst(PROP_PROTO[k].geo, tintPropMat(PROP_PROTO[k].mat, th.pillar), pB[k], dungeonGroup, { cast: true, recv: true });
+    const pK = ['pillar', 'pillar_decorated'];
+    for (const k of pK) { const metas = []; for (let i = 0; i < 30; i++) metas.push({ s: rand(7, 13) / PROP_PROTO[k].base, cr: 1.7 }); addScatter(PROP_PROTO[k].geo, tintPropMat(PROP_PROTO[k].mat, th.pillar), metas, { cast: true, recv: true }); }
     // loose rocks -> KayKit rubble (low debris), biome-tinted
-    const ruK = ['rubble_large', 'rubble_half'], ruB = { rubble_large: [], rubble_half: [] };
-    for (let i = 0; i < 25; i++) { const x = rand(-R, R), z = rand(-R, R), k = ruK[i % 2], s = rand(0.7, 1.5) / PROP_PROTO[k].base; ruB[k].push({ x, z, ry: rand(0, 6), s }); dungeonColliders.push({ x, z, r: Math.max(PROP_PROTO[k].size.x, PROP_PROTO[k].size.z) * s * 0.45 }); }
-    for (const k of ruK) if (ruB[k].length) makePropInst(PROP_PROTO[k].geo, tintPropMat(PROP_PROTO[k].mat, th.rock), ruB[k], dungeonGroup, { recv: true });
+    const ruK = [['rubble_large', 13], ['rubble_half', 12]];
+    for (const [k, cnt] of ruK) { const metas = []; for (let i = 0; i < cnt; i++) { const s = rand(0.7, 1.5) / PROP_PROTO[k].base; metas.push({ s, cr: Math.max(PROP_PROTO[k].size.x, PROP_PROTO[k].size.z) * s * 0.45 }); } addScatter(PROP_PROTO[k].geo, tintPropMat(PROP_PROTO[k].mat, th.rock), metas, { recv: true }); }
   } else {
     const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), E = new THREE.Euler(), V = new THREE.Vector3(), Sc = new THREE.Vector3();
     const pim = new THREE.InstancedMesh(new THREE.CylinderGeometry(1.2, 1.5, 1, 6), new THREE.MeshPhongMaterial({ specular: 0x000000, color: th.pillar, flatShading: true, map: texStone(2, 4) }), 60); pim.receiveShadow = true; pim.frustumCulled = false;
-    for (let i = 0; i < 60; i++) { const ang = rand(0, 6.28), d = rand(10, R), x = Math.cos(ang) * d, z = Math.sin(ang) * d, h = rand(6, 12), rs = rand(0.7, 1.2); E.set(0, rand(0, 6), 0); Q.setFromEuler(E); V.set(x, h / 2, z); Sc.set(rs, h, rs); M.compose(V, Q, Sc); pim.setMatrixAt(i, M); dungeonColliders.push({ x, z, r: 1.7 }); }
+    for (let i = 0; i < 60; i++) { const ang = rand(0, 6.28), d = rand(10, R), x = Math.cos(ang) * d, z = Math.sin(ang) * d, h = rand(6, 12), rs = rand(0.7, 1.2); E.set(0, rand(0, 6), 0); Q.setFromEuler(E); V.set(x, h / 2, z); Sc.set(rs, h, rs); M.compose(V, Q, Sc); pim.setMatrixAt(i, M); fixedColliders.push({ x, z, r: 1.7 }); }
     pim.instanceMatrix.needsUpdate = true; dungeonGroup.add(pim);
     const rim = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1, 0), new THREE.MeshPhongMaterial({ specular: 0x000000, color: th.rock, flatShading: true, map: texStone(2, 2) }), 25); rim.frustumCulled = false;
-    for (let i = 0; i < 25; i++) { const x = rand(-R, R), z = rand(-R, R), s = rand(1, 2.4); E.set(rand(0, 6), rand(0, 6), rand(0, 6)); Q.setFromEuler(E); V.set(x, s * 0.4, z); Sc.set(s, s, s); M.compose(V, Q, Sc); rim.setMatrixAt(i, M); dungeonColliders.push({ x, z, r: s * 0.9 }); }
+    for (let i = 0; i < 25; i++) { const x = rand(-R, R), z = rand(-R, R), s = rand(1, 2.4); E.set(rand(0, 6), rand(0, 6), rand(0, 6)); Q.setFromEuler(E); V.set(x, s * 0.4, z); Sc.set(s, s, s); M.compose(V, Q, Sc); rim.setMatrixAt(i, M); fixedColliders.push({ x, z, r: s * 0.9 }); }
     rim.instanceMatrix.needsUpdate = true; dungeonGroup.add(rim);
   }
-  for (let i = 0; i < 6; i++) { const ang = rand(0, 6.28), d = rand(15, R - 10); makeFire(Math.cos(ang) * d, Math.sin(ang) * d, dungeonGroup, dungeonFires, dungeonColliders, th.fire); }
+  for (let i = 0; i < 6; i++) { const ang = rand(0, 6.28), d = rand(15, R - 10); makeFire(Math.cos(ang) * d, Math.sin(ang) * d, dungeonGroup, fires, fixedColliders, th.fire); }
   // themed decorations
   for (let i = 0; i < 22; i++) {
     const ang = rand(0, 6.28), d = rand(8, R - 6), x = Math.cos(ang) * d, z = Math.sin(ang) * d; const lit = (i % 3 === 0);
@@ -1270,11 +1336,8 @@ function buildDungeon(depth) {
   }
   if (useProps) { // KayKit furniture scatter (untinted atlas reads as wood/metal); InstancedMesh -> bypasses merge, keeps PBR
     const FURN_H = { barrel_large: 1.6, barrel_small: 1.1, box_large: 1.4, box_small: 0.95, crates_stacked: 2.2, table_medium: 1.3 };
-    const furn = Object.keys(FURN_H), fB = {};
-    for (const k of furn) fB[k] = [];
-    for (let i = 0; i < 24; i++) { const k = furn[i % furn.length]; if (!PROP_PROTO[k]) continue; const ang = rand(0, 6.28), d = rand(8, R - 8), x = Math.cos(ang) * d, z = Math.sin(ang) * d, s = FURN_H[k] / PROP_PROTO[k].base * rand(0.9, 1.1); fB[k].push({ x, z, ry: rand(0, 6), s }); dungeonColliders.push({ x, z, r: Math.max(PROP_PROTO[k].size.x, PROP_PROTO[k].size.z) * s * 0.5 }); }
-    for (const k of furn) if (fB[k].length) makePropInst(PROP_PROTO[k].geo, PROP_PROTO[k].mat, fB[k], dungeonGroup, { cast: true, recv: true });
-    if (PROP_PROTO['chest']) { const cB = [], cs = 1.1 / PROP_PROTO['chest'].base; for (let i = 0; i < 2; i++) { const ang = rand(0, 6.28), d = rand(12, R - 12), x = Math.cos(ang) * d, z = Math.sin(ang) * d; cB.push({ x, z, ry: rand(0, 6), s: cs }); dungeonColliders.push({ x, z, r: PROP_PROTO['chest'].size.x * cs * 0.6 }); } makePropInst(PROP_PROTO['chest'].geo, PROP_PROTO['chest'].mat, cB, dungeonGroup, { cast: true, recv: true }); }
+    for (const k of Object.keys(FURN_H)) { if (!PROP_PROTO[k]) continue; const metas = []; for (let i = 0; i < 4; i++) { const s = FURN_H[k] / PROP_PROTO[k].base * rand(0.9, 1.1); metas.push({ s, cr: Math.max(PROP_PROTO[k].size.x, PROP_PROTO[k].size.z) * s * 0.5 }); } addScatter(PROP_PROTO[k].geo, PROP_PROTO[k].mat, metas, { cast: true, recv: true }); }
+    if (PROP_PROTO['chest']) { const cs = 1.1 / PROP_PROTO['chest'].base; const metas = []; for (let i = 0; i < 2; i++) metas.push({ s: cs, cr: PROP_PROTO['chest'].size.x * cs * 0.6 }); addScatter(PROP_PROTO['chest'].geo, PROP_PROTO['chest'].mat, metas, { cast: true, recv: true }); }
   }
   {
     const M2 = new THREE.Matrix4(), Q2 = new THREE.Quaternion(), E2 = new THREE.Euler(), V2 = new THREE.Vector3(), S2 = new THREE.Vector3();
@@ -1323,9 +1386,7 @@ function buildDungeon(depth) {
       if (PROP_PROTO['floor_tile_large_rocks']) { const fp = PROP_PROTO['floor_tile_large_rocks'], fsc = fp.size.x ? 5.2 / fp.size.x : 1; makePropInst(fp.geo, tintPropMat(fp.mat, th.ground), [{ x: 0, z: -50, sx: fsc, sy: 1, sz: fsc, y: 0.05 }], dungeonGroup, { recv: true }); }
     }
   }
-  try { mergeStaticScenery(dungeonGroup, new Set(dungeonFires.map(f => f.flame))); } catch (e) { console.warn('dungeon scenery merge failed; using unmerged:', e && e.message); } /* Phase 4 follow-up: collapse static deco draws; skip animated fire flames. Runs BEFORE the portal so its animated ring is never merged. */
-  d_deeperPortal = makePortal(0, -50, 0xc04aff); dungeonGroup.add(d_deeperPortal.group);
-  _lightBucket = 'static';
+  try { mergeStaticScenery(dungeonGroup, new Set(fires.map(f => f.flame))); } catch (e) { console.warn('dungeon scenery merge failed; using unmerged:', e && e.message); } /* collapse static deco draws; skip animated fire flames. InstancedMesh scatter is skipped by merge, so it stays re-randomizable. */
 }
 
 /* ---- hero ---- */
