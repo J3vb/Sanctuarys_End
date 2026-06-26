@@ -224,6 +224,7 @@
   .seg button.on{background:#3a2418;color:#e6b84d;border-color:#6a4a28;}
   .float{position:absolute;font-family:Georgia;font-weight:bold;white-space:nowrap;pointer-events:none;will-change:transform,opacity;}
   .cell .upg{position:absolute;top:-7px;right:-7px;background:#3aa04a;color:#fff;border-radius:50%;width:17px;height:17px;font-size:10px;display:flex;align-items:center;justify-content:center;box-shadow:0 0 6px #3aa04a;z-index:2;}
+  .cell .gcount{position:absolute;bottom:1px;right:3px;font-size:11px;font-weight:bold;color:#cbb89a;text-shadow:0 1px 2px #000,0 0 3px #000;z-index:2;}
   .cell.isupg{border-color:#3aa04a;box-shadow:0 0 10px rgba(58,160,74,.7);}
   #mpModal{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:500px;max-height:86vh;background:linear-gradient(180deg,#1a130c,#0d0905);border:3px solid #3a2e22;border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.85);z-index:32;display:none;padding:22px;color:#cbb89a;overflow-y:auto;animation:panIn .15s ease-out;}
   #mpModal h3{color:#e6b84d;font-size:22px;margin-bottom:12px;border-bottom:1px solid #3a2e22;padding-bottom:10px;}
@@ -371,9 +372,10 @@
 <div id="invPanel" class="panel">
   <h3>Equipment &amp; Inventory</h3><span class="close" id="invClose">✕</span>
   <div class="equipGrid" id="equipGrid"></div>
-  <h3 style="font-size:16px;border:none;margin:0 0 8px">Backpack</h3>
+  <div class="tabs" id="invTabs"><div class="tab on" data-invtab="items">Backpack</div><div class="tab" data-invtab="gems">Gems</div></div>
   <div class="invGrid" id="invGrid"></div>
-  <div class="invHint">Click a backpack item to equip • Click equipped item to remove • Hover to compare</div>
+  <div class="invGrid" id="gemGrid" style="display:none"></div>
+  <div class="invHint" id="invHint">Click a backpack item to equip • Click equipped item to remove • Hover to compare</div>
   <div id="invCurrency">
     <span class="cur"><span class="curIco">🪙</span><span id="goldTxt">0 g</span></span>
     <span class="cur"><span class="curIco curDust">✦</span><span id="dustTxt">0 Dust</span></span>
