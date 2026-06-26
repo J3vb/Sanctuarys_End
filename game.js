@@ -77,11 +77,17 @@ const AFFIXES = {
   lightDmg: { label: 'Lightning Damage %', roll: il => randi(6, 12 + Math.round(il * 0.4)) },
   poisonDmg: { label: 'Poison Damage %', roll: il => randi(6, 12 + Math.round(il * 0.4)) },
   hpregen: { label: 'Health Regen /s', roll: il => randi(2, 4 + Math.round(il * 0.5)) },
-  mpregen: { label: 'Mana Regen /s', roll: il => randi(1, 2 + Math.round(il * 0.4)) }
+  mpregen: { label: 'Mana Regen /s', roll: il => randi(1, 2 + Math.round(il * 0.4)) },
+  mf: { label: 'Magic Find %', roll: il => randi(5, 10 + Math.round(il * 0.3)) },
+  gf: { label: 'Gold Find %', roll: il => randi(6, 12 + Math.round(il * 0.4)) },
+  dodge: { label: 'Dodge %', roll: il => randi(2, 4 + Math.round(il * 0.15)) },
+  flatDR: { label: 'Damage Reduction %', roll: il => randi(2, 4 + Math.round(il * 0.15)) },
+  cdr: { label: 'Cooldown Reduction %', roll: il => randi(3, 6 + Math.round(il * 0.2)) },
+  lifeOnHit: { label: 'Life on Hit', roll: il => randi(2, 4 + Math.round(il * 0.5)) }
 };
 const AFFIX_KEYS = Object.keys(AFFIXES);
 // tooltip grouping: off=offense, def=defense, res=resistance, util=utility
-const AFFIX_CAT = { dmg: 'off', crit: 'off', ias: 'off', critDmg: 'off', leech: 'off', skillranks: 'off', skilldmg: 'off', activeskill: 'off', fireDmg: 'off', coldDmg: 'off', lightDmg: 'off', poisonDmg: 'off', burnOnHit: 'off', bleedOnHit: 'off', hp: 'def', armor: 'def', thorns: 'def', hpregen: 'def', fireRes: 'res', coldRes: 'res', poisonRes: 'res', lightRes: 'res', allRes: 'res', mp: 'util', str: 'util', dex: 'util', vit: 'util', eng: 'util', ms: 'util', allstats: 'util', manaLeech: 'util', leechAll: 'util', mpregen: 'util' };
+const AFFIX_CAT = { dmg: 'off', crit: 'off', ias: 'off', critDmg: 'off', leech: 'off', skillranks: 'off', skilldmg: 'off', activeskill: 'off', fireDmg: 'off', coldDmg: 'off', lightDmg: 'off', poisonDmg: 'off', burnOnHit: 'off', bleedOnHit: 'off', hp: 'def', armor: 'def', thorns: 'def', hpregen: 'def', fireRes: 'res', coldRes: 'res', poisonRes: 'res', lightRes: 'res', allRes: 'res', mp: 'util', str: 'util', dex: 'util', vit: 'util', eng: 'util', ms: 'util', allstats: 'util', manaLeech: 'util', leechAll: 'util', mpregen: 'util', mf: 'util', gf: 'util', dodge: 'def', flatDR: 'def', cdr: 'off', lifeOnHit: 'off' };
 const AFFIX_CAT_ORD = { off: 1, def: 2, res: 3, util: 4 };
 const RARITY_AFFIX = { common: [0, 0], magic: [1, 2], rare: [3, 5], set: [2, 3], unique: [4, 6] };
 const RCOL = { common: 0xc8b89a, magic: 0x4a6ad0, rare: 0xd0b020, set: 0x40c040, unique: 0xb06010 };
@@ -108,23 +114,56 @@ const UNIQUE_DEFS = [
   { slot: 'gloves', name: 'Graspers of Greed', base: 7, affixes: { dmg: 8, leechAll: 2 }, effect: 'lifesteal', effVal: 0.06, desc: 'Heals 6% of damage dealt.' },
   { slot: 'helm', name: 'Diadem of Ruin', base: 9, affixes: { eng: 10, critDmg: 30 }, effect: 'critdmg', effVal: 1, desc: 'Critical hits deal 3x damage (not 2x).' },
   { slot: 'armor', name: 'Aegis Eternal', base: 16, affixes: { armor: 20, allRes: 12, vit: 12 }, effect: 'thorns', effVal: 12, desc: 'Reflects 12 damage to melee attackers.' },
+  { slot: 'weapon', name: 'Voidpiercer', base: 15, affixes: { dmg: 12, crit: 6 }, effect: 'pierce', effVal: 2, desc: 'Attacks pierce 2 additional enemies.' },
+  { slot: 'gloves', name: 'Tempest Grips', base: 8, affixes: { ias: 10, dex: 8 }, effect: 'haste', effVal: 0.12, desc: '+12% attack speed.' },
+  { slot: 'boots', name: 'Stormchaser Boots', base: 7, affixes: { ms: 12, dex: 6 }, effect: 'movespeed', effVal: 0.22, desc: '+22% movement speed.' },
+  { slot: 'amulet', name: 'Aegis Pendant', base: 0, affixes: { vit: 12, allRes: 8 }, effect: 'manaShield', effVal: 0.25, desc: 'Absorbs 25% of incoming damage with mana.' },
+  { slot: 'ring', name: 'Sanguine Loop', base: 0, affixes: { hp: 24, dmg: 5 }, effect: 'lifesteal', effVal: 0.07, desc: 'Heals 7% of damage dealt.' },
 ];
 const SET_DEFS = {
   warden: { name: "Warden's Vigil", pieces: ['helm', 'armor', 'gloves', 'boots'], bonuses: { 2: { vit: 15, armor: 12 }, 3: { str: 12, hp: 40 }, 4: { vit: 30, armor: 30, effect: 'thorns', effVal: 12 } } },
   conjurer: { name: "Conjurer's Regalia", pieces: ['helm', 'armor', 'amulet', 'ring'], bonuses: { 2: { eng: 18, mp: 30 }, 3: { eng: 30 }, 4: { mp: 60, effect: 'allskills', effVal: 1 } } },
   shadow: { name: 'Shadowdancer', pieces: ['weapon', 'gloves', 'boots', 'ring'], bonuses: { 2: { dex: 15, crit: 6 }, 3: { dmg: 14 }, 4: { crit: 12, effect: 'critdmg', effVal: 1 } } },
   emberwalker: { name: 'Emberwalker', pieces: ['weapon', 'helm', 'gloves', 'boots'], bonuses: { 2: { ias: 8, crit: 5 }, 3: { dmg: 16 }, 4: { burnOnHit: 25, effect: 'haste', effVal: 0.12 } } },
+  stoneguard: { name: 'Stoneguard', pieces: ['helm', 'armor', 'boots', 'amulet'], bonuses: { 2: { armor: 18, vit: 12 }, 3: { hp: 60 }, 4: { allRes: 15, effect: 'manaShield', effVal: 0.2 } } },
 };
+/* ---------- gems + sockets (slot-dependent: a gem's effect depends on where it's socketed) ----------
+   A socketed gem grants one EXISTING affix key, so it folds into recompute's bonus map for free.
+   Storage: item.sockets = [null | {t,q}] (optional/additive); character.gems = { 'ruby:0': count } pouch. */
+const GEMS = {
+  ruby: { name: 'Ruby', ico: '🔺', weapon: { key: 'fireDmg', vals: [5, 9, 14, 20, 28] }, gear: { key: 'hp', vals: [15, 28, 45, 68, 100] }, jewelry: { key: 'str', vals: [3, 6, 9, 13, 18] } },
+  sapphire: { name: 'Sapphire', ico: '🔷', weapon: { key: 'coldDmg', vals: [5, 9, 14, 20, 28] }, gear: { key: 'mp', vals: [10, 20, 32, 48, 70] }, jewelry: { key: 'allRes', vals: [3, 6, 9, 13, 18] } },
+  topaz: { name: 'Topaz', ico: '🟡', weapon: { key: 'lightDmg', vals: [5, 9, 14, 20, 28] }, gear: { key: 'lightRes', vals: [5, 9, 14, 20, 28] }, jewelry: { key: 'eng', vals: [3, 6, 9, 13, 18] } },
+  emerald: { name: 'Emerald', ico: '🟢', weapon: { key: 'poisonDmg', vals: [5, 9, 14, 20, 28] }, gear: { key: 'dex', vals: [3, 6, 9, 13, 18] }, jewelry: { key: 'poisonRes', vals: [5, 9, 14, 20, 28] } },
+  amethyst: { name: 'Amethyst', ico: '🟣', weapon: { key: 'dmg', vals: [3, 6, 10, 15, 22] }, gear: { key: 'armor', vals: [8, 16, 26, 40, 58] }, jewelry: { key: 'vit', vals: [3, 6, 9, 13, 18] } },
+  diamond: { name: 'Diamond', ico: '⬜', weapon: { key: 'critDmg', vals: [6, 11, 17, 25, 35] }, gear: { key: 'allRes', vals: [3, 6, 9, 13, 18] }, jewelry: { key: 'crit', vals: [2, 3, 4, 5, 7] } },
+  onyx: { name: 'Onyx', ico: '⬛', weapon: { key: 'crit', vals: [2, 3, 4, 5, 7] }, gear: { key: 'thorns', vals: [4, 8, 13, 20, 30] }, jewelry: { key: 'critDmg', vals: [6, 11, 17, 25, 35] } },
+};
+const GEM_KEYS = Object.keys(GEMS);
+const GEM_TIER = ['Chipped', 'Flawed', '', 'Flawless', 'Perfect']; // q index 0..4; '' = plain name
+const gemCat = s => s === 'weapon' ? 'weapon' : (s === 'ring' || s === 'amulet') ? 'jewelry' : 'gear';
+const gemName = g => (GEM_TIER[g.q] ? GEM_TIER[g.q] + ' ' : '') + (GEMS[g.t] ? GEMS[g.t].name : g.t);
+const gemEff = (slot, g) => GEMS[g.t] && GEMS[g.t][gemCat(slot)]; // {key,vals} this gem grants in this slot
+const SOCKET_MAX = { weapon: 3, armor: 3, helm: 2, gloves: 2, boots: 2, ring: 1, amulet: 1 };
+function rollSockets(slot, rarity) {
+  const max = SOCKET_MAX[slot] || 0; if (!max) return [];
+  const p = ({ common: 0.10, magic: 0.22, rare: 0.38, set: 0.30, unique: 0.30 })[rarity] || 0;
+  let n = 0; for (let i = 0; i < max; i++) { if (Math.random() < p) n++; else break; } // streak roll → most items 0-1
+  return Array(n).fill(null);
+}
+// Pure helper (lives above the THREE marker → sandbox-testable). Folds socketed gems into a bonus map; the
+// item's slot decides each gem's effect. Gems are flat — callers must NOT multiply by upFactor.
+function gemFold(it, bonus) { if (!it.sockets) return; for (const g of it.sockets) { if (!g) continue; const e = gemEff(it.slot, g); if (e) bonus[e.key] = (bonus[e.key] || 0) + e.vals[g.q]; } }
 let _itemId = 1;
 function rollRarity() { const r = Math.random(); if (r < 0.40) return 'common'; if (r < 0.73) return 'magic'; if (r < 0.92) return 'rare'; if (r < 0.98) return 'set'; return 'unique'; }
 let lootLuck = 0; const RARITY_LADDER = ['common', 'magic', 'rare', 'set', 'unique'];
 function bumpRarity(r, n) { let i = RARITY_LADDER.indexOf(r); i = Math.min(RARITY_LADDER.length - 1, i + n); return RARITY_LADDER[i]; }
 function depthQuality() { const d = (typeof depth === 'number' ? depth : 0); return (typeof zone !== 'undefined' && zone === 'dungeon') ? Math.min(0.4, d * 0.02) : 0; }
 function luckyRarity(bonus) { let r = rollRarity(); const p = Math.min(0.8, (lootLuck || 0) + (bonus || 0)); if (p > 0) { if (Math.random() < p) r = bumpRarity(r, 1); if (Math.random() < p * 0.35) r = bumpRarity(r, 1); } return r; }
-function buildUnique(def, ilvl) { const a = {}; for (const k in def.affixes) a[k] = def.affixes[k]; return { id: _itemId++, slot: def.slot, rarity: 'unique', ilvl, base: def.name, baseStat: def.base ? Math.round(def.base + ilvl * 0.8) : 0, affixes: a, effect: def.effect, effVal: def.effVal, effectDesc: def.desc, upgrade: 0, name: '\u2726 ' + def.name }; }
+function buildUnique(def, ilvl) { const a = {}; for (const k in def.affixes) a[k] = def.affixes[k]; return { id: _itemId++, slot: def.slot, rarity: 'unique', ilvl, base: def.name, baseStat: def.base ? Math.round(def.base + ilvl * 0.8) : 0, affixes: a, effect: def.effect, effVal: def.effVal, effectDesc: def.desc, upgrade: 0, sockets: rollSockets(def.slot, 'unique'), name: '\u2726 ' + def.name }; }
 function buildSetItem(sid, slot, ilvl) {
   const sd = SET_DEFS[sid]; const base = (slot === 'weapon') ? pickWeaponBase() : choice(BASE_NAMES[slot]);
-  const item = { id: _itemId++, slot, rarity: 'set', ilvl, base, affixes: {}, baseStat: baseStatRoll(slot, ilvl, 'set'), set: sid, upgrade: 0, name: sd.name + ' ' + base };
+  const item = { id: _itemId++, slot, rarity: 'set', ilvl, base, affixes: {}, baseStat: baseStatRoll(slot, ilvl, 'set'), set: sid, upgrade: 0, sockets: rollSockets(slot, 'set'), name: sd.name + ' ' + base };
   const pool = [...AFFIX_KEYS]; const [lo, hi] = RARITY_AFFIX.set; const cnt = randi(lo, hi); for (let i = 0; i < cnt; i++) { const k = pool.splice(randi(0, pool.length - 1), 1)[0]; item.affixes[k] = affixRoll(k, ilvl, 'set'); } return item;
 }
 function rollItem(ilvl, forceSlot, quality) {
@@ -132,7 +171,7 @@ function rollItem(ilvl, forceSlot, quality) {
   if (rarity === 'unique') { const opts = UNIQUE_DEFS.filter(u => u.slot === slot); if (opts.length) return buildUnique(choice(opts), ilvl); rarity = 'rare'; }
   if (rarity === 'set') { const setOpts = []; for (const sid in SET_DEFS) { if (SET_DEFS[sid].pieces.includes(slot)) setOpts.push(sid); } if (setOpts.length) return buildSetItem(choice(setOpts), slot, ilvl); rarity = 'rare'; }
   const base = (slot === 'weapon') ? pickWeaponBase() : choice(BASE_NAMES[slot]);
-  const item = { id: _itemId++, slot, rarity, ilvl, base, affixes: {}, baseStat: baseStatRoll(slot, ilvl, rarity), upgrade: 0 };
+  const item = { id: _itemId++, slot, rarity, ilvl, base, affixes: {}, baseStat: baseStatRoll(slot, ilvl, rarity), upgrade: 0, sockets: rollSockets(slot, rarity) };
   const [lo, hi] = RARITY_AFFIX[rarity]; const count = randi(lo, hi); const pool = [...AFFIX_KEYS];
   for (let i = 0; i < count; i++) { if (!pool.length) break; const k = pool.splice(randi(0, pool.length - 1), 1)[0]; item.affixes[k] = affixRoll(k, ilvl, rarity); }
   let name = base;
@@ -148,7 +187,7 @@ const upFactor = it => 1 + ((it && it.upgrade) || 0) * 0.08;
 /** @param {Item} it @returns {number} */
 const upgradeMax = it => UPGRADE_CAP[it.rarity] || 5;
 /** @param {*} it @returns {number} */
-function itemScore(it) { if (!it) return 0; let s = it.baseStat * (it.slot === 'weapon' ? 3 : 2); const W = { dmg: 3, hp: 1, crit: 5, ias: 4, ms: 3, leech: 6, allstats: 5, thorns: 1, fireRes: 2, coldRes: 2, poisonRes: 2, lightRes: 2, allRes: 4, critDmg: 5, manaLeech: 4, leechAll: 7, burnOnHit: 5, bleedOnHit: 5, skilldmg: 6, activeskill: 6, skillranks: 25, fireDmg: 5, coldDmg: 5, lightDmg: 5, poisonDmg: 5, hpregen: 4, mpregen: 3 }; for (const k in it.affixes) s += it.affixes[k] * (W[k] || 2); if (it.effect) s += 40; if (it.set) s += 15; return Math.round(s * upFactor(it)); }
+function itemScore(it) { if (!it) return 0; let s = it.baseStat * (it.slot === 'weapon' ? 3 : 2); const W = { dmg: 3, hp: 1, crit: 5, ias: 4, ms: 3, leech: 6, allstats: 5, thorns: 1, fireRes: 2, coldRes: 2, poisonRes: 2, lightRes: 2, allRes: 4, critDmg: 5, manaLeech: 4, leechAll: 7, burnOnHit: 5, bleedOnHit: 5, skilldmg: 6, activeskill: 6, skillranks: 25, fireDmg: 5, coldDmg: 5, lightDmg: 5, poisonDmg: 5, hpregen: 4, mpregen: 3, mf: 3, gf: 2, dodge: 5, flatDR: 6, cdr: 6, lifeOnHit: 4 }; for (const k in it.affixes) s += it.affixes[k] * (W[k] || 2); if (it.sockets) for (const g of it.sockets) { if (g) { const e = gemEff(it.slot, g); if (e) s += e.vals[g.q] * (W[e.key] || 2); } else s += 3; } if (it.effect) s += 40; if (it.set) s += 15; return Math.round(s * upFactor(it)); }
 const upgradeCost = it => Math.round(itemScore(it) * (1 + ((it.upgrade) || 0)) * 0.5) + 15;
 const enchantAffixes = it => Object.keys(it.affixes || {}).filter(k => AFFIXES[k]);
 const enchantCost = it => Math.round(itemScore(it) * 0.35) + 25;
@@ -282,7 +321,7 @@ function defaultSkillRanks() { const o = {}; for (const id in SKILLDEFS) o[id] =
 
 /* ================= SAVE ================= */
 const SAVE = {
-  KEY: 'sanctuarys_end_saves', VERSION: 5, NUM_SLOTS: 3, _data: null,
+  KEY: 'sanctuarys_end_saves', VERSION: 6, NUM_SLOTS: 3, _data: null,
   load() {
     try { this._data = JSON.parse(localStorage.getItem(this.KEY)); } catch (e) { this._data = null; }
     if (!this._data) this._data = { version: this.VERSION, slots: Array(this.NUM_SLOTS).fill(null) };
@@ -301,14 +340,15 @@ const SAVE = {
     if (ch.potionTier == null) ch.potionTier = 0; if (ch.potionCap == null) ch.potionCap = 10;
     if (ch.invMax == null) ch.invMax = 40; if (ch.stashMax == null) ch.stashMax = 40; if (ch.activeSkillId === undefined) ch.activeSkillId = null; if (ch.materials == null) ch.materials = 0;
     if (ch.xpNext == null) ch.xpNext = 30; if (ch.maxDepth == null) ch.maxDepth = 0; if (!ch.class) ch.class = 'warrior'; if (!ch.passives || !ch.passives.length) ch.passives = [PTREE.starts[ch.class] || 'start_str']; if (ch.statPoints > 0) { ch.skillPoints = (ch.skillPoints || 0) + ch.statPoints; ch.statPoints = 0; }
-    if (ch.discovered == null) ch.discovered = { town: true, highreach: false, emberhold: false }; return ch;
+    if (ch.discovered == null) ch.discovered = { town: true, highreach: false, emberhold: false };
+    if (ch.gems == null) ch.gems = {}; return ch;
   },
   persist() { try { localStorage.setItem(this.KEY, JSON.stringify(this._data)); return true; } catch (e) { return false; } },
   getSlot(i) { return this._data.slots[i]; },
   newCharacter(name, cls) {
     cls = CLASSES[cls] ? cls : 'warrior'; const c = CLASSES[cls]; const skills = {}; for (const id in SKILLDEFS) skills[id] = 0;
     return {
-      name, class: cls, version: this.VERSION, created: Date.now(), lastPlayed: Date.now(), level: 1, xp: 0, xpNext: 30, gold: 0, materials: 0, kills: 0, potions: 4, hpPotions: 4, mpPotions: 2, potionTier: 0, potionCap: 10, invMax: 40, stashMax: 40, maxDepth: 0, activeSkillId: null, discovered: { town: true, highreach: false, emberhold: false },
+      name, class: cls, version: this.VERSION, created: Date.now(), lastPlayed: Date.now(), level: 1, xp: 0, xpNext: 30, gold: 0, materials: 0, gems: {}, kills: 0, potions: 4, hpPotions: 4, mpPotions: 2, potionTier: 0, potionCap: 10, invMax: 40, stashMax: 40, maxDepth: 0, activeSkillId: null, discovered: { town: true, highreach: false, emberhold: false },
       base: { hpMax: 100, mpMax: 50, dmg: 10 }, stats: { str: c.base.str, dex: c.base.dex, vit: c.base.vit, eng: c.base.eng }, statPoints: 0, skillPoints: 0,
       inventory: [], stash: [], equipment: { weapon: null, helm: null, armor: null, gloves: null, boots: null, ring: null, amulet: null }, skills, passives: [PTREE.starts[cls]]
     };
@@ -1631,14 +1671,17 @@ function buildHero() {
 const hero = buildHero(); scene.add(hero);
 loadRoster();
 
-const player = { x: 0, z: 0, r: 1.4, speed: 0.32, hp: 100, hpMax: 100, mp: 50, mpMax: 50, level: 1, xp: 0, xpNext: 30, gold: 0, kills: 0, dmg: 14, attackCd: 0, attackRate: 420, range: 3.2, potions: 4, dir: 0, swing: 0, bob: 0, armor: 0, crit: 0.05, mpRegen: 0.004, chillUntil: 0, effects: { lifesteal: 0, thorns: 0, allskills: 0, movespeed: 0, critdmg: false, pierce: 0 }, meleeMult: 1, spellMult: 1, buffs: { cryUntil: 0, cryMul: 1, cryDR: 0 } };
+const player = { x: 0, z: 0, r: 1.4, speed: 0.32, hp: 100, hpMax: 100, mp: 50, mpMax: 50, level: 1, xp: 0, xpNext: 30, gold: 0, kills: 0, dmg: 14, attackCd: 0, attackRate: 420, range: 3.2, potions: 4, dir: 0, swing: 0, bob: 0, armor: 0, crit: 0.05, mpRegen: 0.004, chillUntil: 0, effects: { lifesteal: 0, thorns: 0, allskills: 0, movespeed: 0, critdmg: false, pierce: 0, dodge: 0, flatDR: 0, lifeOnHit: 0 }, goldFind: 0, cdr: 0, meleeMult: 1, spellMult: 1, buffs: { cryUntil: 0, cryMul: 1, cryDR: 0 } };
+// Effective skill cooldown after Cooldown Reduction. MUST be used by both the cast gate and the cooldown
+// swirl render, or the on-screen timer desyncs from when the skill actually re-fires.
+const skillCd = def => def.cd * (1 - (player.cdr || 0));
 
 function recompute() {
   const b = character.base, st = character.stats, eq = character.equipment, sk = character.skills; const cls = CLASSES[character.class] || CLASSES.warrior;
   let dmg = b.dmg, hp = b.hpMax, mp = b.mpMax, armor = 0, crit = 5; const bonus = { dmg: 0, hp: 0, mp: 0, armor: 0, str: 0, vit: 0, eng: 0, crit: 0 };
   const eff = { lifesteal: 0, manaleech: 0, thorns: 0, allskills: 0, movespeed: 0, critdmg: false, critDmgPct: 0, pierce: 0, deathnova: 0, manaShield: 0, haste: 0, chillaura: false, echo: false, fireRes: 0, frostRes: 0, poisonRes: 0, lightningRes: 0, allRes: 0, burnProc: 0, bleedProc: 0 }; const setCount = {};
   for (const s of SLOTS) {
-    const it = eq[s]; if (!it) continue; const uf = upFactor(it); if (it.slot === 'weapon') bonus.dmg += it.baseStat * uf; else bonus.armor += it.baseStat * uf; for (const k in it.affixes) bonus[k] = (bonus[k] || 0) + it.affixes[k] * uf;
+    const it = eq[s]; if (!it) continue; const uf = upFactor(it); if (it.slot === 'weapon') bonus.dmg += it.baseStat * uf; else bonus.armor += it.baseStat * uf; for (const k in it.affixes) bonus[k] = (bonus[k] || 0) + it.affixes[k] * uf; gemFold(it, bonus);
     if (it.enchant && it.enchant.key) bonus[it.enchant.key] = (bonus[it.enchant.key] || 0) + (it.enchant.val || 0) * uf;
     if (it.effect) { if (it.effect === 'critdmg') eff.critdmg = true; else eff[it.effect] = (eff[it.effect] || 0) + it.effVal; }
     if (it.set) { setCount[it.set] = (setCount[it.set] || 0) + 1; }
@@ -1670,6 +1713,9 @@ function recompute() {
   eff.lifesteal += (bonus.leechAll || 0) / 100; eff.manaleech = (eff.manaleech || 0) + (bonus.manaLeech || 0) / 100 + (bonus.leechAll || 0) / 100;
   eff.critDmgPct = (eff.critDmgPct || 0) + (bonus.critDmg || 0);
   eff.burnProc = (eff.burnProc || 0) + (bonus.burnOnHit || 0); eff.bleedProc = (eff.bleedProc || 0) + (bonus.bleedOnHit || 0);
+  // unit 5 affixes: avoidance + farming. dodge/flatDR capped; mf overwrites the global lootLuck (composes additively with depthQuality/quality in luckyRarity).
+  eff.dodge = Math.min((bonus.dodge || 0) / 100, 0.6); eff.flatDR = Math.min((bonus.flatDR || 0) / 100, 0.5); eff.lifeOnHit = (bonus.lifeOnHit || 0);
+  player.cdr = Math.min((bonus.cdr || 0) / 100, 0.5); player.goldFind = (bonus.gf || 0) / 100; lootLuck = (bonus.mf || 0) / 100;
   player.meleeMult = (cls.dmgMult || 1) * (1 + (0.06 * ber) + (pm.meleePct + pm.dmgPct) / 100); player.spellMult = (cls.spellMult || 1) * (1 + (0.06 * arc) + (pm.spellPct + pm.dmgPct) / 100); player.skillMult = 1 + (bonus.skilldmg || 0) / 100; player.activeSkillDmg = 1 + (bonus.activeskill || 0) / 100; player.elemMult = { fire: 1 + (bonus.fireDmg || 0) / 100, frost: 1 + (bonus.coldDmg || 0) / 100, lightning: 1 + (bonus.lightDmg || 0) / 100, poison: 1 + (bonus.poisonDmg || 0) / 100, phys: 1 }; player.effects = eff; player.speed = 0.32 * (1 + Math.min(eff.movespeed || 0, 0.75));
   player.str = str; player.dex = dex; player.vit = vit; player.eng = eng;
   player.dmg = Math.round(dmg); player.hpMax = Math.round(hp); player.mpMax = Math.round(mp); player.armor = armor; player.crit = clamp(crit / 100, 0, 0.9);
@@ -2005,7 +2051,7 @@ const SKILL_COEF = {
 };
 function castActive(id, aim, isEcho) {
   const def = SKILLDEFS[id]; let rank = character.skills[id]; if (!def || rank < 1) return; if (_SPK.on) _ev('cast:' + id); rank += (player.effects.allskills || 0);
-  const t = now(); if (!isEcho) { if (t - (_cd[id] || -9999) < def.cd) return; if (player.mp < def.cost) { floatText('No mana', player.x, player.z, '#88aaff'); return; } _cd[id] = t; player.mp -= def.cost; updateGlobes(); sfx(SFX_FOR[def.kind] || def.kind); }
+  const t = now(); if (!isEcho) { if (t - (_cd[id] || -9999) < skillCd(def)) return; if (player.mp < def.cost) { floatText('No mana', player.x, player.z, '#88aaff'); return; } _cd[id] = t; player.mp -= def.cost; updateGlobes(); sfx(SFX_FOR[def.kind] || def.kind); }
   const ang = Math.atan2(aim.x - player.x, aim.z - player.z) + (isEcho ? rand(-0.12, 0.12) : 0); player.dir = ang; player.swing = now(); const fwd = { x: Math.sin(ang), z: Math.cos(ang) }; const skM = (player.skillMult || 1) * ((id === character.activeSkillId) ? (player.activeSkillDmg || 1) : 1); const sm = player.spellMult * skM, mm = player.meleeMult * skM;
   const _C = SKILL_COEF[def.kind]; const cf = (_C && _C.coef) ? _C.coef(rank) : 1;
   if (def.kind === 'fire') spawnProj(player.x, player.z, fwd, 0.9, player.dmg * cf * sm, 'fire', 120, def.onHit);
@@ -2076,7 +2122,7 @@ function drinkManaPotion() { if (player.mpPotions <= 0) { floatText('No mana pot
 function rollDamage() { let d = player.dmg * player.meleeMult + rand(-3, 3); const crit = Math.random() < player.crit; if (crit) d *= ((player.effects.critdmg ? 3 : 2) + (player.effects.critDmgPct || 0) / 100); return { d, crit }; }
 function meleeDamage(m, mult, from) { const cb = player.buffs.cryUntil > now() ? player.buffs.cryMul : 1; let d = (player.dmg * player.meleeMult * mult * cb) + rand(-3, 3); const crit = Math.random() < player.crit; if (crit) d *= ((player.effects.critdmg ? 3 : 2) + (player.effects.critDmgPct || 0) / 100); const rm = monsterResistMult(m, 'phys'); if (rm < 1) floatText('resist', m.x, m.z + 1, '#9aa'); d *= rm; m.hp -= d; m.flash = 8; spawnSparks(m.x, m.z, crit ? 0xffe27a : 0xffb060, crit ? 7 : 5); if (crit) impactFlash(m.x, m.z, 0xffd24d); floatText((crit ? '✸' : '') + Math.round(d), m.x, m.z, crit ? '#ffd24d' : (rm > 1 ? '#ff8a6a' : '#ffe')); if (player.effects.lifesteal > 0) player.hp = Math.min(player.hpMax, player.hp + d * player.effects.lifesteal); if (player.effects.manaleech > 0) player.mp = Math.min(player.mpMax, player.mp + d * player.effects.manaleech); if (from) { const a = Math.atan2(m.x - from.x, m.z - from.z); m.x += Math.sin(a) * 0.6; m.z += Math.cos(a) * 0.6; } procOnHit(m, d); if (m.hp <= 0) killMonster(m); }
 // unit 4: roll equipped on-hit proc affixes against a live monster (call before killMonster)
-function procOnHit(m, dmg) { if (!m || m.hp <= 0) return; const e = player.effects; if (e.burnProc > 0 && Math.random() * 100 < e.burnProc) applyOnHit(m, 'burn', dmg); if (m.hp > 0 && e.bleedProc > 0 && Math.random() * 100 < e.bleedProc) applyOnHit(m, 'bleed', dmg); }
+function procOnHit(m, dmg) { if (!m || m.hp <= 0) return; const e = player.effects; if (e.burnProc > 0 && Math.random() * 100 < e.burnProc) applyOnHit(m, 'burn', dmg); if (m.hp > 0 && e.bleedProc > 0 && Math.random() * 100 < e.bleedProc) applyOnHit(m, 'bleed', dmg); if (e.lifeOnHit > 0) player.hp = Math.min(player.hpMax, player.hp + e.lifeOnHit); }
 /* ---------- status-effect core (foundational; reused by later units) ---------- */
 function applyStatus(ent, type, dur, val) {
   if (!ent.statuses) ent.statuses = []; const s = ent.statuses.find(x => x.type === type);
@@ -2133,6 +2179,7 @@ function killMonster(m) {
     const dropBonus = zone === 'dungeon' ? 0.08 * depth : 0;
     if (Math.random() < .85) dropLoot(m.x, m.z, 'gold', Math.round(rand(2, 18) + player.level + depth * 4));
     if (Math.random() < .30 + dropBonus) dropLoot(m.x + rand(-1, 1), m.z + rand(-1, 1), 'item', rollItem(curScale.ilvl));
+    if (Math.random() < 0.05) dropLoot(m.x + rand(-1, 1), m.z + rand(-1, 1), 'gem', { t: choice(GEM_KEYS), q: Math.random() < 0.7 ? 0 : 1 });
     if (Math.random() < .12) dropLoot(m.x + rand(-1, 1), m.z + rand(-1, 1), (Math.random() < 0.4 ? 'manapotion' : 'potion'), 1);
   }
   killMesh(m); monsters = monsters.filter(x => x !== m); if (target === m) target = null;
@@ -2150,10 +2197,12 @@ function gainXP(n) {
 }
 function dropLoot(x, z, kind, payload) {
   _ev('loot:' + kind);
+  if (kind === 'gold') payload = Math.round(payload * (1 + (player.goldFind || 0))); // Gold Find % affix
   const group = new THREE.Group(); group.position.set(x, 0, z); group.userData.noDispose = true; let icon, col, tier;
   if (kind === 'gold') { col = 0xffd24d; tier = 1; icon = new THREE.Mesh(_LGEO.gold, _lootMat('gold', col)); }
   else if (kind === 'potion') { col = 0xff5a4a; tier = 1; icon = new THREE.Mesh(_LGEO.pot, _lootMat('potion', col)); }
   else if (kind === 'manapotion') { col = 0x5a7aff; tier = 1; icon = new THREE.Mesh(_LGEO.pot, _lootMat('manapotion', col)); }
+  else if (kind === 'gem') { col = 0x6ad8ff; tier = 2; icon = new THREE.Mesh(_LGEO.item, _lootMat('item', col)); }
   else { col = RCOL[payload.rarity]; tier = RTIER[payload.rarity] || 1; icon = new THREE.Mesh(_LGEO.item, _lootMat('item', col)); }
   icon.position.y = 1; icon.castShadow = true; group.add(icon);
   const beamH = kind === 'item' ? (tier >= 4 ? 13 : tier >= 3 ? 9 : tier >= 2 ? 6 : 3.5) : 2.4; const beamW = tier >= 4 ? 0.85 : tier >= 2 ? 0.55 : 0.4; const beamOp = tier >= 4 ? 0.5 : tier >= 2 ? 0.34 : 0.22;
@@ -2396,6 +2445,7 @@ function update(dt) {
       if (l.kind === 'gold') { player.gold += l.payload; goldTxt.textContent = player.gold + ' g'; floatText(l.payload + 'g', player.x, player.z, '#ffe27a'); sfx('gold'); l.dead = true; }
       else if (l.kind === 'potion') { player.hpPotions = Math.min(character.potionCap, player.hpPotions + 1); floatText('+Potion', player.x, player.z, '#ff6b5b'); l.dead = true; }
       else if (l.kind === 'manapotion') { player.mpPotions = Math.min(character.potionCap, player.mpPotions + 1); floatText('+Mana', player.x, player.z, '#5a9bff'); l.dead = true; }
+      else if (l.kind === 'gem') { const k = l.payload.t + ':' + l.payload.q; character.gems = character.gems || {}; character.gems[k] = (character.gems[k] || 0) + 1; floatText('+' + gemName(l.payload), player.x, player.z, '#9fe8ff'); sfx('gold'); l.dead = true; if (invOpen) renderInv(); }
       else { const lf = SAVE._data && SAVE._data.settings && SAVE._data.settings.lootFilter; if (lf && !lootPasses(lf, l.payload)) { const g = sellValue(l.payload), du = dustValue(l.payload); player.gold += g; character.materials = (character.materials || 0) + du; goldTxt.textContent = player.gold + ' g'; floatText('+' + g + 'g · +' + du + '✦', player.x, player.z, '#caa84a'); l.dead = true; } else if (character.inventory.length < character.invMax) { character.inventory.push(l.payload); floatText(l.payload.name, player.x, player.z, '#' + RCOL[l.payload.rarity].toString(16).padStart(6, '0')); l.dead = true; if (invOpen) renderInv(); updatePips(); } else if (T - _bagFullAt > 2500) { _bagFullAt = T; floatText('Bag full!', player.x, player.z, '#ff8'); } }
     }
   }
@@ -2465,7 +2515,9 @@ function moveToward(tx, tz, dt) {
 function stepEnt(e, tx, tz, sp) { const a = Math.atan2(tx - e.x, tz - e.z); e.x += Math.sin(a) * sp; e.z += Math.cos(a) * sp; clampEntToZone(e); }
 function damagePlayer(d, mods) {
   if (_perfGod) return; /* perf rig: invincible under the perftest harness */
+  if (Math.random() < (player.effects.dodge || 0)) { floatText('Dodge', player.x, player.z, '#9ff'); return; }
   const dr = player.armor / (player.armor + 40); d = d * (1 - Math.min(dr, 0.75));
+  if (player.effects.flatDR > 0) d *= (1 - player.effects.flatDR);
   { const e = player.effects; let res = e.allRes || 0; if (mods && mods.includes) { if (mods.includes('fiery')) res += e.fireRes || 0; else if (mods.includes('frozen')) res += e.frostRes || 0; else if (mods.includes('arcane')) res += e.lightningRes || 0; else if (mods.includes('toxic')) res += e.poisonRes || 0; } if (res > 0) d *= (1 - Math.min(res, 75) / 100); } if (player.buffs.cryUntil > now()) d *= (1 - player.buffs.cryDR); if (player.effects.manaShield > 0 && player.mp > 0) { const ab = Math.min(d * player.effects.manaShield, player.mp); player.mp -= ab; d -= ab; } player.hp -= d; if (player.hp < 0) player.hp = 0; floatText('-' + Math.round(d), player.x, player.z, '#ff5b4b'); sfx('hurt'); shake = Math.min(1.6, shake + 0.6); const hf = document.getElementById('hurtFlash'); hf.style.opacity = Math.min(0.6, 0.25 + d / player.hpMax); clearTimeout(hf._t); hf._t = setTimeout(() => hf.style.opacity = 0, 120); if (mods && mods.includes && mods.includes('frozen')) { player.chillUntil = now() + 1500; floatText('Chilled', player.x, player.z - 1, '#9ff'); } updateGlobes(); if (player.hp <= 0) { sfx('die'); gameOver(); }
 }
 
@@ -2558,7 +2610,7 @@ function renderSkillbar() {
     bar.appendChild(d);
   });
 }
-function renderSkillCd() { document.querySelectorAll('.cd').forEach(el => { const id = el.dataset.id; const def = SKILLDEFS[id]; const rem = def.cd - (now() - (_cd[id] || -9999)); if (rem > 50) { el.style.display = 'flex'; const prog = clamp(1 - rem / def.cd, 0, 1) * 360; el.style.background = `conic-gradient(transparent ${prog}deg, rgba(0,0,0,.7) ${prog}deg)`; el.textContent = (rem / 1000).toFixed(1); } else el.style.display = 'none'; }); }
+function renderSkillCd() { document.querySelectorAll('.cd').forEach(el => { const id = el.dataset.id; const def = SKILLDEFS[id]; const cd = skillCd(def); const rem = cd - (now() - (_cd[id] || -9999)); if (rem > 50) { el.style.display = 'flex'; const prog = clamp(1 - rem / cd, 0, 1) * 360; el.style.background = `conic-gradient(transparent ${prog}deg, rgba(0,0,0,.7) ${prog}deg)`; el.textContent = (rem / 1000).toFixed(1); } else el.style.display = 'none'; }); }
 function showMsg(t) { const m = document.getElementById('msg'); m.textContent = t; m.style.opacity = 1; clearTimeout(m._t); m._t = setTimeout(() => m.style.opacity = 0, 1400); }
 const floatLayer = document.createElement('div'); floatLayer.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:4;overflow:hidden;'; document.body.appendChild(floatLayer);
 /* Phase 1: pooled labels — was innerHTML='' + createElement per float/elite/remote every 33ms (full DOM
@@ -2605,7 +2657,7 @@ function renderAlchemist() {
   const upt = document.getElementById('upPotTier'); if (upt) upt.onclick = () => { if (player.gold < ptCost || (character.potionTier || 0) >= POTION_TIER_MAX) return; player.gold -= ptCost; character.potionTier = (character.potionTier || 0) + 1; goldTxt.textContent = player.gold + ' g'; sfx('potion'); renderAlchemist(); updateGlobes(); saveProgress(false); };
   const upc = document.getElementById('upPotCap'); if (upc) upc.onclick = () => { if (player.gold < pcCost || (character.potionCap || 10) >= POTION_CAP_MAX) return; player.gold -= pcCost; character.potionCap = (character.potionCap || 10) + 2; goldTxt.textContent = player.gold + ' g'; renderAlchemist(); saveProgress(false); };
 }
-const ENCHANT_POOL = ['dmg', 'hp', 'mp', 'armor', 'str', 'dex', 'vit', 'eng', 'crit', 'ias', 'ms', 'allstats', 'allRes', 'critDmg', 'leech', 'manaLeech', 'skillranks', 'skilldmg', 'activeskill', 'fireDmg', 'coldDmg', 'lightDmg', 'poisonDmg', 'hpregen', 'mpregen'];
+const ENCHANT_POOL = ['dmg', 'hp', 'mp', 'armor', 'str', 'dex', 'vit', 'eng', 'crit', 'ias', 'ms', 'allstats', 'allRes', 'critDmg', 'leech', 'manaLeech', 'skillranks', 'skilldmg', 'activeskill', 'fireDmg', 'coldDmg', 'lightDmg', 'poisonDmg', 'hpregen', 'mpregen', 'mf', 'gf', 'dodge', 'flatDR', 'cdr', 'lifeOnHit'];
 /* Anvil pattern (same as the Smith): no gear list — click a piece in the inventory pane (renderInv routes
    clicks here while enchantOpen) and the Enchanter acts on that one selection. enchantPickWhere() doubles as a
    liveness check: if the picked item was dropped/equipped-away it returns null and we drop the selection. */
@@ -2630,7 +2682,11 @@ function renderEnchanter() {
   if (it) { const rn = body.querySelector('.smithSlot .rname'); if (rn) bindTip(rn, it); }
   body.querySelectorAll('[data-aff]').forEach(b => b.onclick = () => { const tgt = enchantPick; if (!tgt) return; const k = b.dataset.aff, ecost = enchantCost(tgt); if (player.gold < ecost) return; player.gold -= ecost; tgt.enchant = { key: k, val: affixRoll(k, tgt.ilvl, tgt.rarity) }; goldTxt.textContent = player.gold + ' g'; if (enchantPickWhere() === 'eq') recompute(); sfx('potion'); showMsg(tgt.name + ' · enchanted: +' + tgt.enchant.val + ' ' + AFFIXES[k].label); renderEnchanter(); saveProgress(false); });
 }
-let jewelerStock = [];
+let jewelerStock = [], socketPick = null;
+/* Jeweler socketing uses the same anvil liveness pattern as the Smith: socketWhere() returns where the picked
+   item lives, or null if it was dropped/sold/equipped-away (then we drop the selection). */
+function selectSocketItem(it) { socketPick = it; renderJeweler(); }
+function socketWhere() { if (!socketPick) return null; for (const s of SLOTS) if (character.equipment[s] === socketPick) return 'eq'; return character.inventory.indexOf(socketPick) >= 0 ? 'inv' : null; }
 function openGambler() { closeAll(); openShopWithInv(); gambleOpen = true; gamblePanel.style.display = 'block'; renderGamble(); }
 function renderGamble() {
   if (invOpen) renderInv(); /* show the gambled item in the paired inventory pane */
@@ -2640,7 +2696,7 @@ function renderGamble() {
   const gb = document.getElementById('gambleRoll'); if (gb) gb.onclick = () => { if (player.gold < cost || character.inventory.length >= character.invMax) return; player.gold -= cost; const it = rollItem(il, null, 0.1 + tier * 0.12); character.inventory.push(it); goldTxt.textContent = player.gold + ' g'; sfx('potion'); showMsg('Gambled: ' + it.name); renderGamble(); updatePips(); saveProgress(false); };
 }
 function refreshJeweler(tier) { jewelerStock = []; const il = Math.max(1, player.level) + tier * 3; jewelerStock.push(rollItem(il, 'ring', 0.15 + tier * 0.1)); jewelerStock.push(rollItem(il, 'amulet', 0.15 + tier * 0.1)); jewelerStock.push(rollItem(il, 'ring', 0.05)); jewelerStock.push(rollItem(il, 'amulet', 0.05)); }
-function openJeweler() { closeAll(); openShopWithInv(); jewelerOpen = true; jewelerPanel.style.display = 'block'; refreshJeweler((curTownArea && curTownArea.tier) || 0); renderJeweler(); }
+function openJeweler() { closeAll(); openShopWithInv(); jewelerOpen = true; socketPick = null; jewelerPanel.style.display = 'block'; refreshJeweler((curTownArea && curTownArea.tier) || 0); renderJeweler(); }
 function renderJeweler() {
   if (invOpen) renderInv(); /* show bought jewelry in the paired inventory pane */
   const body = document.getElementById('jewelerBody');
@@ -2652,10 +2708,30 @@ function renderJeweler() {
   accs.forEach((e, i) => { const it = e.it, cost = enchantCost(it), hasAff = Object.keys(it.affixes || {}).length > 0; const row = document.createElement('div'); row.className = 'row'; row.innerHTML = `<div class="ric">${SLOT_ICON[it.slot]}</div><div class="rname rc-${it.rarity}">${it.name}<span style="color:#8a7a5a;font-size:11px"> ${e.where === 'eq' ? '· equipped' : ''}</span></div>${hasAff ? `<div class="rprice">${cost} g</div><div class="rbtn${player.gold >= cost ? '' : ' dis'}" data-jrr="${i}">Reroll</div>` : '<div class="rprice" style="color:#6a5a44">no affixes</div>'}`; bindTip(row.querySelector('.rname'), it); body.appendChild(row); });
   body.querySelectorAll('[data-jbuy]').forEach(b => b.onclick = () => { const idx = +b.dataset.jbuy; const it = jewelerStock[idx]; if (!it) return; const price = buyPrice(it); if (player.gold < price || character.inventory.length >= character.invMax) return; player.gold -= price; character.inventory.push(it); jewelerStock.splice(idx, 1); goldTxt.textContent = player.gold + ' g'; sfx('potion'); showMsg('Bought: ' + it.name); renderJeweler(); updatePips(); saveProgress(false); });
   body.querySelectorAll('[data-jrr]').forEach(b => b.onclick = () => { const e = accs[+b.dataset.jrr], it = e.it; const keys = Object.keys(it.affixes || {}); const cost = enchantCost(it); if (!keys.length || player.gold < cost) return; player.gold -= cost; for (const k of keys) it.affixes[k] = affixRoll(k, it.ilvl, it.rarity); goldTxt.textContent = player.gold + ' g'; if (e.where === 'eq') recompute(); sfx('potion'); showMsg(it.name + ' · stats rerolled'); renderJeweler(); saveProgress(false); });
+  // ---- Socketing: insert pouch gems into the selected item's sockets, or pop them back out ----
+  const gems = character.gems || {}; const pouchKeys = Object.keys(gems).filter(k => gems[k] > 0);
+  const st = document.createElement('div'); st.className = 'tier'; st.style.marginTop = '12px'; st.textContent = 'Socket Gems'; body.appendChild(st);
+  const sw = socketWhere(); if (!sw) socketPick = null; const sit = socketPick;
+  if (!sit) { const d = document.createElement('div'); d.style.color = '#6a5a44'; d.textContent = pouchKeys.length ? 'Click a socketed item in your inventory →' : 'Find gems from monsters, then click an item with sockets →'; body.appendChild(d); }
+  else if (!(sit.sockets && sit.sockets.length)) { const d = document.createElement('div'); d.style.color = '#6a5a44'; d.innerHTML = `<span class="rname rc-${sit.rarity}">${sit.name}</span> has no sockets — add one at the Smith.`; body.appendChild(d); }
+  else {
+    const hdr = document.createElement('div'); hdr.className = 'row'; hdr.innerHTML = `<div class="ric">${SLOT_ICON[sit.slot]}</div><div class="rname rc-${sit.rarity}" style="flex:1">${sit.name}${sw === 'eq' ? ' <span style="color:#8a7a5a;font-size:11px">· equipped</span>' : ''}</div>`; bindTip(hdr.querySelector('.rname'), sit); body.appendChild(hdr);
+    sit.sockets.forEach((g, i) => { const row = document.createElement('div'); row.className = 'row'; if (g) { const e = gemEff(sit.slot, g); row.innerHTML = `<div class="ric">${GEMS[g.t].ico}</div><div class="rname" style="flex:1">${gemName(g)} <span style="color:#8a7a5a;font-size:11px">+${e.vals[g.q]} ${AFFIXES[e.key].label}</span></div><div class="rbtn" data-unsock="${i}" style="border-color:#6a4aa0">Remove</div>`; } else { row.innerHTML = `<div class="ric">◯</div><div class="rname" style="flex:1;color:#8a7a5a">Empty socket</div>`; } body.appendChild(row); });
+    if (sit.sockets.some(g => !g)) {
+      if (pouchKeys.length) { const pk = document.createElement('div'); pk.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin-top:6px'; pouchKeys.forEach(k => { const t = k.split(':')[0], q = +k.split(':')[1]; if (!GEMS[t]) return; const e = gemEff(sit.slot, { t, q }); pk.innerHTML += `<div class="rbtn" data-gem="${k}" style="flex:0 0 auto;border-color:#3a6a8a">${GEMS[t].ico} ${gemName({ t, q })} ×${gems[k]} <span style="color:#8a7a5a">+${e.vals[q]} ${AFFIXES[e.key].label}</span></div>`; }); body.appendChild(pk); }
+      else { const d = document.createElement('div'); d.style.color = '#6a5a44'; d.textContent = 'No gems in your pouch.'; body.appendChild(d); }
+    }
+  }
+  // ---- Combine: 3 of a gem at quality q → 1 at q+1 (capped at Perfect) ----
+  const combineable = Object.keys(gems).filter(k => gems[k] >= 3 && +k.split(':')[1] < 4);
+  if (combineable.length) { const ct = document.createElement('div'); ct.className = 'tier'; ct.style.marginTop = '12px'; ct.textContent = 'Combine Gems'; body.appendChild(ct); combineable.forEach(k => { const t = k.split(':')[0], q = +k.split(':')[1]; if (!GEMS[t]) return; const row = document.createElement('div'); row.className = 'row'; row.innerHTML = `<div class="ric">${GEMS[t].ico}</div><div class="rname" style="flex:1">${gemName({ t, q })} ×${gems[k]} → ${gemName({ t, q: q + 1 })}</div><div class="rbtn" data-comb="${k}" style="border-color:#6a4aa0">Combine 3→1</div>`; body.appendChild(row); }); }
+  body.querySelectorAll('[data-gem]').forEach(b => b.onclick = () => { const tgt = socketPick; if (!tgt || !tgt.sockets) return; const k = b.dataset.gem, t = k.split(':')[0], q = +k.split(':')[1], g = character.gems || {}; if (!g[k]) return; const idx = tgt.sockets.findIndex(x => !x); if (idx < 0) return; tgt.sockets[idx] = { t, q }; g[k]--; if (g[k] <= 0) delete g[k]; if (socketWhere() === 'eq') recompute(); sfx('potion'); showMsg(tgt.name + ' · socketed ' + gemName({ t, q })); renderJeweler(); updatePips(); saveProgress(false); });
+  body.querySelectorAll('[data-unsock]').forEach(b => b.onclick = () => { const tgt = socketPick; if (!tgt || !tgt.sockets) return; const i = +b.dataset.unsock, g = tgt.sockets[i]; if (!g) return; const k = g.t + ':' + g.q; character.gems = character.gems || {}; character.gems[k] = (character.gems[k] || 0) + 1; tgt.sockets[i] = null; if (socketWhere() === 'eq') recompute(); sfx('potion'); showMsg('Removed ' + gemName(g)); renderJeweler(); saveProgress(false); });
+  body.querySelectorAll('[data-comb]').forEach(b => b.onclick = () => { const k = b.dataset.comb, t = k.split(':')[0], q = +k.split(':')[1], g = character.gems; if (!g || g[k] < 3 || q >= 4) return; g[k] -= 3; if (g[k] <= 0) delete g[k]; const nk = t + ':' + (q + 1); g[nk] = (g[nk] || 0) + 1; sfx('level'); showMsg('Combined → ' + gemName({ t, q: q + 1 })); renderJeweler(); saveProgress(false); });
 }
 const POTION_TIER_MAX = 8, POTION_CAP_MAX = 30;
 let smithTab = 'upgrade', smithPick = null;
-function setSmithTab(t) { if (t !== 'reforge' && t !== 'salvage') t = 'upgrade';smithTab = t;['Upgrade', 'Reforge', 'Salvage'].forEach(n => document.getElementById('smithTab' + n).classList.toggle('on', t === n.toLowerCase())); renderSmith(); }
+function setSmithTab(t) { if (t !== 'reforge' && t !== 'salvage' && t !== 'socket') t = 'upgrade';smithTab = t;['Upgrade', 'Reforge', 'Salvage', 'Socket'].forEach(n => { const el = document.getElementById('smithTab' + n); if (el) el.classList.toggle('on', t === n.toLowerCase()); }); renderSmith(); }
 /* Diablo-3/4 anvil: the Smith no longer lists gear — you click a piece in the inventory pane (renderInv
    routes clicks here while smithOpen) and the Smith acts on that one selection. smithPickWhere() doubles as a
    liveness check: if the picked item was salvaged/dropped it returns null and we drop the selection. */
@@ -2665,13 +2741,14 @@ function smithAction() {
   const it = smithPick, where = smithPickWhere(); if (!it || !where) { smithPick = null; renderSmith(); return; }
   if (smithTab === 'upgrade') { if ((it.upgrade || 0) >= upgradeMax(it)) return; const cost = upgradeCost(it); if (player.gold < cost) return; player.gold -= cost; it.upgrade = (it.upgrade || 0) + 1; if (where === 'eq') recompute(); sfx('level'); showMsg(it.name + ' → +' + it.upgrade); }
   else if (smithTab === 'reforge') { if (!reforgeable(it)) return; const rc = reforgeCost(it); if (player.gold < rc.gold || (character.materials || 0) < rc.dust) return; player.gold -= rc.gold; character.materials = (character.materials || 0) - rc.dust; const before = it.rarity; reforgeItem(it); if (where === 'eq') { recompute(); attachHeroWeapon(); } sfx('level'); showMsg(it.rarity !== before ? (it.name + ' → ' + (RARITY_NAME[it.rarity] || it.rarity) + '!') : ('Reforged: ' + it.name)); }
+  else if (smithTab === 'socket') { const max = SOCKET_MAX[it.slot] || 0, cur = (it.sockets || []).length; if (cur >= max) return; const cost = { dust: 6 + (RTIER[it.rarity] || 1) * 4, gold: Math.round(itemScore(it) * 0.2) + 20 }; if (player.gold < cost.gold || (character.materials || 0) < cost.dust) return; player.gold -= cost.gold; character.materials = (character.materials || 0) - cost.dust; (it.sockets = it.sockets || []).push(null); if (where === 'eq') recompute(); sfx('level'); showMsg(it.name + ' → socket added'); }
   else { if (where !== 'inv') return; const du = dustValue(it); if ((RTIER[it.rarity] || 1) >= 3 && !confirm('Salvage ' + it.name + ' (' + (RARITY_NAME[it.rarity] || it.rarity) + ') into ' + du + ' Dust? This destroys the item.')) return; const idx = character.inventory.indexOf(it); if (idx < 0) return; character.materials = (character.materials || 0) + du; character.inventory.splice(idx, 1); smithPick = null; sfx('potion'); showMsg('Salvaged: +' + du + '✦'); }
   goldTxt.textContent = player.gold + ' g'; renderSmith(); updatePips(); saveProgress(false);
 }
 function renderSmith() {
   if (invOpen) renderInv(); /* paired inventory pane: refresh contents + selection highlight */
   const body = document.getElementById('smithBody'), where = smithPickWhere(); if (!where) smithPick = null; const it = smithPick;
-  const DESC = { upgrade: 'Select a piece from your inventory, then forge it stronger — each upgrade adds raw power. Higher rarity upgrades further.', reforge: `Select a piece, then reroll its affixes for gold + ✦ Dust — ${Math.round(REFORGE_RARITY_UP * 100)}% chance to raise its rarity. Set &amp; unique gear can't be reforged.`, salvage: 'Select a backpack piece, then break it down into ✦ Dust — no gold. Equipped gear can\'t be salvaged.' };
+  const DESC = { upgrade: 'Select a piece from your inventory, then forge it stronger — each upgrade adds raw power. Higher rarity upgrades further.', reforge: `Select a piece, then reroll its affixes for gold + ✦ Dust — ${Math.round(REFORGE_RARITY_UP * 100)}% chance to raise its rarity. Set &amp; unique gear can't be reforged.`, salvage: 'Select a backpack piece, then break it down into ✦ Dust — no gold. Equipped gear can\'t be salvaged.', socket: 'Select a piece, then add an empty socket for gold + ✦ Dust. Caps per slot (weapon/armor 3, helm/gloves/boots 2, jewelry 1). Fill sockets with gems at the Jeweler.' };
   let html = `<div style="color:#ffe27a;margin-bottom:8px">Your gold: ${player.gold} <span style="color:#b9a6ff">· ✦ ${character.materials || 0} Dust</span></div>`;
   html += `<div style="color:#8a7a5a;font-size:12px;margin-bottom:12px">${DESC[smithTab]}</div>`;
   if (!it) { html += `<div class="smithSlot empty">Click an item in your inventory →</div>`; }
@@ -2683,6 +2760,11 @@ function renderSmith() {
     } else if (smithTab === 'reforge') {
       if (!reforgeable(it)) html += `<div class="smithAct" style="color:#6a5a44">${RARITY_NAME[it.rarity] || it.rarity} gear can't be reforged — only common, magic &amp; rare.</div>`;
       else { const rc = reforgeCost(it), can = player.gold >= rc.gold && (character.materials || 0) >= rc.dust; html += `<div class="smithAct"><span>Reroll all affixes</span><span class="rprice">${rc.gold}g · ${rc.dust}✦</span><div class="rbtn${can ? '' : ' dis'}" id="smithDo" style="border-color:#6a4aa0">Reforge</div></div>`; }
+    } else if (smithTab === 'socket') {
+      const max = SOCKET_MAX[it.slot] || 0, cur = (it.sockets || []).length;
+      if (!max) html += `<div class="smithAct" style="color:#6a5a44">This slot can't hold sockets.</div>`;
+      else if (cur >= max) html += `<div class="smithAct" style="color:#6a5a44">Sockets full — ${cur}/${max}.</div>`;
+      else { const cost = { dust: 6 + (RTIER[it.rarity] || 1) * 4, gold: Math.round(itemScore(it) * 0.2) + 20 }, can = player.gold >= cost.gold && (character.materials || 0) >= cost.dust; html += `<div class="smithAct"><span>Add socket (${cur}/${max})</span><span class="rprice">${cost.gold}g · ${cost.dust}✦</span><div class="rbtn${can ? '' : ' dis'}" id="smithDo" style="border-color:#3a6a8a">Add Socket</div></div>`; }
     } else {
       if (where === 'eq') html += `<div class="smithAct" style="color:#6a5a44">Equipped — unequip it first to salvage.</div>`;
       else html += `<div class="smithAct"><span>Break down into Dust</span><span class="rprice">+${dustValue(it)}✦</span><div class="rbtn" id="smithDo" style="border-color:#7a3a28">Salvage</div></div>`;
@@ -2699,8 +2781,8 @@ function renderSmith() {
     }
   }
 }
-function affixLines(it) { let s = ''; if (it.slot === 'weapon' && it.baseStat) s += `<div class="base">${it.baseStat} Damage</div>`; else if (it.baseStat) s += `<div class="base">${it.baseStat} Armor</div>`; const keys = Object.keys(it.affixes).sort((a, b) => (AFFIX_CAT_ORD[AFFIX_CAT[a]] || 5) - (AFFIX_CAT_ORD[AFFIX_CAT[b]] || 5)); for (const k of keys) s += `<div class="aff aff-${AFFIX_CAT[k] || 'util'}">+${it.affixes[k]} ${AFFIXES[k].label}</div>`; if (it.enchant && it.enchant.key && AFFIXES[it.enchant.key]) s += `<div class="aff" style="color:#9f6aff">✦ +${it.enchant.val} ${AFFIXES[it.enchant.key].label} (enchant)</div>`; return s; }
-function statBundle(it) { const b = {}; if (it.baseStat) b[it.slot === 'weapon' ? 'Damage' : 'Armor'] = (b[it.slot === 'weapon' ? 'Damage' : 'Armor'] || 0) + it.baseStat; for (const k in it.affixes) { const l = AFFIXES[k] ? AFFIXES[k].label : k; b[l] = (b[l] || 0) + it.affixes[k]; } if (it.enchant && it.enchant.key && AFFIXES[it.enchant.key]) { const l = AFFIXES[it.enchant.key].label; b[l] = (b[l] || 0) + (it.enchant.val || 0); } return b; }
+function affixLines(it) { let s = ''; if (it.slot === 'weapon' && it.baseStat) s += `<div class="base">${it.baseStat} Damage</div>`; else if (it.baseStat) s += `<div class="base">${it.baseStat} Armor</div>`; const keys = Object.keys(it.affixes).sort((a, b) => (AFFIX_CAT_ORD[AFFIX_CAT[a]] || 5) - (AFFIX_CAT_ORD[AFFIX_CAT[b]] || 5)); for (const k of keys) s += `<div class="aff aff-${AFFIX_CAT[k] || 'util'}">+${it.affixes[k]} ${AFFIXES[k].label}</div>`; if (it.enchant && it.enchant.key && AFFIXES[it.enchant.key]) s += `<div class="aff" style="color:#9f6aff">✦ +${it.enchant.val} ${AFFIXES[it.enchant.key].label} (enchant)</div>`; if (it.sockets && it.sockets.length) s += `<div class="aff aff-util">` + it.sockets.map(g => { if (!g) return '◯ (empty)'; const e = gemEff(it.slot, g); return `${GEMS[g.t].ico} +${e.vals[g.q]} ${AFFIXES[e.key].label}`; }).join(' · ') + `</div>`; return s; }
+function statBundle(it) { const b = {}; if (it.baseStat) b[it.slot === 'weapon' ? 'Damage' : 'Armor'] = (b[it.slot === 'weapon' ? 'Damage' : 'Armor'] || 0) + it.baseStat; for (const k in it.affixes) { const l = AFFIXES[k] ? AFFIXES[k].label : k; b[l] = (b[l] || 0) + it.affixes[k]; } if (it.enchant && it.enchant.key && AFFIXES[it.enchant.key]) { const l = AFFIXES[it.enchant.key].label; b[l] = (b[l] || 0) + (it.enchant.val || 0); } if (it.sockets) for (const g of it.sockets) { if (g) { const e = gemEff(it.slot, g); if (e) { const l = AFFIXES[e.key].label; b[l] = (b[l] || 0) + e.vals[g.q]; } } } return b; }
 function tooltipHTML(it) {
   const eq = character.equipment[it.slot]; let html = `<div class="tname rc-${it.rarity}">${it.name}${it.upgrade ? ' <span style="color:#ffcf6a">+' + it.upgrade + '</span>' : ''}</div><div class="tslot rc-${it.rarity}">${RARITY_NAME[it.rarity] || it.rarity} · ${it.slot} · ilvl ${it.ilvl}${it.upgrade ? ' · +' + Math.round((upFactor(it) - 1) * 100) + '% upgraded' : ''}</div>${affixLines(it)}`;
   if (it.effect) html += `<div style="color:#ffcf6a;margin-top:4px">★ ${it.effectDesc}</div>`;
@@ -2731,6 +2813,8 @@ function charSheetHTML() {
   if (player.skillMult > 1) off += row('Skill Damage', '+' + pct((player.skillMult - 1) * 100));
   if (player.activeSkillDmg > 1) off += row('Active Skill', '+' + pct((player.activeSkillDmg - 1) * 100));
   if (e.allskills > 0) off += row('+ All Skills', e.allskills);
+  if (player.cdr > 0) off += row('Cooldown Reduction', '+' + pct(player.cdr * 100));
+  if (e.lifeOnHit > 0) off += row('Life on Hit', Math.round(e.lifeOnHit));
   for (const [k, lbl] of [['fire', 'Fire Damage'], ['frost', 'Cold Damage'], ['lightning', 'Lightning Damage'], ['poison', 'Poison Damage']]) if (em[k] > 1) off += row(lbl, '+' + pct((em[k] - 1) * 100));
   // Defense
   const redux = Math.min(75, Math.round(player.armor / (player.armor + 40) * 100));
@@ -2738,6 +2822,8 @@ function charSheetHTML() {
   if (e.thorns > 0) def += row('Thorns', Math.round(e.thorns));
   if (e.manaShield > 0) def += row('Mana Shield', pct(e.manaShield * 100));
   if (player.hpRegen > 0) def += row('Life Regen', (player.hpRegen * 1000).toFixed(1) + '/s');
+  if (e.dodge > 0) def += row('Dodge', pct(e.dodge * 100));
+  if (e.flatDR > 0) def += row('Damage Reduction', pct(e.flatDR * 100));
   // Resistances — effective = element + all, capped at 75%
   const ar = e.allRes || 0, rres = k => Math.min(75, Math.round((e[k] || 0) + ar));
   const res = row('Fire', rres('fireRes') + '%', 'res-fire') + row('Cold', rres('frostRes') + '%', 'res-cold') + row('Lightning', rres('lightningRes') + '%', 'res-light') + row('Poison', rres('poisonRes') + '%', 'res-poison');
@@ -2746,14 +2832,16 @@ function charSheetHTML() {
   if (e.movespeed > 0) util += row('Move Speed', '+' + pct(e.movespeed * 100));
   if (e.manaleech > 0) util += row('Mana Leech', pct(e.manaleech * 100));
   if (player.mpRegen > 0) util += row('Mana Regen', (player.mpRegen * 1000).toFixed(1) + '/s');
+  if (lootLuck > 0) util += row('Magic Find', '+' + pct(lootLuck * 100));
+  if (player.goldFind > 0) util += row('Gold Find', '+' + pct(player.goldFind * 100));
   util += row('STR', player.str) + row('DEX', player.dex) + row('VIT', player.vit) + row('ENG', player.eng);
   return `<div class="statname"><b>${character.name}</b> · Level ${player.level}</div>` + sec('Offense', off) + sec('Defense', def) + sec('Resistances', res) + sec('Utility', util);
 }
 function renderInv() {
   const eg = document.getElementById('equipGrid'); eg.innerHTML = '';
-  for (const s of SLOTS) { const it = character.equipment[s]; const c = document.createElement('div'); c.className = 'cell' + (it ? ' r-' + it.rarity : ''); c.style.gridArea = s; c.innerHTML = `<span class="lbl">${s}</span>${it ? SLOT_ICON[s] : '<span style="opacity:.25">' + SLOT_ICON[s] + '</span>'}`; if (it) { bindTip(c, it); c.onclick = () => smithOpen ? selectSmithItem(it) : enchantOpen ? selectEnchantItem(it) : unequip(s); if ((smithOpen && smithPick === it) || (enchantOpen && enchantPick === it)) c.classList.add('smithSel'); } eg.appendChild(c); }
+  for (const s of SLOTS) { const it = character.equipment[s]; const c = document.createElement('div'); c.className = 'cell' + (it ? ' r-' + it.rarity : ''); c.style.gridArea = s; c.innerHTML = `<span class="lbl">${s}</span>${it ? SLOT_ICON[s] : '<span style="opacity:.25">' + SLOT_ICON[s] + '</span>'}`; if (it) { bindTip(c, it); c.onclick = () => smithOpen ? selectSmithItem(it) : enchantOpen ? selectEnchantItem(it) : jewelerOpen ? selectSocketItem(it) : unequip(s); if ((smithOpen && smithPick === it) || (enchantOpen && enchantPick === it) || (jewelerOpen && socketPick === it)) c.classList.add('smithSel'); } eg.appendChild(c); }
   document.getElementById('charStats').innerHTML = charSheetHTML();
-  const ig = document.getElementById('invGrid'); ig.innerHTML = ''; for (let i = 0; i < character.invMax; i++) { const it = character.inventory[i]; const c = document.createElement('div'); c.className = 'cell' + (it ? ' r-' + it.rarity : ''); if (it) { const up = itemScore(it) > itemScore(character.equipment[it.slot]); c.innerHTML = (up ? '<span class="upg">▲</span>' : '') + SLOT_ICON[it.slot]; if (up) c.classList.add('isupg'); bindTip(c, it); c.onclick = () => smithOpen ? selectSmithItem(it) : enchantOpen ? selectEnchantItem(it) : equipFromInv(i); if ((smithOpen && smithPick === it) || (enchantOpen && enchantPick === it)) c.classList.add('smithSel'); } ig.appendChild(c); }
+  const ig = document.getElementById('invGrid'); ig.innerHTML = ''; for (let i = 0; i < character.invMax; i++) { const it = character.inventory[i]; const c = document.createElement('div'); c.className = 'cell' + (it ? ' r-' + it.rarity : ''); if (it) { const up = itemScore(it) > itemScore(character.equipment[it.slot]); c.innerHTML = (up ? '<span class="upg">▲</span>' : '') + SLOT_ICON[it.slot]; if (up) c.classList.add('isupg'); bindTip(c, it); c.onclick = () => smithOpen ? selectSmithItem(it) : enchantOpen ? selectEnchantItem(it) : jewelerOpen ? selectSocketItem(it) : equipFromInv(i); if ((smithOpen && smithPick === it) || (enchantOpen && enchantPick === it) || (jewelerOpen && socketPick === it)) c.classList.add('smithSel'); } ig.appendChild(c); }
   goldTxt.textContent = player.gold + ' g'; const _dt = document.getElementById('dustTxt'); if (_dt) _dt.textContent = (character.materials || 0) + ' Dust'; /* currency bar lives at the bottom of the inventory now */
 }
 function equipFromInv(i) { const it = character.inventory[i]; if (!it) return; const prev = character.equipment[it.slot]; character.equipment[it.slot] = it; character.inventory.splice(i, 1); if (prev) character.inventory.push(prev); recompute(); attachHeroWeapon(); renderInv(); renderOpenShop(); tooltip.style.display = 'none'; saveProgress(false); }
@@ -2836,6 +2924,7 @@ document.getElementById('tabBuy').onclick = () => setVendorTab('buy');
 document.getElementById('tabSell').onclick = () => setVendorTab('sell');
 document.getElementById('smithTabUpgrade').onclick = () => setSmithTab('upgrade');
 document.getElementById('smithTabReforge').onclick = () => setSmithTab('reforge');
+document.getElementById('smithTabSocket').onclick = () => setSmithTab('socket');
 document.getElementById('smithTabSalvage').onclick = () => setSmithTab('salvage');
 function renderStash() {
   const bp = document.getElementById('bpGrid'), st = document.getElementById('stGrid'); bp.innerHTML = ''; st.innerHTML = '';
