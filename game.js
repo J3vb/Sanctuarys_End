@@ -3104,33 +3104,33 @@ function charSheetHTML() {
   const pct = v => Math.round(v) + '%';
   const row = (lbl, val, cls) => `<div class="statrow${cls ? ' ' + cls : ''}"><span>${lbl}</span><b>${val}</b></div>`;
   const sec = (title, rows) => rows ? `<div class="statsec"><div class="statsec-h">${title}</div><div class="statgrid">${rows}</div></div>` : '';
-  // Offense
+  // Offense — every item-grantable stat always shown, 0/baseline when nothing grants it
   let off = row('Damage', player.dmg) + row('Crit Chance', pct(player.crit * 100)) + row('Crit Damage', '×' + ((e.critdmg ? 3 : 2) + (e.critDmgPct || 0) / 100).toFixed(2)) + row('Attack Speed', (1000 / player.attackRate).toFixed(2) + '/s');
-  if (e.lifesteal > 0) off += row('Life Leech', pct(e.lifesteal * 100));
-  if (player.skillMult > 1) off += row('Skill Damage', '+' + pct((player.skillMult - 1) * 100));
-  if (player.activeSkillDmg > 1) off += row('Active Skill', '+' + pct((player.activeSkillDmg - 1) * 100));
-  if (e.allskills > 0) off += row('+ All Skills', e.allskills);
-  if (player.cdr > 0) off += row('Cooldown Reduction', '+' + pct(player.cdr * 100));
-  if (e.lifeOnHit > 0) off += row('Life on Hit', Math.round(e.lifeOnHit));
-  for (const [k, lbl] of [['fire', 'Fire Damage'], ['frost', 'Cold Damage'], ['lightning', 'Lightning Damage'], ['poison', 'Poison Damage']]) if (em[k] > 1) off += row(lbl, '+' + pct((em[k] - 1) * 100));
+  off += row('Life Leech', pct((e.lifesteal || 0) * 100));
+  off += row('Skill Damage', '+' + pct(((player.skillMult || 1) - 1) * 100));
+  off += row('Active Skill', '+' + pct(((player.activeSkillDmg || 1) - 1) * 100));
+  off += row('+ All Skills', e.allskills || 0);
+  off += row('Cooldown Reduction', '+' + pct((player.cdr || 0) * 100));
+  off += row('Life on Hit', Math.round(e.lifeOnHit || 0));
+  for (const [k, lbl] of [['fire', 'Fire Damage'], ['frost', 'Cold Damage'], ['lightning', 'Lightning Damage'], ['poison', 'Poison Damage']]) off += row(lbl, '+' + pct(((em[k] || 1) - 1) * 100));
   // Defense
   const redux = Math.min(75, Math.round(player.armor / (player.armor + 40) * 100));
   let def = row('Life', player.hpMax) + row('Armor', player.armor + ' (' + redux + '% red.)');
-  if (e.thorns > 0) def += row('Thorns', Math.round(e.thorns));
-  if (e.manaShield > 0) def += row('Mana Shield', pct(e.manaShield * 100));
-  if (player.hpRegen > 0) def += row('Life Regen', (player.hpRegen * 1000).toFixed(1) + '/s');
-  if (e.dodge > 0) def += row('Dodge', pct(e.dodge * 100));
-  if (e.flatDR > 0) def += row('Damage Reduction', pct(e.flatDR * 100));
+  def += row('Thorns', Math.round(e.thorns || 0));
+  def += row('Mana Shield', pct((e.manaShield || 0) * 100));
+  def += row('Life Regen', ((player.hpRegen || 0) * 1000).toFixed(1) + '/s');
+  def += row('Dodge', pct((e.dodge || 0) * 100));
+  def += row('Damage Reduction', pct((e.flatDR || 0) * 100));
   // Resistances — effective = element + all, capped at 75%
   const ar = e.allRes || 0, rres = k => Math.min(75, Math.round((e[k] || 0) + ar));
   const res = row('Fire', rres('fireRes') + '%', 'res-fire') + row('Cold', rres('frostRes') + '%', 'res-cold') + row('Lightning', rres('lightningRes') + '%', 'res-light') + row('Poison', rres('poisonRes') + '%', 'res-poison');
   // Utility
   let util = row('Mana', player.mpMax);
-  if (e.movespeed > 0) util += row('Move Speed', '+' + pct(e.movespeed * 100));
-  if (e.manaleech > 0) util += row('Mana Leech', pct(e.manaleech * 100));
-  if (player.mpRegen > 0) util += row('Mana Regen', (player.mpRegen * 1000).toFixed(1) + '/s');
-  if (lootLuck > 0) util += row('Magic Find', '+' + pct(lootLuck * 100));
-  if (player.goldFind > 0) util += row('Gold Find', '+' + pct(player.goldFind * 100));
+  util += row('Move Speed', '+' + pct((e.movespeed || 0) * 100));
+  util += row('Mana Leech', pct((e.manaleech || 0) * 100));
+  util += row('Mana Regen', ((player.mpRegen || 0) * 1000).toFixed(1) + '/s');
+  util += row('Magic Find', '+' + pct((lootLuck || 0) * 100));
+  util += row('Gold Find', '+' + pct((player.goldFind || 0) * 100));
   util += row('STR', player.str) + row('DEX', player.dex) + row('VIT', player.vit) + row('ENG', player.eng);
   return `<div class="statname"><b>${character.name}</b> · Level ${player.level}</div>` + sec('Offense', off) + sec('Defense', def) + sec('Resistances', res) + sec('Utility', util);
 }
