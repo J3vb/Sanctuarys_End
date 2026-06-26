@@ -80,6 +80,9 @@ const AFFIXES = {
   mpregen: { label: 'Mana Regen /s', roll: il => randi(1, 2 + Math.round(il * 0.4)) }
 };
 const AFFIX_KEYS = Object.keys(AFFIXES);
+// tooltip grouping: off=offense, def=defense, res=resistance, util=utility
+const AFFIX_CAT = { dmg: 'off', crit: 'off', ias: 'off', critDmg: 'off', leech: 'off', skillranks: 'off', skilldmg: 'off', activeskill: 'off', fireDmg: 'off', coldDmg: 'off', lightDmg: 'off', poisonDmg: 'off', burnOnHit: 'off', bleedOnHit: 'off', hp: 'def', armor: 'def', thorns: 'def', hpregen: 'def', fireRes: 'res', coldRes: 'res', poisonRes: 'res', lightRes: 'res', allRes: 'res', mp: 'util', str: 'util', dex: 'util', vit: 'util', eng: 'util', ms: 'util', allstats: 'util', manaLeech: 'util', leechAll: 'util', mpregen: 'util' };
+const AFFIX_CAT_ORD = { off: 1, def: 2, res: 3, util: 4 };
 const RARITY_AFFIX = { common: [0, 0], magic: [1, 2], rare: [3, 5], set: [2, 3], unique: [4, 6] };
 const RCOL = { common: 0xc8b89a, magic: 0x4a6ad0, rare: 0xd0b020, set: 0x40c040, unique: 0xb06010 };
 const RTIER = { common: 1, magic: 2, rare: 3, set: 4, unique: 5 };
@@ -1693,6 +1696,7 @@ const ELITE_MODS = {
   fiery: { name: 'Fiery', col: 0xff7a2a, resist: 'fire', explode: true },
   frozen: { name: 'Frozen', col: 0x6ad8ff, resist: 'frost', chill: true },
   arcane: { name: 'Arcane', col: 0xc06aff, resist: 'lightning', shoot: true },
+  toxic: { name: 'Toxic', col: 0x8fe07a, resist: 'poison' },
 };
 /* ---------- elemental damage typing + monster resistances (unit 2) ---------- */
 const ELEMENTS = ['fire', 'frost', 'poison', 'lightning', 'phys'];
@@ -2094,11 +2098,14 @@ function applyOnHit(ent, type, baseDmg) {
 function tickStatuses(ent, dt, isPlayer) {
   ent.stunned = false; if (!isPlayer) ent.chilled = false; const arr = ent.statuses; if (!arr || !arr.length) return;
   let dot = 0;
+  // player DoTs are mitigated by the matching resist (+ allRes), capped 75%; bleed is physical → unresisted
+  const pe = isPlayer ? (player.effects || {}) : null;
+  const dotRes = el => { if (!pe) return 1; return 1 - Math.min(75, (pe[el] || 0) + (pe.allRes || 0)) / 100; };
   for (const s of arr) {
     s.dur -= dt; s.age = (s.age || 0) + dt; const sec = dt / 1000; const st = s.stacks || 1;
-    if (s.type === 'burn') dot += s.val * st * sec;
+    if (s.type === 'burn') dot += s.val * st * sec * dotRes('fireRes');
     else if (s.type === 'bleed') dot += s.val * st * sec;
-    else if (s.type === 'poison') dot += s.val * st * sec * (1 + Math.min(2, s.age / 1500));
+    else if (s.type === 'poison') dot += s.val * st * sec * (1 + Math.min(2, s.age / 1500)) * dotRes('poisonRes');
     else if (s.type === 'chill') { if (!isPlayer) ent.chilled = true; }
     else if (s.type === 'stun') ent.stunned = true;
   }
@@ -2459,7 +2466,7 @@ function stepEnt(e, tx, tz, sp) { const a = Math.atan2(tx - e.x, tz - e.z); e.x 
 function damagePlayer(d, mods) {
   if (_perfGod) return; /* perf rig: invincible under the perftest harness */
   const dr = player.armor / (player.armor + 40); d = d * (1 - Math.min(dr, 0.75));
-  { const e = player.effects; let res = e.allRes || 0; if (mods && mods.includes) { if (mods.includes('fiery')) res += e.fireRes || 0; else if (mods.includes('frozen')) res += e.frostRes || 0; else if (mods.includes('arcane')) res += e.lightningRes || 0; } if (res > 0) d *= (1 - Math.min(res, 75) / 100); } if (player.buffs.cryUntil > now()) d *= (1 - player.buffs.cryDR); if (player.effects.manaShield > 0 && player.mp > 0) { const ab = Math.min(d * player.effects.manaShield, player.mp); player.mp -= ab; d -= ab; } player.hp -= d; if (player.hp < 0) player.hp = 0; floatText('-' + Math.round(d), player.x, player.z, '#ff5b4b'); sfx('hurt'); shake = Math.min(1.6, shake + 0.6); const hf = document.getElementById('hurtFlash'); hf.style.opacity = Math.min(0.6, 0.25 + d / player.hpMax); clearTimeout(hf._t); hf._t = setTimeout(() => hf.style.opacity = 0, 120); if (mods && mods.includes && mods.includes('frozen')) { player.chillUntil = now() + 1500; floatText('Chilled', player.x, player.z - 1, '#9ff'); } updateGlobes(); if (player.hp <= 0) { sfx('die'); gameOver(); }
+  { const e = player.effects; let res = e.allRes || 0; if (mods && mods.includes) { if (mods.includes('fiery')) res += e.fireRes || 0; else if (mods.includes('frozen')) res += e.frostRes || 0; else if (mods.includes('arcane')) res += e.lightningRes || 0; else if (mods.includes('toxic')) res += e.poisonRes || 0; } if (res > 0) d *= (1 - Math.min(res, 75) / 100); } if (player.buffs.cryUntil > now()) d *= (1 - player.buffs.cryDR); if (player.effects.manaShield > 0 && player.mp > 0) { const ab = Math.min(d * player.effects.manaShield, player.mp); player.mp -= ab; d -= ab; } player.hp -= d; if (player.hp < 0) player.hp = 0; floatText('-' + Math.round(d), player.x, player.z, '#ff5b4b'); sfx('hurt'); shake = Math.min(1.6, shake + 0.6); const hf = document.getElementById('hurtFlash'); hf.style.opacity = Math.min(0.6, 0.25 + d / player.hpMax); clearTimeout(hf._t); hf._t = setTimeout(() => hf.style.opacity = 0, 120); if (mods && mods.includes && mods.includes('frozen')) { player.chillUntil = now() + 1500; floatText('Chilled', player.x, player.z - 1, '#9ff'); } updateGlobes(); if (player.hp <= 0) { sfx('die'); gameOver(); }
 }
 
 function saveProgress(showNote) { if (currentSlot === null || !character) return; character.level = player.level; character.xp = player.xp; character.xpNext = player.xpNext; character.gold = player.gold; character.kills = player.kills; character.potions = player.hpPotions; character.hpPotions = player.hpPotions; character.mpPotions = player.mpPotions; SAVE.saveCharacter(currentSlot, character); if (showNote) flashSaved(); }
@@ -2574,14 +2581,14 @@ function renderFloats() {
 }
 
 /* ---------- panels (inventory/skills/vendor/stash) ---------- */
-const invPanel = document.getElementById('invPanel'), skillPanel = document.getElementById('skillPanel'), vendorPanel = document.getElementById('vendorPanel'), stashPanel = document.getElementById('stashPanel'), smithPanel = document.getElementById('smithPanel'), enchantPanel = document.getElementById('enchantPanel'), gamblePanel = document.getElementById('gamblePanel'), jewelerPanel = document.getElementById('jewelerPanel'), alchemistPanel = document.getElementById('alchemistPanel'), tooltip = document.getElementById('tooltip');
-function closeAll() { shopAnchor = null; invOpen = skillOpen = vendorOpen = stashOpen = smithOpen = enchantOpen = gambleOpen = jewelerOpen = alchemistOpen = false;[invPanel, skillPanel, vendorPanel, stashPanel, smithPanel, enchantPanel, gamblePanel, jewelerPanel, alchemistPanel].forEach(p => p.style.display = 'none'); tooltip.style.display = 'none'; }
+const invPanel = document.getElementById('invPanel'), statsPanel = document.getElementById('statsPanel'), skillPanel = document.getElementById('skillPanel'), vendorPanel = document.getElementById('vendorPanel'), stashPanel = document.getElementById('stashPanel'), smithPanel = document.getElementById('smithPanel'), enchantPanel = document.getElementById('enchantPanel'), gamblePanel = document.getElementById('gamblePanel'), jewelerPanel = document.getElementById('jewelerPanel'), alchemistPanel = document.getElementById('alchemistPanel'), tooltip = document.getElementById('tooltip');
+function closeAll() { shopAnchor = null; invOpen = skillOpen = vendorOpen = stashOpen = smithOpen = enchantOpen = gambleOpen = jewelerOpen = alchemistOpen = false;[invPanel, statsPanel, skillPanel, vendorPanel, stashPanel, smithPanel, enchantPanel, gamblePanel, jewelerPanel, alchemistPanel].forEach(p => p.style.display = 'none'); tooltip.style.display = 'none'; }
 /* Diablo-3 dual-pane: shops dock left and open the inventory on the right so gear + trading sit side by side.
    Only one shop is open at a time, so renderOpenShop() refreshes whichever it is — call it after any
    inventory mutation from the right pane to keep the shop's item indices fresh (see equipFromInv/unequip). */
-function openShopWithInv() { invOpen = true; invPanel.style.display = 'block'; renderInv(); }
+function openShopWithInv() { invOpen = true; invPanel.style.display = 'block'; statsPanel.style.display = 'block'; renderInv(); }
 function renderOpenShop() { if (vendorOpen) renderVendor(); else if (smithOpen) renderSmith(); else if (enchantOpen) renderEnchanter(); else if (gambleOpen) renderGamble(); else if (jewelerOpen) renderJeweler(); else if (alchemistOpen) renderAlchemist(); }
-function toggleInv() { const o = !invOpen; closeAll(); if (o) { invOpen = true; invPanel.style.display = 'block'; renderInv(); } }
+function toggleInv() { const o = !invOpen; closeAll(); if (o) { invOpen = true; invPanel.style.display = 'block'; statsPanel.style.display = 'block'; renderInv(); } }
 function toggleSkill() { const o = !skillOpen; closeAll(); if (o) { skillOpen = true; skillPanel.style.display = 'block'; renderSkillTree(); } }
 function openVendor(tier) { closeAll(); openShopWithInv(); vendorTier = tier || 1; vendorOpen = true; vendorPanel.style.display = 'block'; if (!vendorStock.length || vendorStockTier !== vendorTier) refreshVendor(vendorTier); setVendorTab('buy'); }
 function openStash() { closeAll(); stashOpen = true; stashPanel.style.display = 'block'; renderStash(); }
@@ -2692,7 +2699,7 @@ function renderSmith() {
     }
   }
 }
-function affixLines(it) { let s = ''; if (it.slot === 'weapon' && it.baseStat) s += `<div class="base">${it.baseStat} Damage</div>`; else if (it.baseStat) s += `<div class="base">${it.baseStat} Armor</div>`; for (const k in it.affixes) s += `<div class="aff">+${it.affixes[k]} ${AFFIXES[k].label}</div>`; if (it.enchant && it.enchant.key && AFFIXES[it.enchant.key]) s += `<div class="aff" style="color:#9f6aff">✦ +${it.enchant.val} ${AFFIXES[it.enchant.key].label} (enchant)</div>`; return s; }
+function affixLines(it) { let s = ''; if (it.slot === 'weapon' && it.baseStat) s += `<div class="base">${it.baseStat} Damage</div>`; else if (it.baseStat) s += `<div class="base">${it.baseStat} Armor</div>`; const keys = Object.keys(it.affixes).sort((a, b) => (AFFIX_CAT_ORD[AFFIX_CAT[a]] || 5) - (AFFIX_CAT_ORD[AFFIX_CAT[b]] || 5)); for (const k of keys) s += `<div class="aff aff-${AFFIX_CAT[k] || 'util'}">+${it.affixes[k]} ${AFFIXES[k].label}</div>`; if (it.enchant && it.enchant.key && AFFIXES[it.enchant.key]) s += `<div class="aff" style="color:#9f6aff">✦ +${it.enchant.val} ${AFFIXES[it.enchant.key].label} (enchant)</div>`; return s; }
 function statBundle(it) { const b = {}; if (it.baseStat) b[it.slot === 'weapon' ? 'Damage' : 'Armor'] = (b[it.slot === 'weapon' ? 'Damage' : 'Armor'] || 0) + it.baseStat; for (const k in it.affixes) { const l = AFFIXES[k] ? AFFIXES[k].label : k; b[l] = (b[l] || 0) + it.affixes[k]; } if (it.enchant && it.enchant.key && AFFIXES[it.enchant.key]) { const l = AFFIXES[it.enchant.key].label; b[l] = (b[l] || 0) + (it.enchant.val || 0); } return b; }
 function tooltipHTML(it) {
   const eq = character.equipment[it.slot]; let html = `<div class="tname rc-${it.rarity}">${it.name}${it.upgrade ? ' <span style="color:#ffcf6a">+' + it.upgrade + '</span>' : ''}</div><div class="tslot rc-${it.rarity}">${RARITY_NAME[it.rarity] || it.rarity} · ${it.slot} · ilvl ${it.ilvl}${it.upgrade ? ' · +' + Math.round((upFactor(it) - 1) * 100) + '% upgraded' : ''}</div>${affixLines(it)}`;
@@ -2713,11 +2720,39 @@ function tooltipHTML(it) {
 }
 function bindTip(el, it) { el.onmouseenter = e => { tooltip.innerHTML = tooltipHTML(it); tooltip.style.display = 'block'; moveTip(e); }; el.onmousemove = moveTip; el.onmouseleave = () => tooltip.style.display = 'none'; }
 function moveTip(e) { const pad = 14; let x = e.clientX - tooltip.offsetWidth - pad; if (x < 8) x = e.clientX + pad; x = clamp(x, 8, Math.max(8, innerWidth - tooltip.offsetWidth - 8)); tooltip.style.left = x + 'px'; tooltip.style.top = clamp(e.clientY - 20, 8, Math.max(8, innerHeight - tooltip.offsetHeight - 8)) + 'px'; }
+function charSheetHTML() {
+  const e = player.effects || {}, em = player.elemMult || {};
+  const pct = v => Math.round(v) + '%';
+  const row = (lbl, val, cls) => `<div class="statrow${cls ? ' ' + cls : ''}"><span>${lbl}</span><b>${val}</b></div>`;
+  const sec = (title, rows) => rows ? `<div class="statsec"><div class="statsec-h">${title}</div><div class="statgrid">${rows}</div></div>` : '';
+  // Offense
+  let off = row('Damage', player.dmg) + row('Crit Chance', pct(player.crit * 100)) + row('Crit Damage', '×' + ((e.critdmg ? 3 : 2) + (e.critDmgPct || 0) / 100).toFixed(2)) + row('Attack Speed', (1000 / player.attackRate).toFixed(2) + '/s');
+  if (e.lifesteal > 0) off += row('Life Leech', pct(e.lifesteal * 100));
+  if (player.skillMult > 1) off += row('Skill Damage', '+' + pct((player.skillMult - 1) * 100));
+  if (player.activeSkillDmg > 1) off += row('Active Skill', '+' + pct((player.activeSkillDmg - 1) * 100));
+  if (e.allskills > 0) off += row('+ All Skills', e.allskills);
+  for (const [k, lbl] of [['fire', 'Fire Damage'], ['frost', 'Cold Damage'], ['lightning', 'Lightning Damage'], ['poison', 'Poison Damage']]) if (em[k] > 1) off += row(lbl, '+' + pct((em[k] - 1) * 100));
+  // Defense
+  const redux = Math.min(75, Math.round(player.armor / (player.armor + 40) * 100));
+  let def = row('Life', player.hpMax) + row('Armor', player.armor + ' (' + redux + '% red.)');
+  if (e.thorns > 0) def += row('Thorns', Math.round(e.thorns));
+  if (e.manaShield > 0) def += row('Mana Shield', pct(e.manaShield * 100));
+  if (player.hpRegen > 0) def += row('Life Regen', (player.hpRegen * 1000).toFixed(1) + '/s');
+  // Resistances — effective = element + all, capped at 75%
+  const ar = e.allRes || 0, rres = k => Math.min(75, Math.round((e[k] || 0) + ar));
+  const res = row('Fire', rres('fireRes') + '%', 'res-fire') + row('Cold', rres('frostRes') + '%', 'res-cold') + row('Lightning', rres('lightningRes') + '%', 'res-light') + row('Poison', rres('poisonRes') + '%', 'res-poison');
+  // Utility
+  let util = row('Mana', player.mpMax);
+  if (e.movespeed > 0) util += row('Move Speed', '+' + pct(e.movespeed * 100));
+  if (e.manaleech > 0) util += row('Mana Leech', pct(e.manaleech * 100));
+  if (player.mpRegen > 0) util += row('Mana Regen', (player.mpRegen * 1000).toFixed(1) + '/s');
+  util += row('STR', player.str) + row('DEX', player.dex) + row('VIT', player.vit) + row('ENG', player.eng);
+  return `<div class="statname"><b>${character.name}</b> · Level ${player.level}</div>` + sec('Offense', off) + sec('Defense', def) + sec('Resistances', res) + sec('Utility', util);
+}
 function renderInv() {
   const eg = document.getElementById('equipGrid'); eg.innerHTML = '';
-  for (const s of SLOTS) { const it = character.equipment[s]; const c = document.createElement('div'); c.className = 'cell' + (it ? ' r-' + it.rarity : ''); c.innerHTML = `<span class="lbl">${s}</span>${it ? SLOT_ICON[s] : '<span style="opacity:.25">' + SLOT_ICON[s] + '</span>'}`; if (it) { bindTip(c, it); c.onclick = () => smithOpen ? selectSmithItem(it) : enchantOpen ? selectEnchantItem(it) : unequip(s); if ((smithOpen && smithPick === it) || (enchantOpen && enchantPick === it)) c.classList.add('smithSel'); } eg.appendChild(c); }
-  const sline = (k, lbl) => `<div class="statline">${lbl} <b>${player[k]}</b></div>`;
-  document.getElementById('charStats').innerHTML = `<b>${character.name}</b> · Level ${player.level}<br>Damage <b>${player.dmg}</b> &nbsp; Crit <b>${(player.crit * 100).toFixed(0)}%</b> &nbsp; Atk Spd <b>${(1000 / player.attackRate).toFixed(2)}/s</b><br>Life <b>${player.hpMax}</b> &nbsp; Mana <b>${player.mpMax}</b> &nbsp; Armor <b>${player.armor}</b><br>${sline('str', 'STR')} ${sline('dex', 'DEX')} ${sline('vit', 'VIT')} ${sline('eng', 'ENG')}<span style="color:#8a7a5a">All stats now come from the skill forest (K)</span>`;
+  for (const s of SLOTS) { const it = character.equipment[s]; const c = document.createElement('div'); c.className = 'cell' + (it ? ' r-' + it.rarity : ''); c.style.gridArea = s; c.innerHTML = `<span class="lbl">${s}</span>${it ? SLOT_ICON[s] : '<span style="opacity:.25">' + SLOT_ICON[s] + '</span>'}`; if (it) { bindTip(c, it); c.onclick = () => smithOpen ? selectSmithItem(it) : enchantOpen ? selectEnchantItem(it) : unequip(s); if ((smithOpen && smithPick === it) || (enchantOpen && enchantPick === it)) c.classList.add('smithSel'); } eg.appendChild(c); }
+  document.getElementById('charStats').innerHTML = charSheetHTML();
   const ig = document.getElementById('invGrid'); ig.innerHTML = ''; for (let i = 0; i < character.invMax; i++) { const it = character.inventory[i]; const c = document.createElement('div'); c.className = 'cell' + (it ? ' r-' + it.rarity : ''); if (it) { const up = itemScore(it) > itemScore(character.equipment[it.slot]); c.innerHTML = (up ? '<span class="upg">▲</span>' : '') + SLOT_ICON[it.slot]; if (up) c.classList.add('isupg'); bindTip(c, it); c.onclick = () => smithOpen ? selectSmithItem(it) : enchantOpen ? selectEnchantItem(it) : equipFromInv(i); if ((smithOpen && smithPick === it) || (enchantOpen && enchantPick === it)) c.classList.add('smithSel'); } ig.appendChild(c); }
   goldTxt.textContent = player.gold + ' g'; const _dt = document.getElementById('dustTxt'); if (_dt) _dt.textContent = (character.materials || 0) + ' Dust'; /* currency bar lives at the bottom of the inventory now */
 }

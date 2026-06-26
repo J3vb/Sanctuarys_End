@@ -84,7 +84,7 @@
   .classCard .cb{color:#9a8a6a;font-size:12px;line-height:1.5;}
 
   .panel{position:absolute;top:0;bottom:0;width:560px;background:linear-gradient(180deg,#1a130c,#0d0905);box-shadow:-8px 0 30px rgba(0,0,0,.7);z-index:8;display:none;padding:18px;color:#d8c4a0;overflow-y:auto;}
-  #invPanel{right:0;border-left:3px solid #3a2e22;}#skillPanel{left:0;right:0;width:auto;border-right:none;}
+  #invPanel{right:0;border-left:3px solid #3a2e22;}#statsPanel{right:560px;width:320px;border-left:3px solid #3a2e22;}#skillPanel{left:0;right:0;width:auto;border-right:none;}
   .modal{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:620px;max-height:80vh;background:linear-gradient(180deg,#1a130c,#0d0905);border:3px solid #3a2e22;border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.8);z-index:12;display:none;padding:18px;color:#d8c4a0;overflow-y:auto;}
   /* Diablo-3 dual-pane: shop docks to the left, inventory panel (#invPanel) stays on the right */
   .modal.dockL{left:0;right:auto;top:0;bottom:0;transform:none;width:560px;max-height:none;border-radius:3px;}
@@ -97,10 +97,18 @@
   .cell.smithSel{outline:2px solid #ffcf6a;outline-offset:1px;box-shadow:0 0 10px rgba(255,207,106,.55);}
   .panel h3,.modal h3{color:#e6b84d;font-size:20px;margin-bottom:10px;border-bottom:1px solid #3a2e22;padding-bottom:8px;}
   .close{position:absolute;top:14px;right:16px;cursor:pointer;color:#8a7a5a;font-size:20px;}.close:hover{color:#e6b84d;}
-  .equipGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px;}
-  .charStats{background:rgba(0,0,0,.3);border:1px solid #2a2218;border-radius:6px;padding:10px;margin-bottom:14px;font-size:13px;line-height:1.8;}
+  /* Diablo-style paper doll: helm/chest/boots down the center, weapon+gloves left, amulet+ring right */
+  .equipGrid{display:grid;grid-template-columns:repeat(3,1fr);grid-template-areas:"weapon helm amulet" "gloves armor ring" ". boots .";gap:10px;max-width:330px;margin:0 auto 14px;}
+  .charStats{background:rgba(0,0,0,.3);border:1px solid #2a2218;border-radius:6px;padding:10px;margin-bottom:14px;font-size:12px;line-height:1.5;}
   .charStats b{color:#e6b84d;}
   .statline{display:flex;align-items:center;gap:6px;}
+  .statname{font-size:14px;margin-bottom:8px;color:#c8b89a;}
+  .statsec{margin-bottom:9px;}
+  .statsec-h{color:#8a7a5a;font-size:11px;text-transform:uppercase;letter-spacing:1px;border-bottom:1px solid #2a2218;padding-bottom:3px;margin-bottom:5px;}
+  .statgrid{display:grid;grid-template-columns:1fr 1fr;gap:2px 16px;}
+  .statrow{display:flex;justify-content:space-between;gap:6px;}
+  .statrow span{color:#9a8a6a;}.statrow b{color:#d8c4a0;}
+  .statrow.res-fire b{color:#ff7a4a;}.statrow.res-cold b{color:#7fd8ff;}.statrow.res-light b{color:#e0c84a;}.statrow.res-poison b{color:#8fe07a;}
   .plus{cursor:pointer;background:#3a2418;border:1px solid #6a4a28;color:#e6b84d;border-radius:4px;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;font-size:14px;line-height:1;}
   .plus:hover{background:#4a3020;}
   .ptsNote{color:#e6b84d;font-size:13px;margin-bottom:8px;}
@@ -114,7 +122,7 @@
   #stashPanel{width:min(900px,94vw);}
   #tooltip{position:fixed;z-index:40;pointer-events:none;background:rgba(10,7,4,.96);border:1px solid #4a3a28;border-radius:6px;padding:10px 12px;max-width:280px;font-size:13px;color:#c8b89a;display:none;box-shadow:0 4px 20px rgba(0,0,0,.8);}
   #tooltip .tname{font-size:15px;font-weight:bold;margin-bottom:2px;}#tooltip .tslot{color:#8a7a5a;font-size:11px;margin-bottom:6px;text-transform:capitalize;}
-  #tooltip .aff{color:#7fa8ff;}#tooltip .base{color:#d8c4a0;}#tooltip .cmp{margin-top:8px;padding-top:6px;border-top:1px dashed #3a2e22;color:#8a7a5a;font-size:11px;}
+  #tooltip .aff{color:#7fa8ff;}#tooltip .aff-off{color:#ef9a6a;}#tooltip .aff-def{color:#7fb0ff;}#tooltip .aff-res{color:#e6b84d;}#tooltip .aff-util{color:#b9c39a;}#tooltip .base{color:#d8c4a0;}#tooltip .cmp{margin-top:8px;padding-top:6px;border-top:1px dashed #3a2e22;color:#8a7a5a;font-size:11px;}
   .rc-common{color:#c8b89a;}.rc-magic{color:#7fa8ff;}.rc-rare{color:#ffe35a;}.rc-set{color:#5ad65a;}.rc-unique{color:#ff9a3a;}
   .invHint{color:#6a5a44;font-size:11px;margin-top:10px;line-height:1.6;}
   .tier{margin-bottom:6px;color:#8a7a5a;font-size:12px;text-transform:uppercase;letter-spacing:1px;}
@@ -325,10 +333,13 @@
   <div id="skillbar"></div>
 </div>
 
+<div id="statsPanel" class="panel">
+  <h3>Character</h3>
+  <div class="charStats" id="charStats"></div>
+</div>
 <div id="invPanel" class="panel">
   <h3>Equipment &amp; Inventory</h3><span class="close" id="invClose">✕</span>
   <div class="equipGrid" id="equipGrid"></div>
-  <div class="charStats" id="charStats"></div>
   <h3 style="font-size:16px;border:none;margin:0 0 8px">Backpack</h3>
   <div class="invGrid" id="invGrid"></div>
   <div class="invHint">Click a backpack item to equip • Click equipped item to remove • Hover to compare</div>
