@@ -273,7 +273,10 @@ const CLASS_ACTIVES = {
   mage: { strike: 1, fireball: 1, frost: 2, frostnova: 4, arcaneorb: 4, nova: 6, blink: 8, chain: 10, blizzard: 13, meteor: 14 },
   rogue: { strike: 1, multishot: 1, shadowstep: 5, volley: 6, fanofknives: 7, blink: 8, teleportstorm: 9, secondwind: 12 },
 };
-function syncActives() { const m = CLASS_ACTIVES[character.class] || CLASS_ACTIVES.warrior; for (const id in m) { if (player.level >= m[id] && (character.skills[id] || 0) < 1) character.skills[id] = 1; } }
+// Auto-grant only the level-1 starting kit. Higher abilities are unlocked by spending an ability point (see unlockAbility).
+function syncActives() { const m = CLASS_ACTIVES[character.class] || CLASS_ACTIVES.warrior; for (const id in m) { if (m[id] <= 1 && (character.skills[id] || 0) < 1) character.skills[id] = 1; } }
+// Class abilities, ordered by their unlock level (drives the Abilities-tab list).
+function classAbilities() { const m = CLASS_ACTIVES[(character && character.class) || 'warrior'] || CLASS_ACTIVES.warrior; return Object.keys(m).filter(id => id !== 'strike').sort((a, b) => m[a] - m[b]); }
 // ---- the passive "forest": a connected web of nodes you path through ----
 const PTREE = (() => {
   const nodes = {}, adj = {};
@@ -2713,6 +2716,15 @@ function updateGlobes() {
 function updatePips() { const ip = document.getElementById('invPip'), sp = document.getElementById('skillPip'); if (character) { const tot = (character.skillPoints || 0) + (character.abilityPoints || 0); sp.style.display = tot > 0 ? 'flex' : 'none'; sp.textContent = tot; ip.style.display = 'none'; } }
 function slotKeyLabel(i) { if (i === 0) return 'LMB'; if (i === 1) return 'RMB'; return (KEYBINDS['skill' + (i - 1)] || []).map(keyLabel)[0] || '—'; }
 function unlockedActives() { return ACTIVE_ORDER.filter(id => id !== 'strike' && character.skills[id] >= 1); }
+// Spend one ability point to learn a class ability whose level requirement is met (shared pool with rune nodes).
+function unlockAbility(id) {
+  const req = (CLASS_ACTIVES[character.class] || {})[id];
+  if (req == null || (character.skills[id] || 0) >= 1) return;
+  if (player.level < req) { showMsg('Requires level ' + req); return; }
+  if ((character.abilityPoints || 0) < 1) { showMsg('Not enough ability points'); return; }
+  character.skills[id] = 1; character.abilityPoints -= 1;
+  recompute(); renderSkillbar(); renderAbilities(); updatePips(); sfx('level'); saveProgress(false);
+}
 // Assign a skill to a bar slot (1..5; slot 0 is the fixed basic attack). Dedupes across slots; RMB (1) drives activeSkillId.
 function setLoadoutSlot(slot, id) {
   if (slot < 1 || slot > 5) return;
@@ -2779,6 +2791,8 @@ function renderSkillbar() {
       d.onmousemove = moveTip; d.onmouseleave = () => tooltip.style.display = 'none';
     } else {
       d.innerHTML = `<span class="key">${slotKeyLabel(i)}</span><span class="ico" style="opacity:.3">＋</span>`;
+      d.onmouseenter = ev => { tooltip.innerHTML = '<div class="tname">Empty slot</div><div class="tslot">Open Skills to assign an ability</div>'; tooltip.style.display = 'block'; moveTip(ev); };
+      d.onmousemove = moveTip; d.onmouseleave = () => tooltip.style.display = 'none';
     }
     d.onmousedown = ev => { ev.stopPropagation(); if (i >= 1) openSkillPanel('abilities'); };
     bar.appendChild(d);
@@ -3083,7 +3097,7 @@ function renderAbilities() {
   const owned = unlockedActives();
   if (!_runeViewId || (_runeViewId !== 'strike' && owned.indexOf(_runeViewId) < 0)) _runeViewId = character.loadout[_abilSlotSel] || owned[0] || 'strike';
   const ap = character.abilityPoints || 0;
-  const note = document.getElementById('abilNote'); if (note) note.textContent = `${ap} ability point${ap === 1 ? '' : 's'} · click a slot, then a skill to assign it`;
+  const note = document.getElementById('abilNote'); if (note) note.textContent = `${ap} ability point${ap === 1 ? '' : 's'} · unlock an ability or spend in a rune tree`;
   const slotLab = ['LMB', 'RMB', slotKeyLabel(2), slotKeyLabel(3), slotKeyLabel(4), slotKeyLabel(5)];
   let h = '<div class="abilSlots">';
   for (let i = 0; i < 6; i++) {
@@ -3093,18 +3107,30 @@ function renderAbilities() {
   h += '</div>';
   h += `<div class="abilBar"><span class="abilHint">Put a skill into the <b>${slotLab[_abilSlotSel]}</b> slot, or click a slot to view its rune tree.</span><span id="runeReset">↺ Refund all runes (free)</span></div>`;
   h += '<div class="abilPick">';
-  for (const id of owned) { const def = SKILLDEFS[id]; const on = character.loadout.indexOf(id) >= 0; h += `<div class="abilChip${on ? ' on' : ''}" data-skill="${id}">${def.ico} ${def.name}</div>`; }
-  if (!owned.length) h += `<span class="abilHint">No skills unlocked yet — level up to learn abilities.</span>`;
+  const acts = (CLASS_ACTIVES[character.class] || {});
+  const list = classAbilities();
+  for (const id of owned) if (list.indexOf(id) < 0) list.push(id); // keep any owned active not in the class list assignable
+  for (const id of list) {
+    const def = SKILLDEFS[id]; if (!def) continue;
+    const req = acts[id] || def.req || 1;
+    const ownedSkill = (character.skills[id] || 0) >= 1, onBar = character.loadout.indexOf(id) >= 0;
+    let cls = 'abilChip', tag = '';
+    if (ownedSkill) { if (onBar) cls += ' on'; }
+    else if (player.level >= req) { cls += ' unlock'; tag = '<span class="ct">Unlock · 1 pt</span>'; }
+    else { cls += ' locked'; tag = `<span class="ct">Lv ${req}</span>`; }
+    h += `<div class="${cls}" data-skill="${id}">${def.ico} ${def.name}${tag}</div>`;
+  }
   h += '</div><div id="runeWrap"></div>';
   host.innerHTML = h;
   host.querySelectorAll('.abilSlot').forEach(el => { const i = +el.dataset.slot; el.onclick = () => { if (i === 0) { _runeViewId = 'strike'; } else { _abilSlotSel = i; if (character.loadout[i]) _runeViewId = character.loadout[i]; } renderAbilities(); }; });
-  host.querySelectorAll('.abilChip').forEach(el => { const id = el.dataset.skill; el.onmouseenter = ev => { tooltip.innerHTML = skillTip(id); tooltip.style.display = 'block'; moveTip(ev); }; el.onmousemove = moveTip; el.onmouseleave = () => tooltip.style.display = 'none'; el.onclick = () => { setLoadoutSlot(_abilSlotSel, id); _runeViewId = id; saveProgress(false); renderAbilities(); }; });
+  host.querySelectorAll('.abilChip').forEach(el => { const id = el.dataset.skill; el.onmouseenter = ev => { tooltip.innerHTML = skillTip(id); tooltip.style.display = 'block'; moveTip(ev); }; el.onmousemove = moveTip; el.onmouseleave = () => tooltip.style.display = 'none'; el.onclick = () => { if ((character.skills[id] || 0) >= 1) { setLoadoutSlot(_abilSlotSel, id); _runeViewId = id; saveProgress(false); renderAbilities(); } else { unlockAbility(id); } }; });
   const rr = document.getElementById('runeReset'); if (rr) rr.onclick = refundRunes;
   renderRuneView();
 }
 function renderRuneView() {
   const wrap = document.getElementById('runeWrap'); if (!wrap) return; const id = _runeViewId, tree = id && SKILL_RUNES[id];
   if (!tree) { wrap.innerHTML = `<div class="abilHint" style="text-align:center;padding:20px">${id === 'strike' ? 'Basic attack — always on Left-click, no runes to spend.' : 'Select a skill to view its rune tree.'}</div>`; return; }
+  if ((character.skills[id] || 0) < 1) { wrap.innerHTML = `<div class="abilHint" style="text-align:center;padding:20px">Unlock this ability to spend runes on it.</div>`; return; }
   const def = SKILLDEFS[id]; rT = { x: 0, y: -20, s: 1 };
   wrap.innerHTML = `<div class="ptsNote" style="margin:8px 0 4px">${def.ico} ${def.name} — rune tree</div><div id="rVp" style="position:relative;width:100%;height:calc(100vh - 400px);min-height:240px;overflow:hidden;border:1px solid #2a2218;border-radius:8px;background:radial-gradient(circle at 50% 45%,#161109,#080604);cursor:grab"><svg id="rSvg" width="100%" height="100%" viewBox="-200 -150 400 380"><defs><filter id="rg" x="-90%" y="-90%" width="280%" height="280%"><feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><g id="rG"></g></svg></div>`;
   buildRuneSvg(id); attachRuneEvents();

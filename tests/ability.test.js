@@ -29,7 +29,7 @@ function loadAbility() {
 
   // clamp + `let character` already exist in the prefix; only `player` is declared later (after the THREE cut).
   const glue = ';var player={level:99};';
-  const exp = ';globalThis.__ab={defaultLoadout,SAVE,SKILLDEFS,ACTIVE_ORDER,SKILL_RUNES,buildSkillTree,resolveSkill,invalidateRunes,canAllocRune,setChar:(c)=>{character=c;invalidateRunes();},setLevel:(n)=>{player.level=n;}};';
+  const exp = ';globalThis.__ab={defaultLoadout,SAVE,SKILLDEFS,ACTIVE_ORDER,SKILL_RUNES,buildSkillTree,resolveSkill,invalidateRunes,canAllocRune,classAbilities,CLASS_ACTIVES,setChar:(c)=>{character=c;invalidateRunes();},setLevel:(n)=>{player.level=n;}};';
 
   const sandbox = { console };
   vm.createContext(sandbox);
@@ -107,6 +107,16 @@ test('resolveSkill folds numeric mods, clamps cdr, and unions flags', () => {
   R = AB.resolveSkill('fireball');
   assert.equal(R.dmgMult, 1, 'no runes → identity');
   assert.equal(R.flags.size, 0);
+});
+
+test('classAbilities lists a class’s actives ordered by unlock level, without strike', () => {
+  AB.setChar({ class: 'warrior' });
+  const list = AB.classAbilities();
+  assert.ok(!list.includes('strike'), 'strike is the fixed basic attack, not in the unlock list');
+  const reqs = list.map((id) => AB.CLASS_ACTIVES.warrior[id]);
+  for (let i = 1; i < reqs.length; i++) assert.ok(reqs[i] >= reqs[i - 1], 'sorted by ascending unlock level');
+  for (const id of list) assert.ok(AB.CLASS_ACTIVES.warrior[id] != null, `${id} belongs to the warrior unlock map`);
+  assert.ok(list.includes('charge') && list.includes('whirlwind'), 'higher-tier warrior actives are surfaced');
 });
 
 test('canAllocRune enforces connectivity, exclusivity, and level gates', () => {
