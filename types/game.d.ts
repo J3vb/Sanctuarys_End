@@ -48,7 +48,13 @@ type AffixKey =
   | 'lightDmg'
   | 'poisonDmg'
   | 'hpregen'
-  | 'mpregen';
+  | 'mpregen'
+  | 'mf'
+  | 'gf'
+  | 'dodge'
+  | 'flatDR'
+  | 'cdr'
+  | 'lifeOnHit';
 
 /** Rolled affixes on an item: a subset of affix keys mapped to magnitudes. */
 type Affixes = Partial<Record<AffixKey, number>>;
@@ -58,6 +64,34 @@ interface Stats {
   dex: number;
   vit: number;
   eng: number;
+}
+
+/** Derived combat effects accumulated by recompute() into player.effects. All optional; reads
+ *  guard with `|| 0` / ternaries, so absent fields read as undefined. Mirrors the `eff` literal in recompute(). */
+interface Effects {
+  lifesteal?: number;
+  manaleech?: number;
+  thorns?: number;
+  allskills?: number;
+  movespeed?: number;
+  critdmg?: boolean;
+  critDmgPct?: number;
+  pierce?: number;
+  deathnova?: number;
+  manaShield?: number;
+  haste?: number;
+  chillaura?: boolean;
+  echo?: boolean;
+  fireRes?: number;
+  frostRes?: number;
+  poisonRes?: number;
+  lightningRes?: number;
+  allRes?: number;
+  burnProc?: number;
+  bleedProc?: number;
+  dodge?: number;
+  flatDR?: number;
+  lifeOnHit?: number;
 }
 
 // --- items -------------------------------------------------------------------------------------------
@@ -100,6 +134,8 @@ interface Interactable {
   area?: string;
   /** Destination region id (on 'wildnext' / 'wildprev'). */
   to?: string;
+  /** Referenced world object (e.g. the shrine record on 'shrine'). */
+  ref?: any;
 }
 
 /** Player loot filter (Settings.lootFilter). */

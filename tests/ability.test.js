@@ -29,7 +29,8 @@ function loadAbility() {
 
   // clamp + `let character` already exist in the prefix; only `player` is declared later (after the THREE cut).
   const glue = ';var player={level:99};';
-  const exp = ';globalThis.__ab={defaultLoadout,SAVE,SKILLDEFS,ACTIVE_ORDER,SKILL_RUNES,buildSkillTree,resolveSkill,invalidateRunes,canAllocRune,classAbilities,CLASS_ACTIVES,setChar:(c)=>{character=c;invalidateRunes();},setLevel:(n)=>{player.level=n;}};';
+  const exp =
+    ';globalThis.__ab={defaultLoadout,SAVE,SKILLDEFS,ACTIVE_ORDER,SKILL_RUNES,buildSkillTree,resolveSkill,invalidateRunes,canAllocRune,classAbilities,CLASS_ACTIVES,setChar:(c)=>{character=c;invalidateRunes();},setLevel:(n)=>{player.level=n;}};';
 
   const sandbox = { console };
   vm.createContext(sandbox);
@@ -57,11 +58,21 @@ test('defaultLoadout on a fresh character is just the basic attack', () => {
   const lo = AB.defaultLoadout({ skills: { strike: 1 }, activeSkillId: null });
   assert.equal(lo.length, 6);
   assert.equal(lo[0], 'strike');
-  assert.ok(lo.slice(1).every((x) => x === null), 'all non-basic slots empty');
+  assert.ok(
+    lo.slice(1).every((x) => x === null),
+    'all non-basic slots empty',
+  );
 });
 
 test('SAVE.migrate adds loadout/skillRunes/abilityPoints without disturbing existing fields', () => {
-  const ch = { class: 'mage', level: 5, skills: { strike: 1, fireball: 1 }, passives: ['start_int'], skillPoints: 4, activeSkillId: 'fireball' };
+  const ch = {
+    class: 'mage',
+    level: 5,
+    skills: { strike: 1, fireball: 1 },
+    passives: ['start_int'],
+    skillPoints: 4,
+    activeSkillId: 'fireball',
+  };
   const out = AB.SAVE.migrate(ch);
   assert.ok(Array.isArray(out.loadout) && out.loadout.length === 6, 'loadout array of 6');
   assert.equal(out.loadout[0], 'strike');
@@ -84,7 +95,10 @@ test('every active skill (except strike) gets a rune tree with a root and an exc
       assert.ok(n.max >= 1 && n.cost >= 1, `${id}.${nid} bad max/cost`);
       if (n.excl) excl[n.excl] = (excl[n.excl] || 0) + 1;
     }
-    assert.ok(Object.values(excl).some((c) => c >= 2), `${id} should offer a real choice (an excl group with 2+ runes)`);
+    assert.ok(
+      Object.values(excl).some((c) => c >= 2),
+      `${id} should offer a real choice (an excl group with 2+ runes)`,
+    );
   }
 });
 

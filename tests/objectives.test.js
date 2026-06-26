@@ -43,7 +43,11 @@ const { rollFloorObjective, bountyProgress } = obj;
 // Run fn with the SANDBOX's Math.random pinned to `val`, restoring afterwards.
 function withRandom(val, fn) {
   obj.setRandom(() => val);
-  try { return fn(); } finally { obj.resetRandom(); }
+  try {
+    return fn();
+  } finally {
+    obj.resetRandom();
+  }
 }
 
 test('no bounty on boss floors or the opening floor', () => {
@@ -53,7 +57,8 @@ test('no bounty on boss floors or the opening floor', () => {
 });
 
 test('non-boss floors always produce a valid bounty', () => {
-  for (const d of [2, 3, 4, 6, 7, 8, 9, 11, 23, 97]) { // all non-boss (avoid multiples of 5)
+  for (const d of [2, 3, 4, 6, 7, 8, 9, 11, 23, 97]) {
+    // all non-boss (avoid multiples of 5)
     for (let i = 0; i < 50; i++) {
       const o = rollFloorObjective(d);
       assert.ok(o && (o.kind === 'slay' || o.kind === 'champion'), `depth ${d} bad bounty: ${JSON.stringify(o)}`);
@@ -82,7 +87,7 @@ test('slay bounty completes exactly at target, once', () => {
   const o = { kind: 'slay', target: 3, count: 0, done: false };
   assert.equal(bountyProgress(o, 'kill'), false); // 1
   assert.equal(bountyProgress(o, 'kill'), false); // 2
-  assert.equal(bountyProgress(o, 'kill'), true);  // 3 -> complete (the transition)
+  assert.equal(bountyProgress(o, 'kill'), true); // 3 -> complete (the transition)
   assert.equal(o.done, true);
   assert.equal(bountyProgress(o, 'kill'), false); // already done -> no re-trigger
 });

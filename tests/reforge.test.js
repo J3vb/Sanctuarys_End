@@ -27,7 +27,17 @@ const AFFIX_SET = new Set(AFFIX_KEYS);
 const REFORGE_TIERS = ['common', 'magic', 'rare'];
 
 function mkItem(rarity) {
-  return { id: 42, slot: 'helm', ilvl: 20, base: 'Cap', rarity, affixes: { dmg: 5 }, baseStat: 10, upgrade: 3, enchant: { key: 'hp', val: 9 } };
+  return {
+    id: 42,
+    slot: 'helm',
+    ilvl: 20,
+    base: 'Cap',
+    rarity,
+    affixes: { dmg: 5 },
+    baseStat: 10,
+    upgrade: 3,
+    enchant: { key: 'hp', val: 9 },
+  };
 }
 
 test('reforge preserves identity and respects the rarity affix-count table', () => {
@@ -47,7 +57,10 @@ test('reforge preserves identity and respects the rarity affix-count table', () 
     // affix count within the rarity's [lo,hi]
     const keys = Object.keys(it.affixes);
     const [lo, hi] = RARITY_AFFIX[it.rarity];
-    assert.ok(keys.length >= lo && keys.length <= hi, `affix count ${keys.length} outside [${lo},${hi}] for ${it.rarity}`);
+    assert.ok(
+      keys.length >= lo && keys.length <= hi,
+      `affix count ${keys.length} outside [${lo},${hi}] for ${it.rarity}`,
+    );
     // every affix is a real, positive affix
     for (const k of keys) {
       assert.ok(AFFIX_SET.has(k), `unknown affix key: ${k}`);

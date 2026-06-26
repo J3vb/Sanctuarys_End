@@ -44,7 +44,10 @@ test('rollSockets stays within the slot cap and produces empty sockets', () => {
     for (let n = 0; n < 200; n++) {
       const s = rollSockets(slot, 'rare');
       assert.ok(s.length >= 0 && s.length <= SOCKET_MAX[slot], `${slot} rolled ${s.length} > cap ${SOCKET_MAX[slot]}`);
-      assert.ok(s.every((x) => x === null), 'fresh sockets must be null');
+      assert.ok(
+        s.every((x) => x === null),
+        'fresh sockets must be null',
+      );
     }
   }
   assert.equal(rollSockets('nonsense', 'rare').length, 0, 'non-socketable slot yields no sockets');
@@ -58,14 +61,19 @@ test('gemFold adds the slot-correct gem value to the matching bonus key, ignorin
     gemFold({ slot, sockets: [{ t: 'ruby', q: 2 }, null] }, bonus);
     assert.equal(bonus[e.key], e.vals[2], `ruby in ${slot} should grant ${e.vals[2]} ${e.key}`);
   }
-  const b2 = {}; gemFold({ slot: 'weapon', sockets: [null, null] }, b2); assert.deepEqual(b2, {}, 'empty sockets add nothing');
-  const b3 = {}; gemFold({ slot: 'weapon' }, b3); assert.deepEqual(b3, {}, 'no sockets array adds nothing');
+  const b2 = {};
+  gemFold({ slot: 'weapon', sockets: [null, null] }, b2);
+  assert.deepEqual(b2, {}, 'empty sockets add nothing');
+  const b3 = {};
+  gemFold({ slot: 'weapon' }, b3);
+  assert.deepEqual(b3, {}, 'no sockets array adds nothing');
 });
 
 test('socketing a gem strictly raises itemScore', () => {
   const mk = () => ({ slot: 'weapon', rarity: 'rare', baseStat: 20, affixes: { dmg: 6 }, upgrade: 0, sockets: [null] });
   const empty = itemScore(mk());
-  const filled = mk(); filled.sockets[0] = { t: 'amethyst', q: 4 };
+  const filled = mk();
+  filled.sockets[0] = { t: 'amethyst', q: 4 };
   assert.ok(itemScore(filled) > empty, 'a socketed gem must increase item score');
 });
 

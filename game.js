@@ -1412,6 +1412,7 @@ function _fillDungeonBiome(dungeonGroup, depth, th, fires, fixedColliders, scatt
     const pK = ['pillar', 'pillar_decorated'];
     for (const k of pK) { const metas = []; for (let i = 0; i < 30; i++) metas.push({ s: rand(7, 13) / PROP_PROTO[k].base, cr: 1.7 }); addScatter(PROP_PROTO[k].geo, tintPropMat(PROP_PROTO[k].mat, th.pillar), metas, { cast: true, recv: true }); }
     // loose rocks -> KayKit rubble (low debris), biome-tinted
+    /** @type {[string, number][]} */
     const ruK = [['rubble_large', 13], ['rubble_half', 12]];
     for (const [k, cnt] of ruK) { const metas = []; for (let i = 0; i < cnt; i++) { const s = rand(0.7, 1.5) / PROP_PROTO[k].base; metas.push({ s, cr: Math.max(PROP_PROTO[k].size.x, PROP_PROTO[k].size.z) * s * 0.45 }); } addScatter(PROP_PROTO[k].geo, tintPropMat(PROP_PROTO[k].mat, th.rock), metas, { recv: true }); }
   } else {
@@ -1719,7 +1720,7 @@ const skillCd = (def, id) => def.cd * (1 - (player.cdr || 0)) * (id ? resolveSki
 function recompute() {
   const b = character.base, st = character.stats, eq = character.equipment, sk = character.skills; const cls = CLASSES[character.class] || CLASSES.warrior;
   let dmg = b.dmg, hp = b.hpMax, mp = b.mpMax, armor = 0, crit = 5; const bonus = { dmg: 0, hp: 0, mp: 0, armor: 0, str: 0, vit: 0, eng: 0, crit: 0 };
-  const eff = { lifesteal: 0, manaleech: 0, thorns: 0, allskills: 0, movespeed: 0, critdmg: false, critDmgPct: 0, pierce: 0, deathnova: 0, manaShield: 0, haste: 0, chillaura: false, echo: false, fireRes: 0, frostRes: 0, poisonRes: 0, lightningRes: 0, allRes: 0, burnProc: 0, bleedProc: 0 }; const setCount = {};
+  const eff = { lifesteal: 0, manaleech: 0, thorns: 0, allskills: 0, movespeed: 0, critdmg: false, critDmgPct: 0, pierce: 0, deathnova: 0, manaShield: 0, haste: 0, chillaura: false, echo: false, fireRes: 0, frostRes: 0, poisonRes: 0, lightningRes: 0, allRes: 0, burnProc: 0, bleedProc: 0, dodge: 0, flatDR: 0, lifeOnHit: 0 }; const setCount = {};
   for (const s of SLOTS) {
     const it = eq[s]; if (!it) continue; const uf = upFactor(it); if (it.slot === 'weapon') bonus.dmg += it.baseStat * uf; else bonus.armor += it.baseStat * uf; for (const k in it.affixes) bonus[k] = (bonus[k] || 0) + it.affixes[k] * uf; gemFold(it, bonus);
     if (it.enchant && it.enchant.key) bonus[it.enchant.key] = (bonus[it.enchant.key] || 0) + (it.enchant.val || 0) * uf;
@@ -2330,7 +2331,7 @@ function tickStatuses(ent, dt, isPlayer) {
   ent.stunned = false; if (!isPlayer) ent.chilled = false; const arr = ent.statuses; if (!arr || !arr.length) return;
   let dot = 0;
   // player DoTs are mitigated by the matching resist (+ allRes), capped 75%; bleed is physical → unresisted
-  const pe = isPlayer ? (player.effects || {}) : null;
+  /** @type {Effects|null} */ const pe = isPlayer ? (player.effects || {}) : null;
   const dotRes = el => { if (!pe) return 1; return 1 - Math.min(75, (pe[el] || 0) + (pe.allRes || 0)) / 100; };
   for (const s of arr) {
     s.dur -= dt; s.age = (s.age || 0) + dt; const sec = dt / 1000; const st = s.stacks || 1;
@@ -3100,7 +3101,8 @@ function tooltipHTML(it) {
 function bindTip(el, it) { el.onmouseenter = e => { tooltip.innerHTML = tooltipHTML(it); tooltip.style.display = 'block'; moveTip(e); }; el.onmousemove = moveTip; el.onmouseleave = () => tooltip.style.display = 'none'; }
 function moveTip(e) { const pad = 14; let x = e.clientX - tooltip.offsetWidth - pad; if (x < 8) x = e.clientX + pad; x = clamp(x, 8, Math.max(8, innerWidth - tooltip.offsetWidth - 8)); tooltip.style.left = x + 'px'; tooltip.style.top = clamp(e.clientY - 20, 8, Math.max(8, innerHeight - tooltip.offsetHeight - 8)) + 'px'; }
 function charSheetHTML() {
-  const e = player.effects || {}, em = player.elemMult || {};
+  /** @type {Effects} */ const e = player.effects || {};
+  const em = player.elemMult || {};
   const pct = v => Math.round(v) + '%';
   const row = (lbl, val, cls) => `<div class="statrow${cls ? ' ' + cls : ''}"><span>${lbl}</span><b>${val}</b></div>`;
   const sec = (title, rows) => rows ? `<div class="statsec"><div class="statsec-h">${title}</div><div class="statgrid">${rows}</div></div>` : '';
