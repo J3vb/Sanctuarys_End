@@ -1032,14 +1032,25 @@ drop ilvl = Level + d×2 ,  Loot Luck = min(50%, d×2%)</div>
   <section id="bosses">
     <h2>Bosses</h2>
     <p>A boss guards every <b>5th dungeon floor</b> (depth 5, 10, 15, …). It blocks the way down until
-    slain. Bosses pull from five names — Gravewarden, The Flesh Tyrant, Maw of the Deep, Ashen Overlord,
-    Dread Sovereign — and a depth-based combat <b>variant</b>:</p>
+    slain. Six named guardians rotate floor by floor, each with its own model, aura and a fixed combat
+    <b>variant</b>; the deeper forms only join the rotation once you reach their depth:</p>
     <table>
-      <thead><tr><th>Variant</th><th>Appears at</th><th>Behaviour</th></tr></thead>
+      <thead><tr><th>Boss</th><th>Variant</th><th>From depth</th></tr></thead>
       <tbody>
-        <tr><td><b>Brute</b></td><td>Depth &lt; 8</td><td>Volleys + ground slams; summons minions in phase 2.</td></tr>
-        <tr><td><b>Caster</b></td><td>Depth 8–13</td><td>Chilling volleys, slams, and short teleports.</td></tr>
-        <tr><td><b>Summoner</b></td><td>Depth 14+</td><td>Summons Fallen, shields itself, slams, volleys.</td></tr>
+        <tr><td><b>Sporelord Myconid</b></td><td>Summoner</td><td>5</td></tr>
+        <tr><td><b>Azurath the Profane</b></td><td>Caster</td><td>5</td></tr>
+        <tr><td><b>The Mycelial Throne</b></td><td>Summoner</td><td>5</td></tr>
+        <tr><td><b>Gravelmaw the Unbroken</b></td><td>Brute</td><td>10</td></tr>
+        <tr><td><b>Cinderwing</b></td><td>Brute</td><td>15</td></tr>
+        <tr><td><b>Pyraxis, Elder Wyrm</b></td><td>Caster</td><td>25</td></tr>
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th>Variant</th><th>Behaviour</th></tr></thead>
+      <tbody>
+        <tr><td><b>Brute</b></td><td>Volleys + ground slams; summons minions in phase 2.</td></tr>
+        <tr><td><b>Caster</b></td><td>Chilling volleys, slams, and short teleports.</td></tr>
+        <tr><td><b>Summoner</b></td><td>Summons Fallen, shields itself, slams, volleys.</td></tr>
       </tbody>
     </table>
     <div class="note">At <b>50% HP</b> a boss <b>enrages</b> (phase 2): +50% movement speed and faster, deadlier
