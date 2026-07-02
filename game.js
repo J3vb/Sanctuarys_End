@@ -1056,6 +1056,7 @@ function buildWild(region) {
    loading — so e.g. nature.glb arriving while you're in the wild swaps the procedural fallback for real models. */
 function rebuildZoneScenery() {
   if (typeof zone === 'undefined') return;
+  _menuShadowDirty = true; /* scenery changed — the menu's otherwise-static shadow map needs one refresh */
   try { if (zone === 'town') buildTown(curTownArea); else if (zone === 'wild') buildWild(curRegion); }
   catch (e) { console.warn('zone scenery rebuild failed:', e && e.message); }
 }
@@ -2529,7 +2530,7 @@ function warmScene(label) {
   }));
 }
 function enterTown(area) {
-  curTownArea = area || curTownArea || AREAS[0]; zone = 'town'; depth = 0; clearField(); buildTown(curTownArea); setZoneVisuals(); themeTown(curTownArea); setScale();
+  curTownArea = area || curTownArea || AREAS[0]; zone = 'town'; depth = 0; clearField(); invalidateTownInter(); buildTown(curTownArea); setZoneVisuals(); themeTown(curTownArea); setScale();
   for (const n of npcs) { n.group.visible = (!n.towns || n.towns.includes(curTownArea.id)); } player.x = 0; player.z = 8; player.hp = player.hpMax; refreshVendor(); zoneTxt.textContent = curTownArea.name + ' · Town'; townBtn.style.display = 'none'; placeCamera(player); saveProgress(false);
   warmScene(curTownArea.name + ' · Town');
 }
@@ -2599,9 +2600,15 @@ function enterDungeon(d) {
 /* shops stay walkable: opening one records the NPC spot, and update() closes it once the player wanders off. */
 const SHOP_KINDS = new Set(['vendor', 'stash', 'smith', 'alchemist', 'enchanter', 'gambler', 'jeweler', 'premiumVendor']);
 let shopAnchor = null;
+/* The town interactable list (NPC filter + portals) is static for a whole town visit but was rebuilt — with a
+   fresh filter/map and one object per NPC — twice a frame (nearest() + drawMinimap()). Cache it and rebuild only
+   on town entry (invalidateTownInter). Wild/dungeon lists stay live: they're a few literals and carry dynamic
+   state (bossActive gate, shrine `used`) that must be re-read each frame. */
+let _townInter = null;
+function invalidateTownInter() { _townInter = null; }
 /** @returns {Interactable[]} */
 function interactables() {
-  if (zone === 'town') return [...npcs.filter(n => !n.towns || (curTownArea && n.towns.includes(curTownArea.id))).map(n => ({ kind: n.kind, x: n.x, z: n.z })), { kind: 'wild', x: t_wildPortal.x, z: t_wildPortal.z }, { kind: 'waypoint', x: t_waypoint.x, z: t_waypoint.z }, { kind: 'cauldron', x: t_cauldron.x, z: t_cauldron.z }];
+  if (zone === 'town') return _townInter || (_townInter = [...npcs.filter(n => !n.towns || (curTownArea && n.towns.includes(curTownArea.id))).map(n => ({ kind: n.kind, x: n.x, z: n.z })), { kind: 'wild', x: t_wildPortal.x, z: t_wildPortal.z }, { kind: 'waypoint', x: t_waypoint.x, z: t_waypoint.z }, { kind: 'cauldron', x: t_cauldron.x, z: t_cauldron.z }]);
   if (zone === 'wild') {
     const r = curRegion || REGIONS[0];
     /** @type {Interactable[]} */
@@ -2729,13 +2736,13 @@ function update(dt) {
   if (isCombat() && !bossActive) { waveTimer -= dt; if (_spawnQueue.length === 0 && monsters.length < MOB_CAP && (waveTimer <= 0 || monsters.length < 3)) { spawnWave(); waveTimer = 4200; } drainSpawns(dt); }
   saveTimer -= dt; if (saveTimer <= 0) { saveTimer = 8000; saveProgress(false); }
 
-  const o = nearest(); const pr = document.getElementById('prompt');
+  const o = nearest(); const pr = promptEl;
   if (o && !anyPanel()) {
     const lbl = (o.kind === 'deeper') ? ('descend deeper (Depth ' + (depth + 1) + ')') : (o.kind === 'towngate') ? ('enter ' + ((AREAS.find(a => a.id === o.area) || {}).name || 'the town')) : (o.kind === 'wildnext' || o.kind === 'wildprev') ? ('travel to ' + ((wildById(o.to) || {}).name || 'the wilds')) : PROMPT_LABELS[o.kind];
     const html = `Press <b>E</b> to ${lbl}`; if (html !== _promptHtml) { _promptHtml = html; pr.innerHTML = html; pr.style.display = 'block'; }
   } else if (_promptHtml !== null) { _promptHtml = null; pr.style.display = 'none'; }
 
-  const bb = document.getElementById('bossBar');
+  const bb = bossBarEl;
   if (bossActive && boss) {
     if (_bbShown !== true) { _bbShown = true; bb.style.display = 'block'; }
     if (boss.name !== _bbName) { _bbName = boss.name; document.getElementById('bossName').textContent = boss.name; }
@@ -2811,6 +2818,7 @@ const healthFill = document.getElementById('healthFill'), manaFill = document.ge
 const hpTxt = document.getElementById('hpTxt'), mpTxt = document.getElementById('mpTxt'), xpfill = document.getElementById('xpfill');
 const lvlNum = document.getElementById('lvlNum'), killsTxt = document.getElementById('killsTxt'), charName = document.getElementById('charName'), goldTxt = document.getElementById('goldTxt'), zoneTxt = document.getElementById('zoneTxt'), townBtn = document.getElementById('townBtn');
 const lvlBadgeNum = document.getElementById('lvlBadgeNum');
+const promptEl = document.getElementById('prompt'), bossBarEl = document.getElementById('bossBar'); /* static HUD nodes — cached once instead of a getElementById every frame in update() */
 function setLevelText(n) { const s = String(n); lvlNum.textContent = s; if (lvlBadgeNum) lvlBadgeNum.textContent = s; }
 /* Phase 1: HUD dirty-cache — updateGlobes/prompt/boss-bar ran ~8 DOM style+text writes EVERY frame
    (each forces style recalc/layout). Now each write is gated on its value actually changing. Reset on
@@ -3536,10 +3544,14 @@ document.getElementById('ptRecenter').onclick = () => { if (character && typeof 
 // Escape / Help handled by the unified keybind dispatcher above
 
 // ---- living main-menu scene ----
-let menuActive = false, menuRAF = null, menuT = 0;
-function startMenu() { if (menuActive) return; menuActive = true; try { townGroup.visible = true; wildGroup.visible = false; dungeonGroup.visible = false; } catch (_) { } menuLoop(); }
+let menuActive = false, menuRAF = null, menuT = 0, _menuShadowDirty = true;
+function startMenu() { if (menuActive) return; menuActive = true; _menuShadowDirty = true; try { townGroup.visible = true; wildGroup.visible = false; dungeonGroup.visible = false; } catch (_) { } menuLoop(); }
 function stopMenu() { menuActive = false; if (menuRAF) { cancelAnimationFrame(menuRAF); menuRAF = null; } }
-function menuLoop() { if (!menuActive) return; menuT += 0.0032; const r = 44; camera.position.set(Math.sin(menuT) * r, 30, Math.cos(menuT) * r + 6); camera.lookAt(0, 2, -2); if (renderer.shadowMap.enabled) moon.shadow.needsUpdate = true; /* Phase 1b: per-light one-shot refresh at the menu (was renderer.shadowMap.needsUpdate). Without this, autoUpdate=false leaves the moon shadow map unrendered, so materials sample three.js's placeholder with a sampler2DShadow -> "Mismatch between texture format and sampler type" flood (esp. on the WebGL2 fallback). */ renderFrame(); menuRAF = requestAnimationFrame(menuLoop); }
+/* The menu scene is static (only the camera orbits), so the moon shadow map only needs re-rendering while the
+   roster is still streaming in (!GLB_READY, swaps happening) plus one final pass after any scenery rebuild —
+   not every frame. This still satisfies the one-shot refresh that keeps the sampler2DShadow from sampling an
+   unrendered placeholder (the reason it was per-frame). */
+function menuLoop() { if (!menuActive) return; menuT += 0.0032; const r = 44; camera.position.set(Math.sin(menuT) * r, 30, Math.cos(menuT) * r + 6); camera.lookAt(0, 2, -2); if (renderer.shadowMap.enabled && (_menuShadowDirty || !GLB_READY)) { moon.shadow.needsUpdate = true; _menuShadowDirty = false; } renderFrame(); menuRAF = requestAnimationFrame(menuLoop); }
 
 // ---- settings ----
 /* ---------- Phase 2: quality presets + auto-downgrade ----------
