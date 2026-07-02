@@ -142,7 +142,10 @@ test('the keystone is reachable from every shape node, not just the middle one',
     assert.ok(tree.adj.fireball_key.includes(sh), `keystone should be adjacent to ${sh}`);
   }
   for (const sh of ['fireball_sh0', 'fireball_sh1', 'fireball_sh2']) {
-    AB.setChar({ abilityPoints: 99, skillRunes: { fireball: { fireball_dmg: 1, fireball_cdr: 1, fireball_mana: 1, [sh]: 1 } } });
+    AB.setChar({
+      abilityPoints: 99,
+      skillRunes: { fireball: { fireball_dmg: 1, fireball_cdr: 1, fireball_mana: 1, [sh]: 1 } },
+    });
     assert.equal(AB.canAllocRune('fireball', 'fireball_key'), true, `keystone must be allocatable after picking ${sh}`);
   }
 });

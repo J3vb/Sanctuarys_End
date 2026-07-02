@@ -1990,27 +1990,28 @@ function bossVolley(m, arc, spd, chill) {
   for (let k = -arc; k <= arc; k++) { const a = base + k * 0.22; const pm = makeOrb(m.x, 2.5, m.z, chill ? 0x6ad8ff : 0xff5020, 0.55); scene.add(pm); projectiles.push({ x: m.x, z: m.z, vx: Math.sin(a) * spd, vz: Math.cos(a) * spd, dmg: Math.round(m.dmg * 0.7), kind: 'enemy', life: 160, mesh: pm, chill: !!chill }); }
 }
 function bossAI(m, dt, d, sp) {
-  if (m.shield > 0) m.shield--;
+  const fr = dt * 60 / 1000; /* see update(): decrement frame-count cooldowns by real elapsed 60ths so boss ability cadence is framerate-independent */
+  if (m.shield > 0) m.shield -= fr;
   if (m.phase === 1 && m.hp < m.hpMax * 0.5) { m.phase = 2; m.speed *= 1.5; showMsg(m.name.split(' · ')[0] + ' enrages!'); }
-  if (d > m.r + player.r + 0.5) stepEnt(m, player.x, player.z, sp); else { m.atkCd--; if (m.atkCd <= 0) { m.atkCd = 70; damagePlayer(m.dmg); if (player.effects.thorns > 0) { m.hp -= player.effects.thorns; if (m.hp <= 0) killMonster(m); } } }
+  if (d > m.r + player.r + 0.5) stepEnt(m, player.x, player.z, sp); else { m.atkCd -= fr; if (m.atkCd <= 0) { m.atkCd = 70; damagePlayer(m.dmg); if (player.effects.thorns > 0) { m.hp -= player.effects.thorns; if (m.hp <= 0) killMonster(m); } } }
   const cm = m.cdMul || 1; const v = m.variant || 'brute';
   if (v === 'devil') {
-    m.boltCd--; if (m.boltCd <= 0) { m.boltCd = (m.phase === 2 ? 44 : 72) * cm; bossVolley(m, m.phase === 2 ? 4 : 3, 0.62, false); bossVolley(m, 2, 0.5, true); }
-    m.slamCd--; if (m.slamCd <= 0 && d < 24) { m.slamCd = 300 * cm; spawnExplosion(m.x, m.z, 0xff2400); if (d < 16) damagePlayer(Math.round(m.dmg * 1.4)); }
-    m.tpCd--; if (m.tpCd <= 0 && d < 28) { m.tpCd = 240 * cm; spawnExplosion(m.x, m.z, 0xff5020); const a = Math.atan2(player.x - m.x, player.z - m.z); m.x = player.x - Math.sin(a) * 22; m.z = player.z - Math.cos(a) * 22; clampEntToZone(m); spawnExplosion(m.x, m.z, 0xff5020); }
-    m.summonCd--; if (m.summonCd <= 0) { m.summonCd = (m.phase === 2 ? 260 : 380) * cm; for (let i = 0; i < (m.phase === 2 ? 4 : 3); i++) { const a = rand(0, 6.28); spawnMonster(choice(['imp', 'hellhound']), null, { x: m.x + Math.cos(a) * 6, z: m.z + Math.sin(a) * 6 }); } m.shield = Math.max(m.shield, 150); spawnExplosion(m.x, m.z, 0xff6a2a); showMsg('The Devil calls its brood!'); }
+    m.boltCd -= fr; if (m.boltCd <= 0) { m.boltCd = (m.phase === 2 ? 44 : 72) * cm; bossVolley(m, m.phase === 2 ? 4 : 3, 0.62, false); bossVolley(m, 2, 0.5, true); }
+    m.slamCd -= fr; if (m.slamCd <= 0 && d < 24) { m.slamCd = 300 * cm; spawnExplosion(m.x, m.z, 0xff2400); if (d < 16) damagePlayer(Math.round(m.dmg * 1.4)); }
+    m.tpCd -= fr; if (m.tpCd <= 0 && d < 28) { m.tpCd = 240 * cm; spawnExplosion(m.x, m.z, 0xff5020); const a = Math.atan2(player.x - m.x, player.z - m.z); m.x = player.x - Math.sin(a) * 22; m.z = player.z - Math.cos(a) * 22; clampEntToZone(m); spawnExplosion(m.x, m.z, 0xff5020); }
+    m.summonCd -= fr; if (m.summonCd <= 0) { m.summonCd = (m.phase === 2 ? 260 : 380) * cm; for (let i = 0; i < (m.phase === 2 ? 4 : 3); i++) { const a = rand(0, 6.28); spawnMonster(choice(['imp', 'hellhound']), null, { x: m.x + Math.cos(a) * 6, z: m.z + Math.sin(a) * 6 }); } m.shield = Math.max(m.shield, 150); spawnExplosion(m.x, m.z, 0xff6a2a); showMsg('The Devil calls its brood!'); }
   } else if (v === 'caster') {
-    m.boltCd--; if (m.boltCd <= 0) { m.boltCd = (m.phase === 2 ? 64 : 104) * cm; bossVolley(m, m.phase === 2 ? 3 : 2, 0.6, true); }
-    m.slamCd--; if (m.slamCd <= 0 && d < 14) { m.slamCd = 520 * cm; spawnExplosion(m.x, m.z, 0xff3020); if (d < 10) damagePlayer(Math.round(m.dmg * 1.3)); }
-    m.tpCd--; if (m.tpCd <= 0 && d < 18) { m.tpCd = 260 * cm; spawnExplosion(m.x, m.z, 0x9f6aff); const a = Math.atan2(player.x - m.x, player.z - m.z); m.x = player.x - Math.sin(a) * 24; m.z = player.z - Math.cos(a) * 24; clampEntToZone(m); spawnExplosion(m.x, m.z, 0x9f6aff); }
+    m.boltCd -= fr; if (m.boltCd <= 0) { m.boltCd = (m.phase === 2 ? 64 : 104) * cm; bossVolley(m, m.phase === 2 ? 3 : 2, 0.6, true); }
+    m.slamCd -= fr; if (m.slamCd <= 0 && d < 14) { m.slamCd = 520 * cm; spawnExplosion(m.x, m.z, 0xff3020); if (d < 10) damagePlayer(Math.round(m.dmg * 1.3)); }
+    m.tpCd -= fr; if (m.tpCd <= 0 && d < 18) { m.tpCd = 260 * cm; spawnExplosion(m.x, m.z, 0x9f6aff); const a = Math.atan2(player.x - m.x, player.z - m.z); m.x = player.x - Math.sin(a) * 24; m.z = player.z - Math.cos(a) * 24; clampEntToZone(m); spawnExplosion(m.x, m.z, 0x9f6aff); }
   } else if (v === 'summoner') {
-    m.summonCd--; if (m.summonCd <= 0) { m.summonCd = (m.phase === 2 ? 300 : 420) * cm; for (let i = 0; i < (m.phase === 2 ? 3 : 2); i++) { const a = rand(0, 6.28); spawnMonster('fallen', null, { x: m.x + Math.cos(a) * 5, z: m.z + Math.sin(a) * 5 }); } m.shield = Math.max(m.shield, 180); spawnExplosion(m.x, m.z, 0x6aff9a); showMsg('Minions summoned!'); }
-    m.boltCd--; if (m.boltCd <= 0) { m.boltCd = (m.phase === 2 ? 80 : 130) * cm; bossVolley(m, m.phase === 2 ? 3 : 2, 0.6, false); }
-    m.slamCd--; if (m.slamCd <= 0 && d < 16) { m.slamCd = 300 * cm; spawnExplosion(m.x, m.z, 0xff3020); if (d < 10) damagePlayer(Math.round(m.dmg * 1.3)); }
+    m.summonCd -= fr; if (m.summonCd <= 0) { m.summonCd = (m.phase === 2 ? 300 : 420) * cm; for (let i = 0; i < (m.phase === 2 ? 3 : 2); i++) { const a = rand(0, 6.28); spawnMonster('fallen', null, { x: m.x + Math.cos(a) * 5, z: m.z + Math.sin(a) * 5 }); } m.shield = Math.max(m.shield, 180); spawnExplosion(m.x, m.z, 0x6aff9a); showMsg('Minions summoned!'); }
+    m.boltCd -= fr; if (m.boltCd <= 0) { m.boltCd = (m.phase === 2 ? 80 : 130) * cm; bossVolley(m, m.phase === 2 ? 3 : 2, 0.6, false); }
+    m.slamCd -= fr; if (m.slamCd <= 0 && d < 16) { m.slamCd = 300 * cm; spawnExplosion(m.x, m.z, 0xff3020); if (d < 10) damagePlayer(Math.round(m.dmg * 1.3)); }
   } else {
-    m.boltCd--; if (m.boltCd <= 0) { m.boltCd = (m.phase === 2 ? 80 : 130) * cm; bossVolley(m, m.phase === 2 ? 3 : 2, 0.6, false); }
-    m.slamCd--; if (m.slamCd <= 0 && d < 16) { m.slamCd = 300 * cm; spawnExplosion(m.x, m.z, 0xff3020); if (d < 10) damagePlayer(Math.round(m.dmg * 1.3)); }
-    if (m.phase === 2) { m.summonCd--; if (m.summonCd <= 0) { m.summonCd = 420 * cm; for (let i = 0; i < 2; i++) { const a = rand(0, 6.28); spawnMonster('fallen', null, { x: m.x + Math.cos(a) * 5, z: m.z + Math.sin(a) * 5 }); } showMsg('Minions summoned!'); } }
+    m.boltCd -= fr; if (m.boltCd <= 0) { m.boltCd = (m.phase === 2 ? 80 : 130) * cm; bossVolley(m, m.phase === 2 ? 3 : 2, 0.6, false); }
+    m.slamCd -= fr; if (m.slamCd <= 0 && d < 16) { m.slamCd = 300 * cm; spawnExplosion(m.x, m.z, 0xff3020); if (d < 10) damagePlayer(Math.round(m.dmg * 1.3)); }
+    if (m.phase === 2) { m.summonCd -= fr; if (m.summonCd <= 0) { m.summonCd = 420 * cm; for (let i = 0; i < 2; i++) { const a = rand(0, 6.28); spawnMonster('fallen', null, { x: m.x + Math.cos(a) * 5, z: m.z + Math.sin(a) * 5 }); } showMsg('Minions summoned!'); } }
   }
 }
 // Dungeon spawns draw from the active biome's weighted pool (random biome → varied roster); wild keeps its classic mix.
@@ -2639,6 +2640,7 @@ function anyModal() { try { return (wpModal && wpModal.style.display === 'block'
 function syncBackdrop() { const b = document.getElementById('backdrop'); if (b) b.style.display = anyModal() ? 'block' : 'none'; }
 function update(dt) {
   const T = now(); /* Phase 1: one frame timestamp reused for all same-frame sine anims + time-gates below (was ~30-60 performance.now() calls/frame) */
+  const fr = dt * 60 / 1000; /* elapsed time in 60ths-of-a-second. Frame-count timers (atkCd/slow/life/…) are decremented by `fr` instead of 1 so their reset constants stay tuned to 60fps while ticking in real time — enemy DPS and projectile range no longer scale with the player's refresh rate. */
   shake *= 0.85;
   if (running && !busyPanel()) {
     if (rmbDown && isCombat() && !player.stunned) { const hid = character.loadout[1], hd = SKILLDEFS[hid]; if (hd && hd.kind !== 'melee' && player.mp >= Math.round(hd.cost * resolveSkill(hid).costMult)) castActive(hid, { x: mouseWorld.x, z: mouseWorld.z }); }
@@ -2662,15 +2664,15 @@ function update(dt) {
   /* each wild is now a single-biome bounded map (no walk-between-biomes) — region is fixed on entry by enterWild */
 
   if (isCombat()) for (const m of monsters) {
-    if (m.hp <= 0) continue; if (m.flash > 0) m.flash--; tickStatuses(m, dt, false); if (m.hp <= 0) continue; if (player.effects.chillaura && Math.hypot(m.x - player.x, m.z - player.z) < 14 && m.slow < 12) m.slow = 12; const sp = m.speed * (m.speedMult || 1) * Math.min(m.slow > 0 ? 0.45 : 1, m.chilled ? 0.5 : 1) * 60 * dt / 1000; if (m.slow > 0) m.slow--; const d = Math.hypot(m.x - player.x, m.z - player.z);
+    if (m.hp <= 0) continue; if (m.flash > 0) m.flash -= fr; tickStatuses(m, dt, false); if (m.hp <= 0) continue; if (player.effects.chillaura && Math.hypot(m.x - player.x, m.z - player.z) < 14 && m.slow < 12) m.slow = 12; const sp = m.speed * (m.speedMult || 1) * Math.min(m.slow > 0 ? 0.45 : 1, m.chilled ? 0.5 : 1) * 60 * dt / 1000; if (m.slow > 0) m.slow -= fr; const d = Math.hypot(m.x - player.x, m.z - player.z);
     if (m.flee) { m.ttl -= dt; if (m.ttl <= 0) { removeMob(m.mesh); monsters = monsters.filter(x => x !== m); if (target === m) target = null; showMsg('The goblin escaped!'); continue; } } // escape: clean vanish (no death anim), drops NOTHING (must not route through killMonster)
     if (!m.stunned) {
-      if (m.elite && m.elite.includes('arcane')) { m.arcaneCd--; if (m.arcaneCd <= 0 && d < 55) { m.arcaneCd = 90; const a = Math.atan2(player.x - m.x, player.z - m.z); const pm = makeOrb(m.x, 2, m.z, 0xc06aff, 0.5); scene.add(pm); projectiles.push({ x: m.x, z: m.z, vx: Math.sin(a) * 0.5, vz: Math.cos(a) * 0.5, dmg: m.dmg, kind: 'enemy', life: 150, mesh: pm, mods: m.elite }); } }
+      if (m.elite && m.elite.includes('arcane')) { m.arcaneCd -= fr; if (m.arcaneCd <= 0 && d < 55) { m.arcaneCd = 90; const a = Math.atan2(player.x - m.x, player.z - m.z); const pm = makeOrb(m.x, 2, m.z, 0xc06aff, 0.5); scene.add(pm); projectiles.push({ x: m.x, z: m.z, vx: Math.sin(a) * 0.5, vz: Math.cos(a) * 0.5, dmg: m.dmg, kind: 'enemy', life: 150, mesh: pm, mods: m.elite }); } }
       if (m.flee) { stepEnt(m, 2 * m.x - player.x, 2 * m.z - player.z, sp); } else if (m.boss) { bossAI(m, dt, d, sp); } else if (m.ranged) {
         if (d > 34) stepEnt(m, player.x, player.z, sp); else if (d < 20) stepEnt(m, m.x - (player.x - m.x), m.z - (player.z - m.z), sp);
-        m.atkCd--; if (d < 42 && m.atkCd <= 0) { m.atkCd = 110; const a = Math.atan2(player.x - m.x, player.z - m.z); const mesh = makeOrb(m.x, 2, m.z, 0xb06aff, 0.45); scene.add(mesh); projectiles.push({ x: m.x, z: m.z, vx: Math.sin(a) * 0.55, vz: Math.cos(a) * 0.55, dmg: m.dmg, kind: 'enemy', life: 150, mesh }); }
+        m.atkCd -= fr; if (d < 42 && m.atkCd <= 0) { m.atkCd = 110; const a = Math.atan2(player.x - m.x, player.z - m.z); const mesh = makeOrb(m.x, 2, m.z, 0xb06aff, 0.45); scene.add(mesh); projectiles.push({ x: m.x, z: m.z, vx: Math.sin(a) * 0.55, vz: Math.cos(a) * 0.55, dmg: m.dmg, kind: 'enemy', life: 150, mesh }); }
       }
-      else { if (d > m.r + player.r - 0.4) stepEnt(m, player.x, player.z, sp); else { m.atkCd--; if (m.atkCd <= 0) { m.atkCd = 60; damagePlayer(m.dmg, m.elite); if (player.effects.thorns > 0) { m.hp -= player.effects.thorns; m.flash = 8; if (m.hp <= 0) killMonster(m); } } } }
+      else { if (d > m.r + player.r - 0.4) stepEnt(m, player.x, player.z, sp); else { m.atkCd -= fr; if (m.atkCd <= 0) { m.atkCd = 60; damagePlayer(m.dmg, m.elite); if (player.effects.thorns > 0) { m.hp -= player.effects.thorns; m.flash = 8; if (m.hp <= 0) killMonster(m); } } } }
     }
     resolveCircles(m, m.r, activeColliders(), 1); { const dx = m.x - player.x, dz = m.z - player.z; let d = Math.hypot(dx, dz); const min = m.r + player.r; if (d < min && d > 0.0001) { m.x += dx / d * (min - d); m.z += dz / d * (min - d); } } clampEntToZone(m);
     m.mesh.position.set(m.x, m.mesh.userData.glb ? 0 : Math.abs(Math.sin(T * 0.004 + m.bob)) * 0.3, m.z); m.mesh.lookAt(player.x, m.mesh.position.y, player.z); if (m.mesh.userData.body) m.mesh.userData.body.material.emissive.setHex(m.flash > 0 ? 0x884400 : 0x000000); if (m.mesh.userData.mixer) m.mesh.userData.mixer.update(dt * 0.001); if (m.mesh.userData.aura) { m.mesh.userData.aura.rotation.z += 0.05; const s2 = 1 + Math.sin(T * 0.006) * 0.12; m.mesh.userData.aura.scale.set(s2, s2, s2); }
@@ -2678,14 +2680,14 @@ function update(dt) {
 
   for (const p of projectiles) {
     if (p.homing && monsters.length) { let hb = null, hd = 1e9; for (const m of monsters) { const d = Math.hypot(m.x - p.x, m.z - p.z); if (d < hd) { hd = d; hb = m; } } if (hb) { const sp = Math.hypot(p.vx, p.vz) || 0.8, ca = Math.atan2(p.vx, p.vz), rel = Math.atan2(hb.x - p.x, hb.z - p.z) - ca, da = Math.atan2(Math.sin(rel), Math.cos(rel)), na = ca + clamp(da, -0.09, 0.09); p.vx = Math.sin(na) * sp; p.vz = Math.cos(na) * sp; } }
-    p.x += p.vx * 60 * dt / 1000; p.z += p.vz * 60 * dt / 1000; p.life--; p.mesh.position.set(p.x, 2, p.z);
+    p.x += p.vx * 60 * dt / 1000; p.z += p.vz * 60 * dt / 1000; p.life -= fr; p.mesh.position.set(p.x, 2, p.z);
     if (p.kind === 'enemy') { if (Math.hypot(p.x - player.x, p.z - player.z) < player.r + 0.6) { damagePlayer(p.dmg, p.mods); if (p.chill) applyStatus(player, 'chill', 1400, 0); p.life = 0; } }
     else { for (const m of monsters) { if (Math.hypot(p.x - m.x, p.z - m.z) < m.r + 0.6) { if (p.hit && p.hit.has(m)) continue; hitMonsterProj(m, p.dmg, p.kind); if (m.hp > 0) { if (p.kind === 'frost') m.slow = p.slow; if (p.onHit) applyOnHit(m, p.onHit, p.dmg); if (p.freeze) applyStatus(m, 'chill', 1500, 0); if (p.knockback) { const a = Math.atan2(m.x - p.x, m.z - p.z); m.x += Math.sin(a) * 2.2; m.z += Math.cos(a) * 2.2; } } if (p.vampiric) player.hp = Math.min(player.hpMax, player.hp + p.dmg * 0.12); projBurst(p); if (p.hit) p.hit.add(m); if (p.pierce && p.pierce > 0) { p.pierce--; } else { p.life = 0; break; } } } }
     if (Math.abs(p.x) > MAP || Math.abs(p.z) > MAP) p.life = 0;
   }
   _compact(projectiles, _deadLife0, _killMesh);
   for (const e of fx) {
-    e.life--;
+    e.life -= fr;
     if (e.life0) { const t = Math.max(0, e.life / e.life0); if (e.vx != null) { const k = dt * 0.001; e.mesh.position.x += e.vx * k; e.mesh.position.y += e.vy * k; e.mesh.position.z += e.vz * k; e.vy -= e.grav * k; if (e.spin) { e.mesh.rotation.x += e.spin; e.mesh.rotation.z += e.spin * 0.8; } } e.mesh.scale.setScalar(e.scale0 * t); }
     else if (e.mesh.material) { e.mesh.material.opacity = e.life / 14; }
   }
@@ -2703,7 +2705,7 @@ function update(dt) {
   }
   _compact(loots, _deadFlag, _killMesh);
 
-  for (const f of floats) { f.y += dt * 0.002; f.life--; } _compact(floats, _deadLife0, null);
+  for (const f of floats) { f.y += dt * 0.002; f.life -= fr; } _compact(floats, _deadLife0, null);
 
   hero.position.set(player.x, Math.abs(Math.sin(player.bob)) * 0.15, player.z); hero.rotation.y = player.dir;
   const sw = clamp((T - player.swing) / 150, 0, 1); if (hero.userData.sword) hero.userData.sword.rotation.z = sw < 1 ? (-1.4 + sw * 2.4) : -0.2;
