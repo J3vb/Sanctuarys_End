@@ -7,8 +7,9 @@ just three files:
 - `jsconfig.json` — turns on `checkJs` over `game.js` with loose settings (no `strict`, no
   `noImplicitAny`, no `strictNullChecks`) so it catches *real* mistakes (typos, wrong shapes, bad calls)
   without drowning you in `null`/`any` noise on day one.
-- `types/globals.d.ts` — declares the ambient globals `game.js` relies on: `THREE`, `TSL`, the optional
-  co-op `NET`, and a few `window.*` debug hooks. `THREE`/`TSL` are typed `any` (see below to upgrade).
+- `types/globals.d.ts` — declares the ambient globals `game.js` relies on: `THREE`, `TSL`, and a few
+  `window.*` debug hooks (the co-op `NET` global is intentionally **not** declared here — `game.js`
+  declares it itself, and re-declaring it would collide). `THREE`/`TSL` are typed `any` (see below to upgrade).
 - `types/game.d.ts` — interfaces for the core data shapes (`Item`, `Character`, `SaveData`, `Affixes`,
   `SkillDef`, …) that mirror the literals in `game.js`.
 

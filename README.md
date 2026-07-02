@@ -2,7 +2,7 @@
 
 A fun, vibe-coded, browser-based action-RPG with serious Diablo vibes.
 
-Sanctuary's End is a hack-and-slash ARPG packed into a single HTML file and rendered in 3D with Three.js. Roll a hero, dive an endless procedural dungeon, hunt loot, build out your skills, and clear bosses — all in your browser, no install required.
+Sanctuary's End is a hack-and-slash ARPG built from a small set of plain static files — an HTML shell, the game script, and lazy-loaded 3D assets — rendered in 3D with Three.js. No build step, no install: roll a hero, dive an endless procedural dungeon, hunt loot, build out your skills, and clear bosses, all in your browser.
 
 ![Sanctuary's End](image.png)
 

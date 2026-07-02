@@ -95,6 +95,12 @@ interface Effects {
 }
 
 // --- items -------------------------------------------------------------------------------------------
+/** A gem: `t` is the gem type key (into GEMS), `q` is the quality tier index (0..4). */
+interface Gem {
+  t: string;
+  q: number;
+}
+
 interface Item {
   id: number;
   slot: Slot;
@@ -119,6 +125,8 @@ interface Item {
   set?: string;
   /** Enchant added at the enchanter. */
   enchant?: { key: string; val: number };
+  /** Socket slots (rolled by rollSockets); each holds a Gem or null when empty. */
+  sockets?: (Gem | null)[];
 }
 
 /** Equipped items by slot (null when empty). */
@@ -198,6 +206,10 @@ interface Character {
   stats: Stats;
   statPoints: number;
   skillPoints: number;
+  /** Crafting Dust (salvage currency). */
+  materials: number;
+  /** Gem pouch: "type:quality" key -> count. */
+  gems: Record<string, number>;
   inventory: Item[];
   stash: Item[];
   equipment: Equipment;
@@ -205,6 +217,12 @@ interface Character {
   skills: Record<string, number>;
   /** Allocated passive-tree node ids. */
   passives: string[];
+  /** Action-bar assignment: 6 slots (slot 0 is always the basic attack), null when empty. */
+  loadout: (string | null)[];
+  /** Skill id -> (rune node id -> allocated ranks). */
+  skillRunes: Record<string, Record<string, number>>;
+  /** Unspent rune/ability points (+1 per level from L2). */
+  abilityPoints: number;
 }
 
 /** Global game settings (SAVE._data.settings). */

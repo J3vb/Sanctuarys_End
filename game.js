@@ -275,13 +275,6 @@ const CLASSES = {
   mage: { name: 'Mage', col: 0x2a3aaa, base: { str: 8, dex: 10, vit: 10, eng: 20 }, grow: { hp: 14, mp: 12, dmg: 2 }, spellMult: 1.3, granted: ['fireball', 'frost'], blurb: 'Glass cannon — spells hit hard, low life.' },
   rogue: { name: 'Rogue', col: 0x2a7a3a, base: { str: 12, dex: 20, vit: 11, eng: 9 }, grow: { hp: 18, mp: 7, dmg: 3 }, critBonus: 0.08, granted: ['multishot'], blurb: 'Swift — crit & speed, throws daggers.' },
 };
-function classBaseRank(id) { const c = CLASSES[(character && character.class) || 'warrior'] || CLASSES.warrior; return (id === 'strike' || c.granted.includes(id)) ? 1 : 0; }
-const TREE_TIERS = [{ req: 1, nodes: ['fireball', 'frost'] }, { req: 2, nodes: ['toughness'] }, { req: 4, nodes: ['precision'] }, { req: 5, nodes: ['nova'] }, { req: 6, nodes: ['meditation'] }, { req: 8, nodes: ['chain'] }];
-const CLASS_TREES = {
-  warrior: [{ req: 1, nodes: ['cleave'] }, { req: 3, nodes: ['toughness', 'berserk'] }, { req: 5, nodes: ['whirlwind', 'ironskin'] }, { req: 7, nodes: ['leap'] }, { req: 9, nodes: ['bloodlust', 'precision'] }],
-  mage: [{ req: 1, nodes: ['fireball', 'frost'] }, { req: 3, nodes: ['arcanemind', 'frostnova'] }, { req: 4, nodes: ['precision'] }, { req: 5, nodes: ['nova', 'blink'] }, { req: 6, nodes: ['meditation'] }, { req: 8, nodes: ['chain'] }, { req: 10, nodes: ['meteor'] }],
-  rogue: [{ req: 1, nodes: ['multishot'] }, { req: 3, nodes: ['swiftness', 'precision'] }, { req: 5, nodes: ['volley', 'piercing'] }, { req: 7, nodes: ['blink'] }, { req: 9, nodes: ['deadlyaim', 'toughness'] }],
-};
 // active skills unlock automatically by level per class; the forest below holds passive power
 const CLASS_ACTIVES = {
   warrior: { strike: 1, cleave: 1, groundslam: 3, charge: 5, whirlwind: 6, warcry: 9, leap: 10, secondwind: 12 },
@@ -2450,11 +2443,9 @@ const AREAS = [
 ];
 let curArea = AREAS.find(a => a.id === 'wilds'), curTownArea = AREAS[0];
 let curRegion = REGIONS[0];
-const _fogFrom = new THREE.Color(), _fogTo = new THREE.Color(); let _fogT = 1;
 buildTown(curTownArea); // build the default town once so the title screen has scenery before any enterTown()
 function themeTown(a) { if (a && a.townTheme) { groundMat.color.setHex(groundTexOn() ? 0xffffff : a.townTheme.ground); scene.background.setHex(a.townTheme.fog); scene.fog.color.setHex(a.townTheme.fog); } }
 function themeWild() { const r = curRegion || REGIONS[0]; if (scene.background.isColor) scene.background.setHex(r.fog); scene.fog.color.setHex(r.fog); setAmbient('ember', r.amb); for (const f of wildFires) { f.light.color.setHex(r.fire); f.flame.material.color.setHex(r.fire); } loadRegionEnv(r); loadRegionGround(r); }
-function onRegionChange(r) { _fogFrom.copy(scene.fog.color); _fogTo.setHex(r.fog); _fogT = 0; setAmbient('ember', r.amb); for (const f of wildFires) { f.light.color.setHex(r.fire); f.flame.material.color.setHex(r.fire); } setScale(); zoneTxt.textContent = r.name + ' · Lv ' + r.lvl; showMsg(r.name); loadRegionEnv(r); loadRegionGround(r); }
 function setScale() {
   const dm = DIFF[difficulty] || DIFF.Normal; if (zone === 'dungeon') {
     const D = DSCALE;
@@ -2538,7 +2529,7 @@ function enterWild(regionId, spawn) {
   curArea = AREAS.find(a => a.id === 'wilds'); const r = (regionId && wildById(regionId)) || curRegion || REGIONS[0];
   curRegion = r; zone = 'wild'; depth = 0; clearField(); buildWild(r);
   player.x = (spawn && spawn.x != null) ? spawn.x : WILD_SPAWN.x; player.z = (spawn && spawn.z != null) ? spawn.z : WILD_SPAWN.z;
-  setZoneVisuals(); themeWild(); setScale(); _fogT = 1; waveTimer = 0;
+  setZoneVisuals(); themeWild(); setScale(); waveTimer = 0;
   if (r.town) markDiscovered(r.town);   // reaching a biome reveals its adjoining town on the map
   zoneTxt.textContent = r.name + ' · Lv ' + r.lvl; townBtn.style.display = 'inline-block'; placeCamera(player); showMsg(r.name); saveProgress(false);
   warmScene(r.name + ' · Lv ' + r.lvl);
