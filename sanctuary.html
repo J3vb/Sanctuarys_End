@@ -631,8 +631,38 @@
   // in linear, and renderer.outputColorSpace=SRGBColorSpace (game.js) re-encodes on output. Retires Path A.
   window.THREE.ColorManagement.enabled = true;
 </script>
-<!-- game.js stays a CLASSIC defer script: it relies on top-level globals + inline on*= handlers. -->
-<!-- defer + module scripts share the deferred queue and run in document order: shim first, then game.js with THREE present. -->
-<script defer src="game.js"></script>
+<!-- The game is a set of CLASSIC defer scripts that share one global scope (top-level consts/lets/functions
+     are cross-file globals; there are no inline on*= handlers — all onclick are DOM property assignments).
+     ORDER IS LOAD-BEARING: the numeric filename prefix is the execution order, which equals the original
+     game.js line order; tests/load-order.test.js pins this list to the js/ directory so it can't drift.
+     defer + module scripts share the deferred queue and run in document order: the shim above runs first,
+     then these with window.THREE / window.TSL already present. No build step — GitHub Pages serves them as-is. -->
+<script defer src="js/00-core.js"></script>
+<script defer src="js/01-items.js"></script>
+<script defer src="js/02-skills.js"></script>
+<script defer src="js/03-save.js"></script>
+<script defer src="js/04-render.js"></script>
+<script defer src="js/05-worldmap.js"></script>
+<script defer src="js/06-textures.js"></script>
+<script defer src="js/07-wild.js"></script>
+<script defer src="js/08-town.js"></script>
+<script defer src="js/09-dungeon.js"></script>
+<script defer src="js/10-assets.js"></script>
+<script defer src="js/11-player.js"></script>
+<script defer src="js/12-monsters.js"></script>
+<script defer src="js/13-input.js"></script>
+<script defer src="js/14-runes.js"></script>
+<script defer src="js/15-combat.js"></script>
+<script defer src="js/16-zones.js"></script>
+<script defer src="js/17-update.js"></script>
+<script defer src="js/18-hud.js"></script>
+<script defer src="js/19-panels.js"></script>
+<script defer src="js/20-abilities.js"></script>
+<script defer src="js/21-mainloop.js"></script>
+<script defer src="js/22-screens.js"></script>
+<script defer src="js/23-settings.js"></script>
+<script defer src="js/24-net.js"></script>
+<script defer src="js/25-waypoints.js"></script>
+<script defer src="js/26-boot.js"></script>
 </body>
 </html>

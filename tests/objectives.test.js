@@ -1,9 +1,8 @@
 // Floor-bounty logic tests for Sanctuary's End.
 //
 // rollFloorObjective() / bountyProgress() are the pure state machine behind the soft "floor bounty"
-// gate (slay N foes OR slay the floor Champion -> bonus loot). They live in the browser-free prefix of
-// game.js (no THREE/DOM), so we load just that prefix in a vm sandbox — same trick as save.test.js — and
-// exercise the real functions (no duplication, no drift).
+// gate (slay N foes OR slay the floor Champion -> bonus loot). They live in the browser-free logic files
+// (js/00..03), loaded in a vm sandbox via the shared harness, and we exercise the real functions.
 //
 // Not tested here: the goblin "escape drops nothing" rule. That is a structural guarantee — the despawn
 // path in the monster loop removes the mesh directly and deliberately never calls killMonster() — not a
@@ -11,30 +10,17 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const vm = require('node:vm');
+const { CORE_FILES, makeSandbox, loadFiles, runSnippet } = require('./harness');
 
 function loadObjectives() {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'game.js'), 'utf8');
-  const marker = '/* ================= THREE';
-  const cut = src.indexOf(marker);
-  assert.ok(cut > 0, 'Could not find the THREE rendering-section marker in game.js — update this boundary.');
+  const sandbox = makeSandbox();
+  loadFiles(sandbox, CORE_FILES);
   // Expose a Math.random seam from INSIDE the sandbox realm — the test realm's Math is a different object,
   // so overriding it here would not affect the sandbox's rollFloorObjective().
-  const slice = `${src.slice(0, cut)}\n;globalThis.__obj = { rollFloorObjective, bountyProgress, _orig: Math.random, setRandom(f){ Math.random = f; }, resetRandom(){ Math.random = this._orig; } };`;
-  const store = new Map();
-  const sandbox = {
-    console,
-    localStorage: {
-      getItem: (k) => (store.has(k) ? store.get(k) : null),
-      setItem: (k, v) => store.set(k, String(v)),
-      removeItem: (k) => store.delete(k),
-    },
-  };
-  vm.createContext(sandbox);
-  vm.runInContext(slice, sandbox, { filename: 'game.js(obj-slice)' });
-  return sandbox.__obj;
+  return runSnippet(
+    sandbox,
+    ';(globalThis.__obj = { rollFloorObjective, bountyProgress, _orig: Math.random, setRandom(f){ Math.random = f; }, resetRandom(){ Math.random = this._orig; } });',
+  );
 }
 
 const obj = loadObjectives();

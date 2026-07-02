@@ -4,43 +4,20 @@
 // and SAVE.newCharacter() producing a valid hero. A bug here is the worst kind — silently corrupted
 // or lost characters — so it's worth a fast, dependency-free regression net.
 //
-// We test the REAL logic out of game.js (no duplication, no drift): game.js is a single classic
-// script, so we evaluate just its game-logic prefix — everything BEFORE the `THREE` rendering section,
-// which needs a browser + WebGPU — inside a tiny sandbox with a localStorage stub. Run with `npm test`
-// (or `node --test tests/`).
+// We test the REAL logic (no duplication, no drift): the browser-free logic files (js/00..03) are evaluated
+// in a tiny vm sandbox with a localStorage stub via the shared harness. Run with `npm test`.
 //
 // Note: objects returned by SAVE.* are built inside the vm sandbox (a separate realm), so we assert on
 // scalars / lengths / JSON shape rather than deepStrictEqual, which rejects cross-realm prototypes.
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const vm = require('node:vm');
+const { CORE_FILES, makeSandbox, loadFiles, runSnippet } = require('./harness');
 
-// Load SAVE (+ a few data tables) from game.js by evaluating everything up to the rendering section.
 function loadGameSave() {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'game.js'), 'utf8');
-  const marker = '/* ================= THREE';
-  const cut = src.indexOf(marker);
-  assert.ok(
-    cut > 0,
-    'Could not find the THREE rendering-section marker in game.js. If the file was ' +
-      'restructured, update this boundary so the test still loads only the browser-free save logic.',
-  );
-  const slice = `${src.slice(0, cut)}\n;globalThis.__save = { SAVE, CLASSES, SKILLDEFS, SLOTS, PTREE };`;
-
-  const store = new Map();
-  const sandbox = {
-    console,
-    localStorage: {
-      getItem: (k) => (store.has(k) ? store.get(k) : null),
-      setItem: (k, v) => store.set(k, String(v)),
-      removeItem: (k) => store.delete(k),
-    },
-  };
-  vm.createContext(sandbox);
-  vm.runInContext(slice, sandbox, { filename: 'game.js(save-slice)' });
+  const sandbox = makeSandbox();
+  loadFiles(sandbox, CORE_FILES);
+  runSnippet(sandbox, ';globalThis.__save = { SAVE, CLASSES, SKILLDEFS, SLOTS, PTREE };');
   // Expose the localStorage stub so tests can exercise SAVE.load()/persist() — the real production path
   // that parses stored JSON, migrates every slot, and backfills settings (the receiving end of import).
   return { ...sandbox.__save, localStorage: sandbox.localStorage };

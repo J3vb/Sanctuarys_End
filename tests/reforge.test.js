@@ -2,24 +2,20 @@
 //
 // Reforge rerolls an item's rolled affixes (with a small chance to bump rarity). A bug here silently
 // mangles players' gear — wrong affix counts, an out-of-table affix, or promoting a unique into garbage —
-// so it earns a fast regression net. Same trick as save.test.js: evaluate only game.js's browser-free
-// prefix (everything before the THREE rendering section) in a vm sandbox, then assert on the REAL logic.
+// so it earns a fast regression net. The crafting helpers live in the browser-free logic files (js/00..03),
+// evaluated in a vm sandbox via the shared harness, then asserted on the REAL logic.
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const vm = require('node:vm');
+const { CORE_FILES, makeSandbox, loadFiles, runSnippet } = require('./harness');
 
 function loadCraft() {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'game.js'), 'utf8');
-  const cut = src.indexOf('/* ================= THREE');
-  assert.ok(cut > 0, 'Could not find the THREE rendering-section marker in game.js.');
-  const slice = `${src.slice(0, cut)}\n;globalThis.__craft = { reforgeItem, reforgeable, dustValue, RARITY_AFFIX, AFFIX_KEYS, RARITY_LADDER };`;
-  const sandbox = { console };
-  vm.createContext(sandbox);
-  vm.runInContext(slice, sandbox, { filename: 'game.js(craft-slice)' });
-  return sandbox.__craft;
+  const sandbox = makeSandbox();
+  loadFiles(sandbox, CORE_FILES);
+  return runSnippet(
+    sandbox,
+    ';(globalThis.__craft = { reforgeItem, reforgeable, dustValue, RARITY_AFFIX, AFFIX_KEYS, RARITY_LADDER });',
+  );
 }
 
 const { reforgeItem, reforgeable, dustValue, RARITY_AFFIX, AFFIX_KEYS } = loadCraft();
