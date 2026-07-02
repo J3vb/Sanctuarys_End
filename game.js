@@ -358,8 +358,11 @@ const SAVE = {
   load() {
     try { this._data = JSON.parse(localStorage.getItem(this.KEY)); } catch (e) { this._data = null; }
     if (!this._data) this._data = { version: this.VERSION, slots: Array(this.NUM_SLOTS).fill(null) };
-    this._data.version = this.VERSION; if (!this._data.slots) this._data.slots = Array(this.NUM_SLOTS).fill(null);
-    this._data.slots = this._data.slots.map(s => s ? this.migrate(s) : null); this._data.settings = Object.assign({ difficulty: 'Normal', muted: false, volume: 60, music: true, sfx: true, shake: true, dmgnum: true, resScale: 100, shadows: true, postfx: true, bloom: 0.9, exposure: 1.0, reflections: true, ssao: true, colorgrade: true, vfx: true, particles: true, lootFilter: { rarity: { common: true, magic: true, rare: true, set: true, unique: true }, slot: { weapon: true, helm: true, armor: true, gloves: true, boots: true, ring: true, amulet: true }, minIlvl: 0 }, keybinds: {} }, this._data.settings || {}); this.persist(); return this._data;
+    this._data.version = this.VERSION; if (!Array.isArray(this._data.slots)) this._data.slots = Array(this.NUM_SLOTS).fill(null);
+    // Guard every slot: a corrupt/hand-edited/imported slot that isn't a valid character object must not
+    // throw out of migrate() — this runs at top level, so an unhandled throw here bricks the whole game
+    // on every boot (blank page until localStorage is cleared by hand). Bad slots degrade to empty.
+    this._data.slots = this._data.slots.map(s => { if (!s || typeof s !== 'object' || Array.isArray(s)) return null; try { return this.migrate(s); } catch (e) { return null; } }); this._data.settings = Object.assign({ difficulty: 'Normal', muted: false, volume: 60, music: true, sfx: true, shake: true, dmgnum: true, resScale: 100, shadows: true, postfx: true, bloom: 0.9, exposure: 1.0, reflections: true, ssao: true, colorgrade: true, vfx: true, particles: true, lootFilter: { rarity: { common: true, magic: true, rare: true, set: true, unique: true }, slot: { weapon: true, helm: true, armor: true, gloves: true, boots: true, ring: true, amulet: true }, minIlvl: 0 }, keybinds: {} }, this._data.settings || {}); this.persist(); return this._data;
   },
   migrate(ch) {
     ch.base = ch.base || { hpMax: ch.hpMax || 100, mpMax: ch.mpMax || 50, dmg: (ch.dmg || 10) };
@@ -3140,7 +3143,7 @@ function charSheetHTML() {
   util += row('Magic Find', '+' + pct((lootLuck || 0) * 100));
   util += row('Gold Find', '+' + pct((player.goldFind || 0) * 100));
   util += row('STR', player.str) + row('DEX', player.dex) + row('VIT', player.vit) + row('ENG', player.eng);
-  return `<div class="statname"><b>${character.name}</b> · Level ${player.level}</div>` + sec('Offense', off) + sec('Defense', def) + sec('Resistances', res) + sec('Utility', util);
+  return `<div class="statname"><b>${escapeHtml(character.name)}</b> · Level ${player.level}</div>` + sec('Offense', off) + sec('Defense', def) + sec('Resistances', res) + sec('Utility', util);
 }
 let invTab = 'items';
 function setInvTab(t) {
@@ -3485,7 +3488,7 @@ function renderSlots() {
   const wrap = document.getElementById('slots'); wrap.innerHTML = '';
   for (let i = 0; i < SAVE.NUM_SLOTS; i++) {
     const ch = SAVE.getSlot(i); const div = document.createElement('div'); div.className = 'slot';
-    if (ch) { div.innerHTML = `<div class="info"><div class="cname">${ch.name}</div><div class="cmeta">${(CLASSES[ch.class] || CLASSES.warrior).name} • Level ${ch.level} • depth ${ch.maxDepth || 0}</div></div><div class="del" data-del="${i}">Delete</div>`; div.onclick = e => { if (e.target.dataset.del !== undefined) return; currentSlot = i; character = ch; enterGame(); }; }
+    if (ch) { div.innerHTML = `<div class="info"><div class="cname">${escapeHtml(ch.name)}</div><div class="cmeta">${(CLASSES[ch.class] || CLASSES.warrior).name} • Level ${ch.level} • depth ${ch.maxDepth || 0}</div></div><div class="del" data-del="${i}">Delete</div>`; div.onclick = e => { if (e.target.dataset.del !== undefined) return; currentSlot = i; character = ch; enterGame(); }; }
     else { div.innerHTML = `<div class="info"><div class="empty">Empty Slot ${i + 1}</div></div><div class="cname">+ New</div>`; div.onclick = () => { pendingSlot = i; selectedClass = 'warrior'; renderClassPick(); show('createScreen'); document.getElementById('nameInput').value = ''; document.getElementById('nameInput').focus(); }; }
     wrap.appendChild(div);
   }
@@ -3581,10 +3584,35 @@ function renderSavesIO() { const ta = document.getElementById('saveExportText');
 function downloadSave() { try { const blob = new Blob([JSON.stringify(SAVE._data, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-'); a.href = url; a.download = 'sanctuarys_end_save_' + ts + '.json'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000); _saveIoMsg('Save file downloaded.', true); } catch (e) { _saveIoMsg('Download failed: ' + e.message, false); } }
 function _fallbackCopy(text, done) { const ta = document.getElementById('saveExportText'); if (ta) { ta.value = text; ta.focus(); ta.select(); try { if (document.execCommand('copy')) { done(); return; } } catch (_) { } } _saveIoMsg('Select the export text and press Ctrl+C to copy.'); }
 function copySave() { const data = JSON.stringify(SAVE._data); const done = () => _saveIoMsg('Copied to clipboard.', true); if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(data).then(done).catch(() => _fallbackCopy(data, done)); } else _fallbackCopy(data, done); }
+/* Sanitize an imported save in place. Imported JSON is fully attacker-controlled, so before it is persisted
+   we (a) drop any slot that isn't a plain character object — a non-object slot makes SAVE.load()'s migrate()
+   throw at boot and brick the game — and (b) neutralize the only values that ever reach innerHTML from item
+   data: name/base/effectDesc are HTML-escaped, slot/rarity are whitelisted to known keys, and the gem pouch
+   is rebuilt from well-formed keys only (data-gem attribute injection). In-game item construction always uses
+   safe constant tables, so import is the sole XSS vector for item strings. */
+const _RARITY_OK = { common: 1, magic: 1, rare: 1, set: 1, unique: 1 };
+function _sanitizeImportedItem(it) {
+  if (!it || typeof it !== 'object' || Array.isArray(it)) return null;
+  if (typeof it.name === 'string') it.name = escapeHtml(it.name);
+  if (typeof it.base === 'string') it.base = escapeHtml(it.base);
+  if (typeof it.effectDesc === 'string') it.effectDesc = escapeHtml(it.effectDesc);
+  if (!SLOTS.includes(it.slot)) it.slot = 'weapon';
+  if (!_RARITY_OK[it.rarity]) it.rarity = 'common';
+  return it;
+}
+function _sanitizeImportedSlot(ch) {
+  if (!ch || typeof ch !== 'object' || Array.isArray(ch)) return null;
+  if (Array.isArray(ch.inventory)) ch.inventory = ch.inventory.map(_sanitizeImportedItem).filter(Boolean);
+  if (Array.isArray(ch.stash)) ch.stash = ch.stash.map(_sanitizeImportedItem).filter(Boolean);
+  if (ch.equipment && typeof ch.equipment === 'object') { for (const s in ch.equipment) ch.equipment[s] = ch.equipment[s] ? _sanitizeImportedItem(ch.equipment[s]) : null; }
+  if (ch.gems && typeof ch.gems === 'object') { const g = {}; for (const k in ch.gems) { const p = String(k).split(':'), t = p[0], q = +p[1], n = +ch.gems[k]; if (GEMS[t] && q >= 0 && q <= 4 && Number.isFinite(n) && n > 0) g[t + ':' + q] = Math.floor(n); } ch.gems = g; }
+  return ch;
+}
 function importSave() {
   const ta = document.getElementById('saveImportText'); const raw = ((ta && ta.value) || '').trim(); if (!raw) { _saveIoMsg('Paste save text or load a file first.', false); return; }
   let data; try { data = JSON.parse(raw); } catch (e) { _saveIoMsg('Invalid JSON: ' + e.message, false); return; }
   if (!data || typeof data !== 'object' || !Array.isArray(data.slots)) { _saveIoMsg('Not a valid Sanctuary save (missing "slots").', false); return; }
+  data.slots = data.slots.map(_sanitizeImportedSlot);
   if (!confirm('Import will REPLACE all local characters and settings, then reload the game. Continue?')) return;
   try { localStorage.setItem(SAVE.KEY, JSON.stringify(data)); } catch (e) { _saveIoMsg('Could not write save: ' + e.message, false); return; }
   _saveIoMsg('Imported — reloading…', true); setTimeout(() => location.reload(), 450);
@@ -3633,6 +3661,10 @@ const NET = {
   ws: null, id: 0, connected: false, name: '', remotes: new Map(), sendT: 0,
   connect(host, port, name) {
     this.name = (name || 'Hero').slice(0, 14); if (!host) { this.status('Enter a host address'); return; }
+    // Tear down any prior socket first, or a repeat Connect orphans it — its handlers keep firing and its
+    // remote ghosts leak. Null the handlers before close() so the old socket's onclose can't clobber new state.
+    if (this.ws) { try { this.ws.onopen = this.ws.onmessage = this.ws.onclose = this.ws.onerror = null; this.ws.close(); } catch (_) { } }
+    this.clearRemotes(); this.connected = false;
     try { this.ws = new WebSocket('ws://' + host + ':' + (port || 8787)); } catch (e) { this.status('Invalid address'); return; }
     this.status('Connecting…');
     this.ws.onopen = () => { this.connected = true; this.status('Connected — adventuring together'); this.refreshUI(); };
@@ -3645,8 +3677,10 @@ const NET = {
   onMsg(m) { if (m.t === 'welcome') { this.id = m.id; } else if (m.t === 'state') { this.upsert(m); } else if (m.t === 'leave') { this.removeRemote(m.id); } else if (m.t === 'chat') { this.chat(m.name, m.msg); } },
   upsert(m) {
     let r = this.remotes.get(m.id); if (!r) { const mesh = buildHero(); mesh.scale.set(0.96, 0.96, 0.96); mesh.visible = false; scene.add(mesh); r = { mesh }; this.remotes.set(m.id, r); }
-    r.x = m.x; r.z = m.z; r.dir = m.dir; r.zone = m.zone; r.depth = m.depth; r.name = m.name; r.cls = m.cls; r.level = m.level; r.hp = m.hp; r.hpMax = m.hpMax;
-    if (r.mesh.userData.cloak && CLASSES[m.cls]) r.mesh.userData.cloak.material.color.setHex(CLASSES[m.cls].col);
+    // Coerce every relayed field — the relay forwards peer payloads verbatim, so a NaN/string x/z/dir would
+    // poison the scene-graph transform (and the projected nameplate), and an unknown class must not recolor.
+    r.x = +m.x || 0; r.z = +m.z || 0; r.dir = +m.dir || 0; r.zone = m.zone; r.depth = +m.depth || 0; r.name = String(m.name || 'Player').slice(0, 24); r.cls = m.cls; r.level = +m.level || 1; r.hp = +m.hp || 0; r.hpMax = +m.hpMax || 1;
+    if (r.mesh.userData.cloak && Object.prototype.hasOwnProperty.call(CLASSES, m.cls)) r.mesh.userData.cloak.material.color.setHex(CLASSES[m.cls].col);
   },
   removeRemote(id) { const r = this.remotes.get(id); if (r) { removeMesh(r.mesh); this.remotes.delete(id); } },
   clearRemotes() { for (const [, r] of this.remotes) removeMesh(r.mesh); this.remotes.clear(); },
@@ -3656,7 +3690,7 @@ const NET = {
   },
   status(s) { const el = document.getElementById('mpStatus'); if (el) el.textContent = s; },
   refreshUI() { const c = this.connected; document.getElementById('mpConnect').style.display = c ? 'none' : 'block'; document.getElementById('mpDisconnect').style.display = c ? 'block' : 'none'; document.getElementById('mpChatWrap').style.display = c ? 'block' : 'none'; },
-  chat(name, msg) { const log = document.getElementById('mpChatLog'); if (log) { const d = document.createElement('div'); d.innerHTML = '<b style="color:#9fd8ff">' + escapeHtml(name) + ':</b> ' + escapeHtml(msg); log.appendChild(d); log.scrollTop = log.scrollHeight; } if (running) showMsg(name + ': ' + msg); }
+  chat(name, msg) { const log = document.getElementById('mpChatLog'); if (log) { const d = document.createElement('div'); d.innerHTML = '<b style="color:#9fd8ff">' + escapeHtml(name) + ':</b> ' + escapeHtml(msg); log.appendChild(d); while (log.childNodes.length > 200) log.removeChild(log.firstChild); log.scrollTop = log.scrollHeight; } if (running) showMsg(name + ': ' + msg); }
 };
 function escapeHtml(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 const mpModal = document.getElementById('mpModal');
