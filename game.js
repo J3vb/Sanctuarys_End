@@ -2189,7 +2189,10 @@ function buildSkillTree(id) {
   if (kc === 'multiproj' || kc === 'chain') { N(id + '_proj', 0, 8, 'minor', 2, 2, base, { addProj: 1 }, [], kc === 'chain' ? 'Arc Splitter' : 'Extra Bolt'); L(root, id + '_proj'); }
   const shapes = _runeShape(kc); const sx = [-80, 0, 80];
   shapes.forEach((s, i) => { const nid = id + '_sh' + i; const lab = s.label || (s.flag && RUNE_FLAG_INFO[s.flag] ? RUNE_FLAG_INFO[s.flag][0] : 'Rune'); N(nid, sx[i], 80, 'notable', 1, 2, base + 2, s.mod || {}, s.flag ? [s.flag] : [], lab, 'shape'); L(i === 0 ? id + '_cdr' : i === 2 ? id + '_mana' : root, nid); });
-  const key = _runeKey(kc); N(id + '_key', 0, 158, 'keystone', 1, 3, base + 4, key.mod || {}, key.flag ? [key.flag] : [], key.label); L(id + '_sh1', id + '_key');
+  const key = _runeKey(kc); N(id + '_key', 0, 158, 'keystone', 1, 3, base + 4, key.mod || {}, key.flag ? [key.flag] : [], key.label);
+  // Link the keystone to ALL three shape nodes. The shapes are mutually exclusive (excl:'shape'), so linking
+  // only to sh1 meant picking sh0 or sh2 left sh1 permanently blocked and the keystone unreachable forever.
+  L(id + '_sh0', id + '_key'); L(id + '_sh1', id + '_key'); L(id + '_sh2', id + '_key');
   return { root, nodes, adj };
 }
 const SKILL_RUNES = (() => { const o = {}; for (const id of ACTIVE_ORDER) { if (id === 'strike') continue; o[id] = buildSkillTree(id); } return o; })();
@@ -2246,8 +2249,8 @@ function castActive(id, aim, isEcho) {
   else if (def.kind === 'frost') { applyRuneProj(spawnProj(player.x, player.z, fwd, 0.8, player.dmg * cf * sm, 'frost', 80 + 30 * rank + R.addSlow, def.onHit), R); }
   else if (def.kind === 'nova') { const cnt = 12 + 2 * rank + R.addProj; for (let k = 0; k < cnt; k++) { const a = k / cnt * Math.PI * 2; applyRuneProj(spawnProj(player.x, player.z, { x: Math.sin(a), z: Math.cos(a) }, 0.85, player.dmg * cf * sm, 'fire', 120, def.onHit), R); } }
   else if (def.kind === 'chain') castChain(rank, skM, R);
-  else if (def.kind === 'multishot') { const s = 1 + R.addProj; for (let k = -s; k <= s; k++) { const a = ang + k * 0.18; applyRuneProj(spawnProj(player.x, player.z, { x: Math.sin(a), z: Math.cos(a) }, 1.0, player.dmg * cf * mm, 'poison', 120, def.onHit), R); } }
-  else if (def.kind === 'volley') { const s = 2 + R.addProj; for (let k = -s; k <= s; k++) { const a = ang + k * 0.16; applyRuneProj(spawnProj(player.x, player.z, { x: Math.sin(a), z: Math.cos(a) }, 1.0, player.dmg * cf * mm, 'phys', 120, def.onHit), R); } }
+  else if (def.kind === 'multishot') { const n = 3 + R.addProj; for (let k = 0; k < n; k++) { const a = ang + (k - (n - 1) / 2) * 0.18; applyRuneProj(spawnProj(player.x, player.z, { x: Math.sin(a), z: Math.cos(a) }, 1.0, player.dmg * cf * mm, 'poison', 120, def.onHit), R); } }
+  else if (def.kind === 'volley') { const n = 5 + R.addProj; for (let k = 0; k < n; k++) { const a = ang + (k - (n - 1) / 2) * 0.16; applyRuneProj(spawnProj(player.x, player.z, { x: Math.sin(a), z: Math.cos(a) }, 1.0, player.dmg * cf * mm, 'phys', 120, def.onHit), R); } }
   else if (def.kind === 'cleave') { for (const m of [...monsters]) { const dx = m.x - player.x, dz = m.z - player.z, d = Math.hypot(dx, dz); if (d < 6 + R.addRadius) { const ma = Math.atan2(dx, dz); const da = Math.abs(Math.atan2(Math.sin(ma - ang), Math.cos(ma - ang))); if (da < 1.2) meleeDamage(m, cf * skM, player); } } }
   else if (def.kind === 'whirl') { for (const m of [...monsters]) { if (Math.hypot(m.x - player.x, m.z - player.z) < 7 + R.addRadius) meleeDamage(m, cf * skM, player); } }
   else if (def.kind === 'leap') { const dd = Math.min(Math.hypot(aim.x - player.x, aim.z - player.z), 16); player.x += Math.sin(ang) * dd; player.z += Math.cos(ang) * dd; clampToZone(); spawnExplosion(player.x, player.z, 0xc4a050); for (const m of [...monsters]) { if (Math.hypot(m.x - player.x, m.z - player.z) < 6 + R.addRadius) meleeDamage(m, cf * skM, player); } }
@@ -2256,7 +2259,7 @@ function castActive(id, aim, isEcho) {
   else if (def.kind === 'frostnova') { spawnExplosion(player.x, player.z, 0x6ad8ff); for (const m of [...monsters]) { if (Math.hypot(m.x - player.x, m.z - player.z) < 9 + R.addRadius) { const dd = player.dmg * cf * sm; hitMonsterProj(m, dd, 'frost'); if (m.hp > 0) { m.slow = 120 + 30 * rank + R.addSlow; if (def.onHit) applyOnHit(m, def.onHit, dd); } } } }
   else if (def.kind === 'groundslam') { spawnExplosion(player.x + fwd.x * 3, player.z + fwd.z * 3, 0xc4a050); for (const m of [...monsters]) { const dx = m.x - player.x, dz = m.z - player.z, d = Math.hypot(dx, dz); if (d < 8 + R.addRadius) { const ma = Math.atan2(dx, dz); const da = Math.abs(Math.atan2(Math.sin(ma - ang), Math.cos(ma - ang))); if (da < 1.0) { meleeDamage(m, cf * skM, player); m.slow = Math.max(m.slow, 120); const kb = Math.min(4, 9 - d); m.x += Math.sin(ma) * kb; m.z += Math.cos(ma) * kb; } } } }
   else if (def.kind === 'charge') { const dd = Math.min(Math.hypot(aim.x - player.x, aim.z - player.z), 20); player.x += Math.sin(ang) * dd; player.z += Math.cos(ang) * dd; clampToZone(); spawnExplosion(player.x, player.z, 0xd8c060); for (const m of [...monsters]) { if (Math.hypot(m.x - player.x, m.z - player.z) < 5 + R.addRadius) { meleeDamage(m, cf * skM, player); m.slow = Math.max(m.slow, 90); } } }
-  else if (def.kind === 'warcry') { player.buffs.cryUntil = now() + 8000; player.buffs.cryMul = 1.2 + 0.06 * rank; player.buffs.cryDR = Math.min(0.4, 0.1 + 0.04 * rank); spawnExplosion(player.x, player.z, 0xffcf3a); floatText('War Cry!', player.x, player.z - 1, '#ffcf3a'); }
+  else if (def.kind === 'warcry') { player.buffs.cryUntil = now() + 8000 + R.addDuration; player.buffs.cryMul = 1.2 + 0.06 * rank; player.buffs.cryDR = Math.min(0.4, 0.1 + 0.04 * rank); spawnExplosion(player.x, player.z, 0xffcf3a); floatText('War Cry!', player.x, player.z - 1, '#ffcf3a'); }
   else if (def.kind === 'arcaneorb') { const p = spawnProj(player.x, player.z, fwd, 0.45, player.dmg * cf * sm, 'fire'); p.pierce = 3; if (!p.hit) p.hit = new Set(); p.slow = 60; p.mesh.scale.setScalar(0.85); applyRuneProj(p, R); }
   else if (def.kind === 'blizzard') { const cx = aim.x, cz = aim.z, reps = 4 + rank + R.addHits, oh = def.onHit; for (let i = 0; i < reps; i++) { setTimeout(() => { if (!running || !isCombat()) return; const ox = cx + rand(-5, 5), oz = cz + rand(-5, 5); spawnExplosion(ox, oz, 0x6ad8ff); for (const m of [...monsters]) { if (Math.hypot(m.x - ox, m.z - oz) < 5 + R.addRadius) { const dd = player.dmg * cf * sm; hitMonsterProj(m, dd, 'frost'); if (m.hp > 0) { m.slow = Math.max(m.slow, 120); if (oh) applyOnHit(m, oh, dd); } } } }, i * 220); } }
   else if (def.kind === 'teleportstorm') { const blast = () => { spawnExplosion(player.x, player.z, 0x9f6aff); for (const m of [...monsters]) { if (Math.hypot(m.x - player.x, m.z - player.z) < 6 + R.addRadius) hitMonsterProj(m, player.dmg * cf * sm, 'lightning'); } }; blast(); const dd = Math.min(Math.hypot(aim.x - player.x, aim.z - player.z), 22); player.x += Math.sin(ang) * dd; player.z += Math.cos(ang) * dd; clampToZone(); blast(); }
@@ -2638,7 +2641,7 @@ function update(dt) {
   const T = now(); /* Phase 1: one frame timestamp reused for all same-frame sine anims + time-gates below (was ~30-60 performance.now() calls/frame) */
   shake *= 0.85;
   if (running && !busyPanel()) {
-    if (rmbDown && isCombat() && !player.stunned) { const hid = character.loadout[1], hd = SKILLDEFS[hid]; if (hd && hd.kind !== 'melee' && player.mp >= hd.cost) castActive(hid, { x: mouseWorld.x, z: mouseWorld.z }); }
+    if (rmbDown && isCombat() && !player.stunned) { const hid = character.loadout[1], hd = SKILLDEFS[hid]; if (hd && hd.kind !== 'melee' && player.mp >= Math.round(hd.cost * resolveSkill(hid).costMult)) castActive(hid, { x: mouseWorld.x, z: mouseWorld.z }); }
     if (lmbDown) {
       const hm = isCombat() ? monsterAt() : null; if (hm) { target = hm; moveTarget = null; }
       else if (Math.hypot(mouseWorld.x - player.x, mouseWorld.z - player.z) > 1.0) { moveTarget = { x: mouseWorld.x, z: mouseWorld.z }; target = null; } else { target = null; }
@@ -3470,6 +3473,7 @@ if (_perftest) {
 function show(id) { ['selectScreen', 'createScreen', 'overScreen'].forEach(s => document.getElementById(s).style.display = 'none'); if (id) document.getElementById(id).style.display = 'flex'; }
 function setHud(on) { document.getElementById('hud').style.display = on ? 'block' : 'none'; document.getElementById('topbar').style.display = on ? 'flex' : 'none'; document.getElementById('xpbar').style.display = on ? 'block' : 'none'; document.getElementById('minimap').style.display = on ? 'block' : 'none'; document.getElementById('prompt').style.display = 'none'; document.getElementById('bossBar').style.display = 'none'; if (!on) closeAll(); }
 function enterGame() {
+  invalidateRunes(); /* rune struct cache is keyed on the live `character`; clear it on every character switch so a newly loaded hero can't inherit the previous one's cached rune bonuses */
   stopMenu(); Object.assign(player, { level: character.level, xp: character.xp, xpNext: character.xpNext, gold: character.gold, kills: character.kills, potions: character.hpPotions, hpPotions: character.hpPotions, mpPotions: character.mpPotions, attackCd: 0, bob: 0 });
   recompute(); syncActives(); player.hp = player.hpMax; player.mp = player.mpMax;
   charName.textContent = character.name; setLevelText(player.level); killsTxt.textContent = 'Slain: ' + player.kills; goldTxt.textContent = player.gold + ' g';

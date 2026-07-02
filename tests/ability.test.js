@@ -133,6 +133,29 @@ test('classAbilities lists a class’s actives ordered by unlock level, without 
   assert.ok(list.includes('charge') && list.includes('whirlwind'), 'higher-tier warrior actives are surfaced');
 });
 
+test('the keystone is reachable from every shape node, not just the middle one', () => {
+  AB.setLevel(99);
+  // The three shapes are mutually exclusive; the keystone must link to all of them, or picking the
+  // left/right shape would leave the middle blocked by exclusivity and the keystone unreachable forever.
+  const tree = AB.SKILL_RUNES.fireball;
+  for (const sh of ['fireball_sh0', 'fireball_sh1', 'fireball_sh2']) {
+    assert.ok(tree.adj.fireball_key.includes(sh), `keystone should be adjacent to ${sh}`);
+  }
+  for (const sh of ['fireball_sh0', 'fireball_sh1', 'fireball_sh2']) {
+    AB.setChar({ abilityPoints: 99, skillRunes: { fireball: { fireball_dmg: 1, fireball_cdr: 1, fireball_mana: 1, [sh]: 1 } } });
+    assert.equal(AB.canAllocRune('fireball', 'fireball_key'), true, `keystone must be allocatable after picking ${sh}`);
+  }
+});
+
+test('the Extended (addDuration) rune folds into resolveSkill for util skills', () => {
+  AB.setLevel(99);
+  // warcry is a 'util' archetype tree whose sh2 is the +1.5s "Extended" rune; it must accumulate addDuration
+  // (consumed by warcry's cast) rather than being an inert point sink.
+  AB.setChar({ skillRunes: { warcry: { warcry_sh2: 1 } } });
+  const R = AB.resolveSkill('warcry');
+  assert.equal(R.addDuration, 1500, 'Extended rune should add 1500ms of duration');
+});
+
 test('canAllocRune enforces connectivity, exclusivity, and level gates', () => {
   AB.setLevel(99);
   AB.setChar({ abilityPoints: 99, skillRunes: { fireball: {} } });
