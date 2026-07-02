@@ -41,10 +41,12 @@ function loadGameSave() {
   };
   vm.createContext(sandbox);
   vm.runInContext(slice, sandbox, { filename: 'game.js(save-slice)' });
-  return sandbox.__save;
+  // Expose the localStorage stub so tests can exercise SAVE.load()/persist() — the real production path
+  // that parses stored JSON, migrates every slot, and backfills settings (the receiving end of import).
+  return { ...sandbox.__save, localStorage: sandbox.localStorage };
 }
 
-const { SAVE, CLASSES, SKILLDEFS, SLOTS, PTREE } = loadGameSave();
+const { SAVE, CLASSES, SKILLDEFS, SLOTS, PTREE, localStorage: LS } = loadGameSave();
 
 test('newCharacter produces a complete, valid hero', () => {
   const c = SAVE.newCharacter('Tester', 'mage');
@@ -123,4 +125,68 @@ test('a freshly created character survives a migrate round-trip unchanged in sha
   for (const id of Object.keys(SKILLDEFS)) {
     assert.ok(id in migrated.skills, `skill ${id} lost during migrate`);
   }
+});
+
+// --- SAVE.load()/persist(): the actual production path (parse localStorage → migrate slots → backfill
+//     settings). This is what import writes into, and where a malformed slot would brick the game at boot. ---
+
+test('load() falls back to a clean default when the stored JSON is garbage', () => {
+  LS.setItem(SAVE.KEY, '{ this is not json');
+  assert.doesNotThrow(() => SAVE.load());
+  assert.equal(SAVE._data.version, SAVE.VERSION);
+  assert.equal(SAVE._data.slots.length, SAVE.NUM_SLOTS);
+  assert.ok(
+    SAVE._data.slots.every((s) => s === null),
+    'all slots empty after garbage',
+  );
+});
+
+test('load() does not throw on non-object slots (import-brick guard) and nulls them out', () => {
+  // {"slots":["bogus"]} is a shape importSave used to accept — before the guard it threw in migrate() at
+  // top-level boot and permanently bricked the game. load() must survive it and degrade the bad slots.
+  LS.setItem(SAVE.KEY, JSON.stringify({ version: 7, slots: ['bogus', 42, ['x'], null] }));
+  assert.doesNotThrow(() => SAVE.load());
+  assert.ok(
+    SAVE._data.slots.every((s) => s === null),
+    'every non-object slot degrades to null',
+  );
+});
+
+test('load() migrates a sparse legacy (v1) slot and rewrites the store version', () => {
+  LS.setItem(SAVE.KEY, JSON.stringify({ version: 1, slots: [{ name: 'Old', class: 'mage', level: 3 }, null, null] }));
+  SAVE.load();
+  assert.equal(SAVE._data.version, SAVE.VERSION, 'container version bumped');
+  const s0 = SAVE.getSlot(0);
+  assert.equal(s0.name, 'Old');
+  assert.ok(Array.isArray(s0.loadout) && s0.loadout.length === 6, 'v7 loadout backfilled');
+  assert.equal(typeof s0.skillRunes, 'object', 'v7 skillRunes backfilled');
+  assert.equal(typeof s0.abilityPoints, 'number', 'v7 abilityPoints backfilled');
+  assert.equal(typeof s0.materials, 'number', 'materials backfilled');
+});
+
+test('load() preserves stored settings and backfills newly-added defaults', () => {
+  LS.setItem(
+    SAVE.KEY,
+    JSON.stringify({ version: 6, slots: [null, null, null], settings: { difficulty: 'Hell', volume: 20 } }),
+  );
+  SAVE.load();
+  const s = SAVE._data.settings;
+  assert.equal(s.difficulty, 'Hell', 'existing setting preserved');
+  assert.equal(s.volume, 20, 'existing setting preserved');
+  assert.equal(s.music, true, 'missing default backfilled');
+  assert.ok(s.lootFilter && s.lootFilter.rarity, 'nested default (lootFilter) backfilled');
+});
+
+test('persist() then load() round-trips a fresh character without shape loss', () => {
+  LS.setItem(SAVE.KEY, JSON.stringify({ version: SAVE.VERSION, slots: [null, null, null] }));
+  SAVE.load();
+  const fresh = SAVE.newCharacter('Trip', 'rogue');
+  assert.equal(SAVE.saveCharacter(0, fresh), true, 'persist reports success on the stub');
+  SAVE.load(); // re-read from storage exactly as a page reload would
+  const back = SAVE.getSlot(0);
+  assert.equal(back.name, 'Trip');
+  assert.equal(back.class, 'rogue');
+  assert.equal(back.loadout.length, 6);
+  assert.equal(JSON.stringify(Object.keys(back.equipment).sort()), JSON.stringify([...SLOTS].sort()));
+  for (const id of Object.keys(SKILLDEFS)) assert.ok(id in back.skills, `skill ${id} lost on round-trip`);
 });
