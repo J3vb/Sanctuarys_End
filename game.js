@@ -574,18 +574,21 @@ function loadGroundSet(setName, rx, ry) {
 /* Swap a cached set onto the shared groundMat (no slot ever set null -> stable pipeline). tintHex multiplies
    the albedo (0xffffff = raw for wild/town; biome th.ground for dungeon mood). guard re-checks we're still in
    the zone/region that requested the load (fast-travel race). */
-function _applyToGround(setName, tintHex, guard) {
+function _applyToGround(setName, rx, ry, tintHex, guard) {
   const t = _groundTexCache[setName]; if (!t) return; if (guard && !guard()) return;
   groundMat.vertexColors = false; groundMat.color.setHex(tintHex == null ? 0xffffff : tintHex);
+  // Re-apply the tiling on every use: the set cache is keyed by name only, so a set shared between the wild
+  // (30,30) and a town override (40,40) would otherwise inherit whichever zone loaded it first.
+  if (rx != null) for (const x of [t.map, t.normalMap, t.roughnessMap, t.aoMap]) { if (x && x.repeat) { x.repeat.set(rx, ry); x.needsUpdate = true; } }
   groundMat.map = t.map; groundMat.normalMap = t.normalMap; groundMat.roughnessMap = t.roughnessMap || _whitePx(); groundMat.aoMap = t.aoMap || _whitePx();
   groundMat.needsUpdate = true;
 }
 function restoreProcGround() { groundMat.map = texGround(30); groundMat.normalMap = texGroundNormal(30); groundMat.roughnessMap = _whitePx(); groundMat.aoMap = _whitePx(); groundMat.needsUpdate = true; } /* fallback (gate off / loader missing); vertexColors+color are owned by setZoneVisuals */
 function _requestGround(setName, rx, ry, tintHex, guard) {
   if (!groundTexOn() || !setName) { restoreProcGround(); return; }
-  if (_groundTexCache[setName]) { _applyToGround(setName, tintHex, guard); return; }
+  if (_groundTexCache[setName]) { _applyToGround(setName, rx, ry, tintHex, guard); return; }
   if (!_getKTX2()) { restoreProcGround(); return; }
-  loadGroundSet(setName, rx, ry).then(() => _applyToGround(setName, tintHex, guard)).catch(e => console.warn('ground tex load fail ' + setName + ':', e && e.message));
+  loadGroundSet(setName, rx, ry).then(() => _applyToGround(setName, rx, ry, tintHex, guard)).catch(e => console.warn('ground tex load fail ' + setName + ':', e && e.message));
 }
 function loadRegionGround(region) { if (!region) return; _requestGround(REGION_GROUND[region.id], 30, 30, 0xffffff, () => zone === 'wild' && curRegion && curRegion.id === region.id); }
 function loadTownGround() { const id = curTownArea && curTownArea.id, set = (id && TOWN_GROUND_BY_ID[id]) || TOWN_GROUND_SET; _requestGround(set, 40, 40, 0xffffff, () => zone === 'town' && curTownArea && curTownArea.id === id); ensureCobble(); }
@@ -600,7 +603,11 @@ function ensureCobble() {
   _cobbleLoading = true;
   loadGroundSet(DUNGEON_FLOOR_SET, 64, 64).then(b => { _cobbleBase = b; _cobbleLoading = false; if (typeof zone !== 'undefined' && zone === 'town') { try { buildTown(curTownArea); } catch (e) { console.warn('town cobble rebuild failed:', e && e.message); } } }).catch(e => { _cobbleLoading = false; console.warn('cobble load fail:', e && e.message); });
 }
-function _cobbleTex(map, w, l) { const TILE = 4, t = map.clone(); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.offset.set(0, 0); t.repeat.set(Math.max(1, w / TILE), Math.max(1, l / TILE)); t.needsUpdate = true; return t; }
+/* Cache cobble albedo clones by tiling. Every buildTown used to clone _cobbleBase.map afresh per road/plaza,
+   and disposeObj disposes materials but not their textures — so each town entry leaked a batch of GPU
+   textures. Keying by repeat bounds the clones to the handful of distinct road sizes across all rebuilds. */
+const _cobbleTexCache = {};
+function _cobbleTex(map, w, l) { const TILE = 4, rx = Math.max(1, w / TILE), ry = Math.max(1, l / TILE), key = rx.toFixed(3) + 'x' + ry.toFixed(3); if (_cobbleTexCache[key]) return _cobbleTexCache[key]; const t = map.clone(); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.offset.set(0, 0); t.repeat.set(rx, ry); t.needsUpdate = true; _cobbleTexCache[key] = t; return t; }
 function _pavedMat(w, l, fallbackCol) {
   if (_cobbleBase) return new THREE.MeshPhongMaterial({ specular: 0x0a0a0a, shininess: 6, color: fallbackCol || 0xc9bda6, map: _cobbleTex(_cobbleBase.map, w, l) });
   return new THREE.MeshPhongMaterial({ specular: 0x000000, color: fallbackCol, map: texStone(Math.max(1, Math.round(w / 2)), Math.max(1, Math.round(l / 2))) });
@@ -1577,7 +1584,7 @@ function attachHeroWeapon() {
     bone.add(w); hero.userData.weaponMesh = w;
   });
 }
-function swapHeroToGLB() { if (typeof hero === 'undefined' || !hero) return; let role = curHeroRole(); if (!GLB_PROTO[role]) role = 'hero'; if (!GLB_PROTO[role]) return; const ent = buildGLBEntity(role, 1); if (!ent) return; hero.children.forEach(c => c.visible = false); hero.add(ent); hero.userData.mixer = ent.userData.mixer; hero.userData.actions = ent.userData.actions; hero.userData.model = ent.userData.model; hero.userData.glb = true; hero.userData.glbRole = role; hero.userData.sword = null; glbPlay(hero, 'idle'); attachHeroWeapon(); }
+function swapHeroToGLB() { if (typeof hero === 'undefined' || !hero) return; let role = curHeroRole(); if (!GLB_PROTO[role]) role = 'hero'; if (!GLB_PROTO[role]) return; if (hero.userData.glbRole === role && hero.userData.glbEnt) return; /* already showing this role's rig — re-adding would stack another hidden skinned clone every load/revive */ const ent = buildGLBEntity(role, 1); if (!ent) return; const prev = hero.userData.glbEnt; if (prev) { if (prev.userData.mixer) prev.userData.mixer.stopAllAction(); hero.remove(prev); } /* SkeletonUtils clones share the proto's geo/mat (noDispose), so just stop the mixer + detach and let GC reclaim the clone — never dispose, or the shared proto buffers die */ hero.children.forEach(c => c.visible = false); hero.add(ent); hero.userData.glbEnt = ent; hero.userData.mixer = ent.userData.mixer; hero.userData.actions = ent.userData.actions; hero.userData.model = ent.userData.model; hero.userData.glb = true; hero.userData.glbRole = role; hero.userData.sword = null; glbPlay(hero, 'idle'); attachHeroWeapon(); }
 /* ===================== KayKit prop kits (dungeon + nature) — each kit is ONE opaque atlas material; we extract
    the prop names we use into reusable {geo,mat,size,base} prototypes drawn as InstancedMesh (dungeon/wild) or
    merged meshes (town). Shared geo/mat carry userData.sharedProto so disposeObj skips them across zone rebuilds. */
@@ -2240,7 +2247,7 @@ function projBurst(p) {
   if (p.lingering) spawnLingerField(p.x, p.z, p.dmg, p.kind, p.onHit);
   if (p.fork && !p._forked) { p._forked = true; const sp = Math.hypot(p.vx, p.vz) || 0.8, base = Math.atan2(p.vx, p.vz); for (const off of [-0.5, 0.5]) { const a = base + off; const c = spawnProj(p.x, p.z, { x: Math.sin(a), z: Math.cos(a) }, sp, p.dmg * 0.7, p.kind, p.slow, p.onHit); c._burst = true; c._forked = true; } }
 }
-function spawnLingerField(x, z, dmg, kind, onHit) { for (let i = 0; i < 5; i++) { setTimeout(() => { if (!running || !isCombat()) return; spawnExplosion(x, z, kind === 'frost' ? 0x6ad8ff : 0xff7030); for (const m of monsters) { if (Math.hypot(m.x - x, m.z - z) < 3.5) { hitMonsterProj(m, dmg * 0.35, kind); if (m.hp > 0 && onHit) applyOnHit(m, onHit, dmg * 0.35); } } }, i * 240); } }
+function spawnLingerField(x, z, dmg, kind, onHit) { const ep = _fieldEpoch; for (let i = 0; i < 5; i++) { setTimeout(() => { if (_fieldEpoch !== ep || !running || !isCombat()) return; spawnExplosion(x, z, kind === 'frost' ? 0x6ad8ff : 0xff7030); for (const m of monsters) { if (Math.hypot(m.x - x, m.z - z) < 3.5) { hitMonsterProj(m, dmg * 0.35, kind); if (m.hp > 0 && onHit) applyOnHit(m, onHit, dmg * 0.35); } } }, i * 240); } }
 function castActive(id, aim, isEcho) {
   const def = SKILLDEFS[id]; let rank = character.skills[id]; if (!def || rank < 1) return; if (_SPK.on) _ev('cast:' + id); rank += (player.effects.allskills || 0); const R = resolveSkill(id);
   const t = now(); const cost = Math.round(def.cost * R.costMult); if (!isEcho) { if (t - (_cd[id] || -9999) < skillCd(def, id)) return; if (player.mp < cost) { floatText('No mana', player.x, player.z, '#88aaff'); return; } _cd[id] = t; player.mp -= cost; updateGlobes(); sfx(SFX_FOR[def.kind] || def.kind); }
@@ -2262,7 +2269,7 @@ function castActive(id, aim, isEcho) {
   else if (def.kind === 'charge') { const dd = Math.min(Math.hypot(aim.x - player.x, aim.z - player.z), 20); player.x += Math.sin(ang) * dd; player.z += Math.cos(ang) * dd; clampToZone(); spawnExplosion(player.x, player.z, 0xd8c060); for (const m of [...monsters]) { if (Math.hypot(m.x - player.x, m.z - player.z) < 5 + R.addRadius) { meleeDamage(m, cf * skM, player); m.slow = Math.max(m.slow, 90); } } }
   else if (def.kind === 'warcry') { player.buffs.cryUntil = now() + 8000 + R.addDuration; player.buffs.cryMul = 1.2 + 0.06 * rank; player.buffs.cryDR = Math.min(0.4, 0.1 + 0.04 * rank); spawnExplosion(player.x, player.z, 0xffcf3a); floatText('War Cry!', player.x, player.z - 1, '#ffcf3a'); }
   else if (def.kind === 'arcaneorb') { const p = spawnProj(player.x, player.z, fwd, 0.45, player.dmg * cf * sm, 'fire'); p.pierce = 3; if (!p.hit) p.hit = new Set(); p.slow = 60; p.mesh.scale.setScalar(0.85); applyRuneProj(p, R); }
-  else if (def.kind === 'blizzard') { const cx = aim.x, cz = aim.z, reps = 4 + rank + R.addHits, oh = def.onHit; for (let i = 0; i < reps; i++) { setTimeout(() => { if (!running || !isCombat()) return; const ox = cx + rand(-5, 5), oz = cz + rand(-5, 5); spawnExplosion(ox, oz, 0x6ad8ff); for (const m of [...monsters]) { if (Math.hypot(m.x - ox, m.z - oz) < 5 + R.addRadius) { const dd = player.dmg * cf * sm; hitMonsterProj(m, dd, 'frost'); if (m.hp > 0) { m.slow = Math.max(m.slow, 120); if (oh) applyOnHit(m, oh, dd); } } } }, i * 220); } }
+  else if (def.kind === 'blizzard') { const cx = aim.x, cz = aim.z, reps = 4 + rank + R.addHits, oh = def.onHit, ep = _fieldEpoch; for (let i = 0; i < reps; i++) { setTimeout(() => { if (_fieldEpoch !== ep || !running || !isCombat()) return; const ox = cx + rand(-5, 5), oz = cz + rand(-5, 5); spawnExplosion(ox, oz, 0x6ad8ff); for (const m of [...monsters]) { if (Math.hypot(m.x - ox, m.z - oz) < 5 + R.addRadius) { const dd = player.dmg * cf * sm; hitMonsterProj(m, dd, 'frost'); if (m.hp > 0) { m.slow = Math.max(m.slow, 120); if (oh) applyOnHit(m, oh, dd); } } } }, i * 220); } }
   else if (def.kind === 'teleportstorm') { const blast = () => { spawnExplosion(player.x, player.z, 0x9f6aff); for (const m of [...monsters]) { if (Math.hypot(m.x - player.x, m.z - player.z) < 6 + R.addRadius) hitMonsterProj(m, player.dmg * cf * sm, 'lightning'); } }; blast(); const dd = Math.min(Math.hypot(aim.x - player.x, aim.z - player.z), 22); player.x += Math.sin(ang) * dd; player.z += Math.cos(ang) * dd; clampToZone(); blast(); }
   else if (def.kind === 'shadowstep') { let best = null, bd = 1e9; for (const m of monsters) { const d = Math.hypot(m.x - player.x, m.z - player.z); if (d < bd) { bd = d; best = m; } } if (best) { const ba = Math.atan2(best.x - player.x, best.z - player.z); player.x = best.x - Math.sin(ba) * 2.2; player.z = best.z - Math.cos(ba) * 2.2; clampToZone(); player.dir = ba; spawnExplosion(player.x, player.z, 0x6a3a8a); const dmg = player.dmg * player.meleeMult * skM * cf * (player.effects.critdmg ? 3 : 2); best.hp -= dmg; best.flash = 8; floatText('✸' + Math.round(dmg), best.x, best.z, '#ffd24d'); if (player.effects.lifesteal > 0) player.hp = Math.min(player.hpMax, player.hp + dmg * player.effects.lifesteal); if (best.hp <= 0) killMonster(best); } else floatText('No target', player.x, player.z, '#aaa'); }
   else if (def.kind === 'fanofknives') { const cnt = 10 + 2 * rank + R.addProj; for (let k = 0; k < cnt; k++) { const a = k / cnt * Math.PI * 2; applyRuneProj(spawnProj(player.x, player.z, { x: Math.sin(a), z: Math.cos(a) }, 1.0, player.dmg * cf * mm, 'phys', 120, def.onHit), R); } }
@@ -2423,7 +2430,8 @@ function resolveCircles(e, r, arr, iters) { for (let it = 0; it < iters; it++) {
 let zone = 'town', depth = 0;
 let floorObj = null, shrines = [], shrineGroup = null; // per-floor bounty + dungeon shrines (ephemeral, rebuilt each enterDungeon)
 function isCombat() { return zone === 'wild' || zone === 'dungeon'; }
-function clearField() { for (const d of _dying) removeMesh(d.g); _dying.length = 0; for (const m of monsters) removeMob(m.mesh); for (const p of projectiles) removeMesh(p.mesh); for (const l of loots) removeMesh(l.mesh); for (const e of fx) removeMesh(e.mesh); monsters = []; projectiles = []; loots = []; fx = []; _spawnQueue.length = 0; _spawnCd = 0; target = null; moveTarget = null; boss = null; bossActive = false; _resetHudCache(); }
+let _fieldEpoch = 0; /* bumped on every field teardown; deferred combat ticks (blizzard/lingering fields) capture it and bail if it changed, so a cast can't keep detonating after a floor/zone change */
+function clearField() { _fieldEpoch++; for (const d of _dying) removeMesh(d.g); _dying.length = 0; for (const m of monsters) removeMob(m.mesh); for (const p of projectiles) removeMesh(p.mesh); for (const l of loots) removeMesh(l.mesh); for (const e of fx) removeMesh(e.mesh); monsters = []; projectiles = []; loots = []; fx = []; _spawnQueue.length = 0; _spawnCd = 0; target = null; moveTarget = null; boss = null; bossActive = false; _resetHudCache(); }
 function setZoneVisuals() {
   wildGroup.visible = zone === 'wild'; townGroup.visible = zone === 'town'; dungeonGroup.visible = zone === 'dungeon'; dungeonExtraGroup.visible = zone === 'dungeon'; if (typeof markGlows === 'function') markGlows();
   playerGlow.intensity = PLAYER_GLOW[zone] || 0; /* Diablo-style player aura — on in dungeons, off in lit town/open wild */
@@ -2776,8 +2784,8 @@ function damagePlayer(d, mods) {
   { const e = player.effects; let res = e.allRes || 0; if (mods && mods.includes) { if (mods.includes('fiery')) res += e.fireRes || 0; else if (mods.includes('frozen')) res += e.frostRes || 0; else if (mods.includes('arcane')) res += e.lightningRes || 0; else if (mods.includes('toxic')) res += e.poisonRes || 0; } if (res > 0) d *= (1 - Math.min(res, 75) / 100); } if (player.buffs.cryUntil > now()) d *= (1 - player.buffs.cryDR); if (player.effects.manaShield > 0 && player.mp > 0) { const ab = Math.min(d * player.effects.manaShield, player.mp); player.mp -= ab; d -= ab; } player.hp -= d; if (player.hp < 0) player.hp = 0; floatText('-' + Math.round(d), player.x, player.z, '#ff5b4b'); sfx('hurt'); shake = Math.min(1.6, shake + 0.6); const hf = document.getElementById('hurtFlash'); hf.style.opacity = Math.min(0.6, 0.25 + d / player.hpMax); clearTimeout(hf._t); hf._t = setTimeout(() => hf.style.opacity = 0, 120); if (mods && mods.includes && mods.includes('frozen')) { player.chillUntil = now() + 1500; floatText('Chilled', player.x, player.z - 1, '#9ff'); } updateGlobes(); if (player.hp <= 0) { sfx('die'); gameOver(); }
 }
 
-function saveProgress(showNote) { if (currentSlot === null || !character) return; character.level = player.level; character.xp = player.xp; character.xpNext = player.xpNext; character.gold = player.gold; character.kills = player.kills; character.potions = player.hpPotions; character.hpPotions = player.hpPotions; character.mpPotions = player.mpPotions; SAVE.saveCharacter(currentSlot, character); if (showNote) flashSaved(); }
-function flashSaved() { const n = document.getElementById('saveNote'); n.style.opacity = 1; clearTimeout(n._t); n._t = setTimeout(() => n.style.opacity = 0, 900); }
+function saveProgress(showNote) { if (currentSlot === null || !character) return false; character.level = player.level; character.xp = player.xp; character.xpNext = player.xpNext; character.gold = player.gold; character.kills = player.kills; character.potions = player.hpPotions; character.hpPotions = player.hpPotions; character.mpPotions = player.mpPotions; const ok = SAVE.saveCharacter(currentSlot, character); if (showNote || !ok) flashSaved(ok); return ok; } /* surface a failure even on a silent autosave — a full localStorage quietly loses progress otherwise */
+function flashSaved(ok) { const n = document.getElementById('saveNote'); if (ok === false) { n.textContent = '⚠ Save failed — storage full'; n.style.color = '#e07a5a'; } else { n.textContent = 'Saved'; n.style.color = ''; } n.style.opacity = 1; clearTimeout(n._t); n._t = setTimeout(() => n.style.opacity = 0, ok === false ? 2600 : 900); }
 
 /* ---------- MINIMAP ---------- */
 const mm = document.getElementById('minimap'), mctx = mm.getContext('2d'); const MMR = 85, MM_RANGE = 120, MM_SCALE = MMR / MM_RANGE;
@@ -3224,10 +3232,12 @@ function ptClick(id) {
   recompute(); buildPTreeSvg(); renderSkillbar(); updatePips(); ptNote(); saveProgress(false);
 }
 function attachPTreeEvents() {
-  const vp = document.getElementById('ptVp'); if (!vp) return; let drag = false, moved = false, lx = 0, ly = 0;
-  vp.onmousedown = e => { drag = true; moved = false; lx = e.clientX; ly = e.clientY; vp.style.cursor = 'grabbing'; };
-  window.addEventListener('mousemove', e => { if (!drag) return; const dx = e.clientX - lx, dy = e.clientY - ly; if (Math.abs(dx) + Math.abs(dy) > 3) moved = true; lx = e.clientX; ly = e.clientY; const rect = vp.getBoundingClientRect(); ptT.x += dx / rect.width * 520 / ptT.s; ptT.y += dy / rect.height * 520 / ptT.s; applyPT(); });
-  window.addEventListener('mouseup', () => { drag = false; vp.style.cursor = 'grab'; });
+  // Use element-level on* handlers (like attachRuneEvents) — every panel render used to add fresh anonymous
+  // window mousemove/mouseup listeners that were never removed, leaking listeners and pinning each detached tree.
+  const vp = document.getElementById('ptVp'); if (!vp) return; let drag = false, lx = 0, ly = 0;
+  vp.onmousedown = e => { drag = true; lx = e.clientX; ly = e.clientY; vp.style.cursor = 'grabbing'; };
+  vp.onmousemove = e => { if (!drag) return; const dx = e.clientX - lx, dy = e.clientY - ly; lx = e.clientX; ly = e.clientY; const rect = vp.getBoundingClientRect(); ptT.x += dx / rect.width * 520 / ptT.s; ptT.y += dy / rect.height * 520 / ptT.s; applyPT(); };
+  vp.onmouseup = () => { drag = false; vp.style.cursor = 'grab'; }; vp.onmouseleave = () => { drag = false; vp.style.cursor = 'grab'; };
   vp.onwheel = e => { e.preventDefault(); ptT.s = clamp(ptT.s * (e.deltaY < 0 ? 1.12 : 0.89), 0.55, 2.4); applyPT(); };
 }
 document.getElementById('resetSkills').onclick = () => { const start = PTREE.starts[character.class]; const refund = (character.passives || []).filter(x => x !== start).length; character.passives = [start]; character.skillPoints += refund; recompute(); buildPTreeSvg(); renderSkillbar(); updatePips(); ptNote(); saveProgress(false); };
@@ -3350,7 +3360,7 @@ function renderVendor() {
   if (vendorTab === 'buy') {
     body.innerHTML += `<div style="color:#9a8a6a;margin-bottom:8px;font-size:13px">Need potions? Visit the 🔥 cauldron in town to refill for free.</div>`;
     const reCost = 40 + player.level * 8; const reRow = document.createElement('div'); reRow.className = 'row'; reRow.innerHTML = `<div class="ric">🔄</div><div class="rname">Restock wares <span style="color:#8a7a5a;font-size:11px">(reroll the merchant's items)</span></div><div class="rprice">${reCost} g</div><div class="rbtn${player.gold >= reCost ? '' : ' dis'}" id="restockBtn">Reroll</div>`; body.appendChild(reRow);
-    document.getElementById('restockBtn').onclick = () => { if (player.gold < reCost) return; player.gold -= reCost; refreshVendor(); goldTxt.textContent = player.gold + ' g'; renderVendor(); saveProgress(false); };
+    document.getElementById('restockBtn').onclick = () => { if (player.gold < reCost) return; player.gold -= reCost; refreshVendor(vendorTier); goldTxt.textContent = player.gold + ' g'; renderVendor(); saveProgress(false); }; /* pass the active tier so a paid reroll at an Exotic (tier ≥ 2) merchant keeps its premium stock instead of silently dropping to tier 1 */
     vendorStock.forEach((it, idx) => { const price = buyPrice(it); const row = document.createElement('div'); row.className = 'row'; row.innerHTML = `<div class="ric">${SLOT_ICON[it.slot]}</div><div class="rname rc-${it.rarity}">${it.name}</div><div class="rprice">${price} g</div><div class="rbtn${player.gold >= price && character.inventory.length < character.invMax ? '' : ' dis'}" data-buy="${idx}">Buy</div>`; bindTip(row.querySelector('.rname'), it); body.appendChild(row); });
     body.querySelectorAll('[data-buy]').forEach(b => b.onclick = () => { const idx = +b.dataset.buy; const it = vendorStock[idx]; const price = buyPrice(it); if (player.gold < price || character.inventory.length >= character.invMax) return; player.gold -= price; character.inventory.push(it); vendorStock.splice(idx, 1); goldTxt.textContent = player.gold + ' g'; renderVendor(); updatePips(); saveProgress(false); });
   } else if (vendorTab === 'sell') {
