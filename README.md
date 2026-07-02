@@ -21,7 +21,7 @@ python -m http.server 8000
 npx serve . -l 8000
 ```
 
-Then open `http://localhost:8000/sanctuary.html`. WebGL support and (the first time) an internet connection for the CDN libraries are required.
+Then open `http://localhost:8000/sanctuary.html`. The renderer is WebGPU-first (recent Chromium-based browsers) and falls back to WebGL2 elsewhere; the first load also needs an internet connection for the CDN libraries.
 
 > **Migrating an existing `file://` save?** Saves made by the old double-click build live in the `file://` origin and will *not* appear at `http://localhost:8000`. To carry them over: open your old `file://` build, go to **Settings → Saves → Download** (or **Copy**), then open the new `http://localhost:8000` build, paste/load the file under **Settings → Saves → Import & Reload**.
 
@@ -55,7 +55,7 @@ Note: co-op uses a `ws://` (non-TLS) connection, so play from a locally-served `
 
 The full game codex lives in `sanctuary_wiki.html` — open it in your browser for searchable, detailed docs on classes, stats, combat formulas, status effects, items and affixes, uniques and sets, the economy, zones, difficulty scaling, monsters, bosses, and the version changelog.
 
-See also [CHANGELOG.md](CHANGELOG.md) for the release history.
+See also [CHANGELOG.md](CHANGELOG.md) for the release history, and [ROADMAP.md](ROADMAP.md) for where the game is headed next.
 
 ## Development
 
