@@ -4,38 +4,25 @@
 // backfills the 6 slots and must never lose the basic attack or duplicate a skill), the V7 SAVE.migrate
 // (which must add loadout/skillRunes/abilityPoints without touching old fields), and resolveSkill/buildSkillTree/
 // canAllocRune (the rune math + allocation rules that every cast reads). A bug here silently mis-stats a skill
-// or bricks a save, so they earn a fast regression net. Same vm trick as gems.test.js: the save helpers live in
-// game.js's browser-free prefix; the rune engine lives in a later self-contained block we splice in after it.
+// or bricks a save, so they earn a fast regression net. Loaded via the shared harness: the browser-free core
+// files (js/00..03) hold defaultLoadout/SAVE, and js/14-runes.js holds the rune engine (buildSkillTree/
+// resolveSkill/canAllocRune) — canAllocRune lives there, not with the abilities UI, so it stays browser-free.
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const vm = require('node:vm');
+const { CORE_FILES, RUNES_FILE, makeSandbox, loadFiles, runSnippet } = require('./harness');
 
 function loadAbility() {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'game.js'), 'utf8');
-  const idxThree = src.indexOf('/* ================= THREE');
-  const idxRunes = src.indexOf('/* ================= RUNES');
-  const idxCast = src.indexOf('function castActive(');
-  const idxCanAlloc = src.indexOf('function canAllocRune(');
-  const idxBuildRune = src.indexOf('function buildRuneSvg(');
-  assert.ok(idxThree > 0 && idxRunes > idxThree && idxCast > idxRunes, 'game.js section markers moved');
-  assert.ok(idxCanAlloc > 0 && idxBuildRune > idxCanAlloc, 'canAllocRune/buildRuneSvg markers moved');
-
-  const prefix = src.slice(0, idxThree); // SKILLDEFS, ACTIVE_ORDER, CLASSES, PTREE, defaultLoadout, SAVE
-  const runes = src.slice(idxRunes, idxCast); // RUNE_KIND/_runeShape/_runeKey/buildSkillTree/SKILL_RUNES/resolveSkill...
-  const canAlloc = src.slice(idxCanAlloc, idxBuildRune); // canAllocRune (reads global player/character)
-
-  // clamp + `let character` already exist in the prefix; only `player` is declared later (after the THREE cut).
-  const glue = ';var player={level:99};';
-  const exp =
-    ';globalThis.__ab={defaultLoadout,SAVE,SKILLDEFS,ACTIVE_ORDER,SKILL_RUNES,buildSkillTree,resolveSkill,invalidateRunes,canAllocRune,classAbilities,CLASS_ACTIVES,setChar:(c)=>{character=c;invalidateRunes();},setLevel:(n)=>{player.level=n;}};';
-
-  const sandbox = { console };
-  vm.createContext(sandbox);
-  vm.runInContext(prefix + glue + runes + canAlloc + exp, sandbox, { filename: 'game.js(ability-slice)' });
-  return sandbox.__ab;
+  const sandbox = makeSandbox();
+  loadFiles(sandbox, CORE_FILES);
+  // `clamp` + `let character` come from the core files; `player` is declared later in the real game, so the
+  // rune file (canAllocRune/resolveSkill read it at call time) needs a stub in scope before it loads.
+  runSnippet(sandbox, ';var player={level:99};');
+  loadFiles(sandbox, [RUNES_FILE]);
+  return runSnippet(
+    sandbox,
+    ';(globalThis.__ab={defaultLoadout,SAVE,SKILLDEFS,ACTIVE_ORDER,SKILL_RUNES,buildSkillTree,resolveSkill,invalidateRunes,canAllocRune,classAbilities,CLASS_ACTIVES,setChar:(c)=>{character=c;invalidateRunes();},setLevel:(n)=>{player.level=n;}});',
+  );
 }
 
 const AB = loadAbility();
@@ -131,6 +118,32 @@ test('classAbilities lists a class’s actives ordered by unlock level, without 
   for (let i = 1; i < reqs.length; i++) assert.ok(reqs[i] >= reqs[i - 1], 'sorted by ascending unlock level');
   for (const id of list) assert.ok(AB.CLASS_ACTIVES.warrior[id] != null, `${id} belongs to the warrior unlock map`);
   assert.ok(list.includes('charge') && list.includes('whirlwind'), 'higher-tier warrior actives are surfaced');
+});
+
+test('the keystone is reachable from every shape node, not just the middle one', () => {
+  AB.setLevel(99);
+  // The three shapes are mutually exclusive; the keystone must link to all of them, or picking the
+  // left/right shape would leave the middle blocked by exclusivity and the keystone unreachable forever.
+  const tree = AB.SKILL_RUNES.fireball;
+  for (const sh of ['fireball_sh0', 'fireball_sh1', 'fireball_sh2']) {
+    assert.ok(tree.adj.fireball_key.includes(sh), `keystone should be adjacent to ${sh}`);
+  }
+  for (const sh of ['fireball_sh0', 'fireball_sh1', 'fireball_sh2']) {
+    AB.setChar({
+      abilityPoints: 99,
+      skillRunes: { fireball: { fireball_dmg: 1, fireball_cdr: 1, fireball_mana: 1, [sh]: 1 } },
+    });
+    assert.equal(AB.canAllocRune('fireball', 'fireball_key'), true, `keystone must be allocatable after picking ${sh}`);
+  }
+});
+
+test('the Extended (addDuration) rune folds into resolveSkill for util skills', () => {
+  AB.setLevel(99);
+  // warcry is a 'util' archetype tree whose sh2 is the +1.5s "Extended" rune; it must accumulate addDuration
+  // (consumed by warcry's cast) rather than being an inert point sink.
+  AB.setChar({ skillRunes: { warcry: { warcry_sh2: 1 } } });
+  const R = AB.resolveSkill('warcry');
+  assert.equal(R.addDuration, 1500, 'Extended rune should add 1500ms of duration');
 });
 
 test('canAllocRune enforces connectivity, exclusivity, and level gates', () => {

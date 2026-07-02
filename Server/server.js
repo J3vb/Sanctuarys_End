@@ -24,11 +24,15 @@
  */
 const WebSocket = require('ws');
 const PORT = process.env.PORT || 8787;
+const MAX_CLIENTS = 64;        // reject connections past this so one peer can't exhaust the relay
+const MAX_PAYLOAD = 16 * 1024; // 16 KB/frame — presence/chat messages are tiny; anything larger is abuse
 
-const wss = new WebSocket.Server({ port: PORT, host: '0.0.0.0' });
+// maxPayload makes ws drop (and close) oversized frames before they reach us, capping memory per client.
+const wss = new WebSocket.Server({ port: PORT, host: '0.0.0.0', maxPayload: MAX_PAYLOAD });
 let nextId = 1;
 
 wss.on('connection', (ws) => {
+  if (wss.clients.size > MAX_CLIENTS) { try { ws.close(1013, 'server full'); } catch (e) {} return; }
   const id = nextId++;
   ws._id = id;
   ws.send(JSON.stringify({ t: 'welcome', id }));
@@ -37,6 +41,9 @@ wss.on('connection', (ws) => {
   ws.on('message', (data) => {
     let msg;
     try { msg = JSON.parse(data); } catch (e) { return; }
+    // JSON.parse('null')/'42'/'"x"' succeed but aren't objects; stamping .id on them throws and, since this
+    // runs in the 'message' handler (not caught by ws's 'error' listener), would crash the whole relay.
+    if (!msg || typeof msg !== 'object' || Array.isArray(msg)) return;
     msg.id = id; // stamp sender id; ignore any client-claimed id
     const out = JSON.stringify(msg);
     for (const c of wss.clients) {

@@ -32,7 +32,7 @@
   },
   "overrides": [
     {
-      "include": ["game.js", "Server/**", "*.html"],
+      "include": ["js/**", "Server/**", "*.html"],
       "formatter": { "enabled": false }
     }
   ]

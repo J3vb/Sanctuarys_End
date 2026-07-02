@@ -2,7 +2,7 @@ name: CI
 
 # Runs the dev-quality gate on every pull request, and on direct pushes to the
 # main branches. This does NOT build or deploy anything — the game ships as plain
-# static files (sanctuary.html + game.js) served by GitHub Pages, unchanged.
+# static files (sanctuary.html + the js/ scripts) served by GitHub Pages, unchanged.
 on:
   pull_request:
   push:
@@ -26,6 +26,6 @@ jobs:
       - name: Install dev tooling
         run: npm ci
 
-      # tsc --noEmit (type-check game.js) + biome lint + biome format check + node:test save tests.
+      # tsc --noEmit (type-check the js/ scripts) + biome lint + biome format check + node:test suite.
       - name: Run checks
         run: npm run check

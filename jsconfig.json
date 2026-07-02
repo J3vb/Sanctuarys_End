@@ -13,6 +13,6 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["game.js", "types/**/*.d.ts"],
+  "include": ["js/**/*.js", "types/**/*.d.ts"],
   "exclude": ["node_modules", "Server", "assets", "Archive", "Docs", "workspace", "graphify-out"]
 }

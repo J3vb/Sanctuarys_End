@@ -9,6 +9,23 @@ holds the authoritative, fully detailed version.
 > Note: releases are published as `sanctuary.html`. The `vNN` labels below are
 > the development version numbers tracked via git tags.
 
+## v49 — Gems, Sockets, Ability Bar & Rune Trees
+- Active skills now run off a **6-slot action bar** (LMB/RMB + four hotkeys),
+  unlocked automatically by class level; slot 0 is always the basic attack.
+- **Per-skill rune trees**: spend ability points (+1 per level from L2) on each
+  skill's tree — minor mods (damage / cooldown / mana), one of three mutually
+  exclusive shape runes, and a keystone.
+- **Gems & sockets**: items roll sockets; a gem's bonus depends on the slot it
+  sits in. Manage them at the new tabbed **Jeweler** (buy, reroll, socket,
+  combine 3→1) — plus a Gems tab in the backpack with stat tooltips.
+- **Dust crafting**: salvage gear into ✦ Dust, then **reforge** commons/magics/
+  rares (small chance to bump rarity) and add sockets at the Smith.
+- New defensive/utility stats: Dodge, Damage Reduction, Life on Hit, Magic Find,
+  Gold Find, Cooldown Reduction; resistances are element-specific + All-Resist.
+- Floor bounties, shrines, champion/goblin monster variants; per-biome dungeon
+  maps. Save format bumped to **v7** (loadout / rune trees / ability points /
+  gems added by an additive migration that never touches existing fields).
+
 ## v48 — Open World & Save I/O
 - Three separate wilderness maps merged into one large open world (~2.4× bigger),
   split into three concentric biome rings: Greenwilds (Lv 1) → Frostfen (Lv 7) →

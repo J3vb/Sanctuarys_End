@@ -2,24 +2,20 @@
 //
 // Sockets fold into the same bonus map that drives every combat/UI stat, and a gem's effect depends on the
 // socket's slot category (weapon/gear/jewelry). A bug here silently mis-stats gear or grants an out-of-table
-// affix, so the pure helpers earn a fast regression net. Same trick as reforge.test.js: evaluate only
-// game.js's browser-free prefix (everything before the THREE rendering section) in a vm sandbox.
+// affix, so the pure helpers earn a fast regression net. The helpers live in the browser-free logic files
+// (js/00..03), evaluated in a vm sandbox via the shared harness.
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const vm = require('node:vm');
+const { CORE_FILES, makeSandbox, loadFiles, runSnippet } = require('./harness');
 
 function loadGems() {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'game.js'), 'utf8');
-  const cut = src.indexOf('/* ================= THREE');
-  assert.ok(cut > 0, 'Could not find the THREE rendering-section marker in game.js.');
-  const slice = `${src.slice(0, cut)}\n;globalThis.__gem = { GEMS, GEM_KEYS, rollSockets, SOCKET_MAX, gemFold, gemEff, gemCat, itemScore, AFFIX_KEYS };`;
-  const sandbox = { console };
-  vm.createContext(sandbox);
-  vm.runInContext(slice, sandbox, { filename: 'game.js(gem-slice)' });
-  return sandbox.__gem;
+  const sandbox = makeSandbox();
+  loadFiles(sandbox, CORE_FILES);
+  return runSnippet(
+    sandbox,
+    ';(globalThis.__gem = { GEMS, GEM_KEYS, rollSockets, SOCKET_MAX, gemFold, gemEff, gemCat, itemScore, AFFIX_KEYS });',
+  );
 }
 
 const { GEMS, GEM_KEYS, rollSockets, SOCKET_MAX, gemFold, gemEff, gemCat, itemScore, AFFIX_KEYS } = loadGems();

@@ -2,7 +2,7 @@
 
 A fun, vibe-coded, browser-based action-RPG with serious Diablo vibes.
 
-Sanctuary's End is a hack-and-slash ARPG packed into a single HTML file and rendered in 3D with Three.js. Roll a hero, dive an endless procedural dungeon, hunt loot, build out your skills, and clear bosses — all in your browser, no install required.
+Sanctuary's End is a hack-and-slash ARPG built from a small set of plain static files — an HTML shell, the game script, and lazy-loaded 3D assets — rendered in 3D with Three.js. No build step, no install: roll a hero, dive an endless procedural dungeon, hunt loot, build out your skills, and clear bosses, all in your browser.
 
 ![Sanctuary's End](image.png)
 
@@ -60,16 +60,19 @@ See also [CHANGELOG.md](CHANGELOG.md) for the release history.
 ## Development
 
 The game ships as plain static files — there's **no build step**, and nothing below changes how it's
-served on GitHub Pages. The tooling is purely a dev safety net (it runs in your editor and in CI):
+served on GitHub Pages. The game logic is split into ordered classic scripts under `js/` (loaded by
+`sanctuary.html` in filename order — the numeric prefix *is* the load order); the tooling is purely a
+dev safety net (it runs in your editor and in CI):
 
 ```
 npm install      # one-time: installs the dev tools (TypeScript + Biome); not shipped to players
 npm run check    # type-check + lint + format-check + tests — the same gate CI runs on every PR
 ```
 
-Individual steps: `npm run typecheck` (TypeScript checks `game.js` via JSDoc + `jsconfig.json`, no
-emit), `npm run lint` / `npm run format` (Biome), and `npm test` (Node's test runner — save/migration
-regression tests in `tests/`). Type definitions live in `types/` — see [types/README.md](types/README.md).
+Individual steps: `npm run typecheck` (TypeScript checks the `js/` scripts via JSDoc + `jsconfig.json`,
+no emit — they share one global program), `npm run lint` / `npm run format` (Biome), and `npm test`
+(Node's test runner — save/migration + gameplay-logic regression tests in `tests/`, plus HTML and
+load-order guards). Type definitions live in `types/` — see [types/README.md](types/README.md).
 
 ## License & credits
 

@@ -4,47 +4,26 @@
 // and SAVE.newCharacter() producing a valid hero. A bug here is the worst kind — silently corrupted
 // or lost characters — so it's worth a fast, dependency-free regression net.
 //
-// We test the REAL logic out of game.js (no duplication, no drift): game.js is a single classic
-// script, so we evaluate just its game-logic prefix — everything BEFORE the `THREE` rendering section,
-// which needs a browser + WebGPU — inside a tiny sandbox with a localStorage stub. Run with `npm test`
-// (or `node --test tests/`).
+// We test the REAL logic (no duplication, no drift): the browser-free logic files (js/00..03) are evaluated
+// in a tiny vm sandbox with a localStorage stub via the shared harness. Run with `npm test`.
 //
 // Note: objects returned by SAVE.* are built inside the vm sandbox (a separate realm), so we assert on
 // scalars / lengths / JSON shape rather than deepStrictEqual, which rejects cross-realm prototypes.
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const vm = require('node:vm');
+const { CORE_FILES, makeSandbox, loadFiles, runSnippet } = require('./harness');
 
-// Load SAVE (+ a few data tables) from game.js by evaluating everything up to the rendering section.
 function loadGameSave() {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'game.js'), 'utf8');
-  const marker = '/* ================= THREE';
-  const cut = src.indexOf(marker);
-  assert.ok(
-    cut > 0,
-    'Could not find the THREE rendering-section marker in game.js. If the file was ' +
-      'restructured, update this boundary so the test still loads only the browser-free save logic.',
-  );
-  const slice = `${src.slice(0, cut)}\n;globalThis.__save = { SAVE, CLASSES, SKILLDEFS, SLOTS, PTREE };`;
-
-  const store = new Map();
-  const sandbox = {
-    console,
-    localStorage: {
-      getItem: (k) => (store.has(k) ? store.get(k) : null),
-      setItem: (k, v) => store.set(k, String(v)),
-      removeItem: (k) => store.delete(k),
-    },
-  };
-  vm.createContext(sandbox);
-  vm.runInContext(slice, sandbox, { filename: 'game.js(save-slice)' });
-  return sandbox.__save;
+  const sandbox = makeSandbox();
+  loadFiles(sandbox, CORE_FILES);
+  runSnippet(sandbox, ';globalThis.__save = { SAVE, CLASSES, SKILLDEFS, SLOTS, PTREE };');
+  // Expose the localStorage stub so tests can exercise SAVE.load()/persist() — the real production path
+  // that parses stored JSON, migrates every slot, and backfills settings (the receiving end of import).
+  return { ...sandbox.__save, localStorage: sandbox.localStorage };
 }
 
-const { SAVE, CLASSES, SKILLDEFS, SLOTS, PTREE } = loadGameSave();
+const { SAVE, CLASSES, SKILLDEFS, SLOTS, PTREE, localStorage: LS } = loadGameSave();
 
 test('newCharacter produces a complete, valid hero', () => {
   const c = SAVE.newCharacter('Tester', 'mage');
@@ -123,4 +102,68 @@ test('a freshly created character survives a migrate round-trip unchanged in sha
   for (const id of Object.keys(SKILLDEFS)) {
     assert.ok(id in migrated.skills, `skill ${id} lost during migrate`);
   }
+});
+
+// --- SAVE.load()/persist(): the actual production path (parse localStorage → migrate slots → backfill
+//     settings). This is what import writes into, and where a malformed slot would brick the game at boot. ---
+
+test('load() falls back to a clean default when the stored JSON is garbage', () => {
+  LS.setItem(SAVE.KEY, '{ this is not json');
+  assert.doesNotThrow(() => SAVE.load());
+  assert.equal(SAVE._data.version, SAVE.VERSION);
+  assert.equal(SAVE._data.slots.length, SAVE.NUM_SLOTS);
+  assert.ok(
+    SAVE._data.slots.every((s) => s === null),
+    'all slots empty after garbage',
+  );
+});
+
+test('load() does not throw on non-object slots (import-brick guard) and nulls them out', () => {
+  // {"slots":["bogus"]} is a shape importSave used to accept — before the guard it threw in migrate() at
+  // top-level boot and permanently bricked the game. load() must survive it and degrade the bad slots.
+  LS.setItem(SAVE.KEY, JSON.stringify({ version: 7, slots: ['bogus', 42, ['x'], null] }));
+  assert.doesNotThrow(() => SAVE.load());
+  assert.ok(
+    SAVE._data.slots.every((s) => s === null),
+    'every non-object slot degrades to null',
+  );
+});
+
+test('load() migrates a sparse legacy (v1) slot and rewrites the store version', () => {
+  LS.setItem(SAVE.KEY, JSON.stringify({ version: 1, slots: [{ name: 'Old', class: 'mage', level: 3 }, null, null] }));
+  SAVE.load();
+  assert.equal(SAVE._data.version, SAVE.VERSION, 'container version bumped');
+  const s0 = SAVE.getSlot(0);
+  assert.equal(s0.name, 'Old');
+  assert.ok(Array.isArray(s0.loadout) && s0.loadout.length === 6, 'v7 loadout backfilled');
+  assert.equal(typeof s0.skillRunes, 'object', 'v7 skillRunes backfilled');
+  assert.equal(typeof s0.abilityPoints, 'number', 'v7 abilityPoints backfilled');
+  assert.equal(typeof s0.materials, 'number', 'materials backfilled');
+});
+
+test('load() preserves stored settings and backfills newly-added defaults', () => {
+  LS.setItem(
+    SAVE.KEY,
+    JSON.stringify({ version: 6, slots: [null, null, null], settings: { difficulty: 'Hell', volume: 20 } }),
+  );
+  SAVE.load();
+  const s = SAVE._data.settings;
+  assert.equal(s.difficulty, 'Hell', 'existing setting preserved');
+  assert.equal(s.volume, 20, 'existing setting preserved');
+  assert.equal(s.music, true, 'missing default backfilled');
+  assert.ok(s.lootFilter && s.lootFilter.rarity, 'nested default (lootFilter) backfilled');
+});
+
+test('persist() then load() round-trips a fresh character without shape loss', () => {
+  LS.setItem(SAVE.KEY, JSON.stringify({ version: SAVE.VERSION, slots: [null, null, null] }));
+  SAVE.load();
+  const fresh = SAVE.newCharacter('Trip', 'rogue');
+  assert.equal(SAVE.saveCharacter(0, fresh), true, 'persist reports success on the stub');
+  SAVE.load(); // re-read from storage exactly as a page reload would
+  const back = SAVE.getSlot(0);
+  assert.equal(back.name, 'Trip');
+  assert.equal(back.class, 'rogue');
+  assert.equal(back.loadout.length, 6);
+  assert.equal(JSON.stringify(Object.keys(back.equipment).sort()), JSON.stringify([...SLOTS].sort()));
+  for (const id of Object.keys(SKILLDEFS)) assert.ok(id in back.skills, `skill ${id} lost on round-trip`);
 });
